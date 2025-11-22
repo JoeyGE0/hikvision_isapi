@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "documentation": "https://github.com/JoeyGE0/hikvision_isapi",
   "requirements": ["requests"],
+  "config_flow": true,
   "iot_class": "local_polling",
   "codeowners": ["@JoeyGE0"]
 }
