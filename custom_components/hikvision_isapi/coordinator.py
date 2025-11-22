@@ -57,6 +57,27 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             white_light_time = await self.hass.async_add_executor_job(
                 self.api.get_white_light_time
             )
+            alarm_input = await self.hass.async_add_executor_job(
+                self.api.get_alarm_input, 1
+            )
+            alarm_output = await self.hass.async_add_executor_job(
+                self.api.get_alarm_output, 1
+            )
+            intrusion = await self.hass.async_add_executor_job(
+                self.api.get_intrusion_detection
+            )
+            line_crossing = await self.hass.async_add_executor_job(
+                self.api.get_line_crossing_detection
+            )
+            region_entrance = await self.hass.async_add_executor_job(
+                self.api.get_region_entrance_detection
+            )
+            region_exiting = await self.hass.async_add_executor_job(
+                self.api.get_region_exiting_detection
+            )
+            scene_change = await self.hass.async_add_executor_job(
+                self.api.get_scene_change_detection
+            )
 
             return {
                 "ircut": ircut_data,
@@ -65,6 +86,13 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "motion": motion_data,
                 "tamper": tamper_data,
                 "white_light_time": white_light_time,
+                "alarm_input": alarm_input,
+                "alarm_output": alarm_output,
+                "intrusion": intrusion,
+                "line_crossing": line_crossing,
+                "region_entrance": region_entrance,
+                "region_exiting": region_exiting,
+                "scene_change": scene_change,
             }
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
