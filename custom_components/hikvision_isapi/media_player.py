@@ -14,11 +14,11 @@ from homeassistant.components.media_player import (
     MediaType,
     BrowseMedia,
 )
-from homeassistant.components.media_player import async_process_play_media_url
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
 
@@ -217,11 +217,27 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             return None
                         
                         # Download from resolved URL
-                        response = await self.hass.async_add_executor_job(
-                            requests.get, media_url, {"timeout": 30}
+                        # Use Home Assistant's authenticated HTTP client for local URLs
+                        is_local = (
+                            "localhost" in media_url or 
+                            "127.0.0.1" in media_url or
+                            (self.hass.config.internal_url and self.hass.config.internal_url in media_url) or 
+                            (self.hass.config.external_url and self.hass.config.external_url in media_url)
                         )
-                        response.raise_for_status()
-                        return response.content
+                        
+                        if is_local:
+                            # Use authenticated session for Home Assistant internal URLs
+                            session = async_get_clientsession(self.hass)
+                            async with session.get(media_url, timeout=30) as response:
+                                response.raise_for_status()
+                                return await response.read()
+                        else:
+                            # External URL - use requests
+                            response = await self.hass.async_add_executor_job(
+                                requests.get, media_url, {"timeout": 30}
+                            )
+                            response.raise_for_status()
+                            return response.content
                     else:
                         _LOGGER.error("Failed to resolve media source URL")
                         return None
@@ -258,11 +274,25 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             _LOGGER.error("Invalid TTS URL format: %s", media_url)
                             return None
                         
-                        response = await self.hass.async_add_executor_job(
-                            requests.get, media_url, {"timeout": 30}
+                        # Use Home Assistant's authenticated HTTP client for local URLs
+                        is_local = (
+                            "localhost" in media_url or 
+                            "127.0.0.1" in media_url or
+                            (self.hass.config.internal_url and self.hass.config.internal_url in media_url) or 
+                            (self.hass.config.external_url and self.hass.config.external_url in media_url)
                         )
-                        response.raise_for_status()
-                        return response.content
+                        
+                        if is_local:
+                            session = async_get_clientsession(self.hass)
+                            async with session.get(media_url, timeout=30) as response:
+                                response.raise_for_status()
+                                return await response.read()
+                        else:
+                            response = await self.hass.async_add_executor_job(
+                                requests.get, media_url, {"timeout": 30}
+                            )
+                            response.raise_for_status()
+                            return response.content
                 except Exception as e:
                     _LOGGER.error("Failed to get TTS audio: %s", e)
                 _LOGGER.warning("TTS format not supported: %s", media_id)
