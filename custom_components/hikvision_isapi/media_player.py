@@ -221,18 +221,33 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                                 # Try common Home Assistant media paths
                                 import os
                                 def try_read_file():
+                                    config_dir = self.hass.config.config_dir
                                     possible_paths = [
-                                        os.path.join(self.hass.config.config_dir, "www", media_path),
-                                        os.path.join(self.hass.config.config_dir, "media", media_path),
+                                        # Standard paths
+                                        os.path.join(config_dir, "www", media_path),
+                                        os.path.join(config_dir, "media", media_path),
+                                        # Docker/container paths
                                         os.path.join("/config", "www", media_path),
                                         os.path.join("/config", "media", media_path),
+                                        # Alternative locations
+                                        os.path.join(config_dir, "www", "local", media_path),
+                                        os.path.join(config_dir, "media", "local", media_path),
+                                        # Direct in config
+                                        os.path.join(config_dir, media_path),
+                                        # Try with just the filename if it's in a subdirectory
+                                        os.path.join(config_dir, "www", os.path.basename(media_path)),
                                     ]
                                     
+                                    _LOGGER.debug("Trying to find media file: %s", media_path)
                                     for path in possible_paths:
-                                        if os.path.exists(path):
-                                            _LOGGER.info("Reading media file from filesystem: %s", path)
+                                        _LOGGER.debug("  Checking: %s", path)
+                                        if os.path.exists(path) and os.path.isfile(path):
+                                            _LOGGER.info("Found media file at: %s", path)
                                             with open(path, 'rb') as f:
                                                 return f.read()
+                                    
+                                    # Log all attempted paths for debugging
+                                    _LOGGER.warning("Media file not found. Tried paths: %s", possible_paths[:3])
                                     return None
                                 
                                 # Try filesystem access in executor
@@ -240,13 +255,19 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                                 if file_data:
                                     return file_data
                                 
-                                _LOGGER.warning("Media file not found in filesystem, trying HTTP: %s", media_path)
+                                _LOGGER.warning("Media file not found in filesystem. Expected at: %s/www/%s or %s/media/%s", 
+                                              self.hass.config.config_dir, media_path, 
+                                              self.hass.config.config_dir, media_path)
+                                _LOGGER.warning("Please ensure the file is in your Home Assistant www/ or media/ directory")
+                                
+                                # Don't try HTTP fallback - it requires auth and filesystem is more reliable
+                                return None
                             
-                            # Fallback to HTTP if filesystem access failed
+                            # For non-local media URLs, try HTTP
                             base_url = self.hass.config.internal_url or self.hass.config.external_url
                             if not base_url:
-                                base_url = "http://localhost:8123"
-                                _LOGGER.warning("No Home Assistant URL configured, using localhost")
+                                _LOGGER.error("No Home Assistant URL configured and filesystem access failed")
+                                return None
                             
                             base_url = base_url.rstrip("/")
                             media_url = f"{base_url}{resolved_media.url.split('?')[0]}"  # Remove query params
