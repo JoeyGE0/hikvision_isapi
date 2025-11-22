@@ -27,6 +27,7 @@ async def async_setup_entry(
         HikvisionIRSensitivityNumber(coordinator, api, entry, host, device_name),
         HikvisionIRFilterTimeNumber(coordinator, api, entry, host, device_name),
         HikvisionSpeakerVolumeNumber(coordinator, api, entry, host, device_name),
+        HikvisionMicrophoneVolumeNumber(coordinator, api, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -245,6 +246,81 @@ class HikvisionSpeakerVolumeNumber(NumberEntity):
             # Only clear optimistic if coordinator confirms the change
             if (self.coordinator.data and 
                 self.coordinator.data.get("audio", {}).get("speakerVolume") == int(value)):
+                self._optimistic_value = None
+        else:
+            # Write failed, clear optimistic and let coordinator show actual state
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionMicrophoneVolumeNumber(NumberEntity):
+    """Number entity for microphone volume."""
+
+    _attr_unique_id = "hikvision_microphone_volume"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_icon = "mdi:microphone"
+
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the number entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Mic Volume"
+        self._attr_unique_id = f"{host}_microphone_volume"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        # Use optimistic value if set (immediate feedback)
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        # Otherwise use coordinator data
+        if self.coordinator.data and "audio" in self.coordinator.data:
+            volume = self.coordinator.data["audio"].get("microphoneVolume")
+            if volume is not None:
+                return float(volume)
+        return None
+
+    async def async_set_native_value(self, value: float):
+        """Set the value."""
+        # Optimistic update - show immediately
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+        
+        # Send to device
+        success = await self.hass.async_add_executor_job(
+            self.api.set_microphone_volume, int(value)
+        )
+        
+        if success:
+            # Refresh coordinator to sync with device
+            await self.coordinator.async_request_refresh()
+            # Only clear optimistic if coordinator confirms the change
+            if (self.coordinator.data and 
+                self.coordinator.data.get("audio", {}).get("microphoneVolume") == int(value)):
                 self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
