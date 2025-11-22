@@ -36,6 +36,7 @@ class HikvisionCamera(Camera):
     """Camera entity for Hikvision camera snapshot."""
 
     _attr_unique_id = "hikvision_camera"
+    _attr_icon = "mdi:camera"
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the camera."""
