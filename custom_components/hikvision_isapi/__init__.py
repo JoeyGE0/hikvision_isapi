@@ -37,9 +37,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     if serial_number := device_info.get("serialNumber"):
         identifiers.add((DOMAIN, serial_number))
     
+    # Build connections - MAC address for display in device info
+    connections = set()
+    if mac_address := device_info.get("macAddress"):
+        connections.add((dr.CONNECTION_NETWORK_MAC, mac_address.lower()))
+    
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers=identifiers,
+        connections=connections,
         manufacturer=device_info.get("manufacturer", "Hikvision").title(),
         model=device_info.get("model", "Hikvision Camera"),
         name=device_info.get("deviceName", host),
@@ -61,7 +67,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     }
 
     await hass.config_entries.async_forward_entry_setups(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera"]
+        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"]
     )
 
     return True
@@ -69,7 +75,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_unload_platforms(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera"]
+        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"]
     )
     hass.data[DOMAIN].pop(entry.entry_id, None)
     return True
