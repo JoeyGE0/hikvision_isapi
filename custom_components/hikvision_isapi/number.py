@@ -47,6 +47,7 @@ class HikvisionIRSensitivityNumber(NumberEntity):
         self._host = host
         self._entry = entry
         self._attr_unique_id = f"{host}_ir_sensitivity"
+        self._optimistic_value = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -63,6 +64,11 @@ class HikvisionIRSensitivityNumber(NumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the current value."""
+        # Use optimistic value if set (immediate feedback)
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        # Otherwise use coordinator data
         if self.coordinator.data and "ircut" in self.coordinator.data:
             sensitivity = self.coordinator.data["ircut"].get("sensitivity")
             if sensitivity is not None:
@@ -71,12 +77,25 @@ class HikvisionIRSensitivityNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        # Optimistic update - show immediately
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+        
+        # Send to device
         success = await self.hass.async_add_executor_job(
             self.api.set_ircut_sensitivity, int(value)
         )
+        
         if success:
-            # Refresh coordinator to get updated state
+            # Refresh coordinator to sync with device
             await self.coordinator.async_request_refresh()
+            # Only clear optimistic if coordinator confirms the change
+            if (self.coordinator.data and 
+                self.coordinator.data.get("ircut", {}).get("sensitivity") == int(value)):
+                self._optimistic_value = None
+        else:
+            # Write failed, clear optimistic and let coordinator show actual state
+            self._optimistic_value = None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -104,6 +123,7 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
         self._host = host
         self._entry = entry
         self._attr_unique_id = f"{host}_ir_filter_time"
+        self._optimistic_value = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -120,6 +140,11 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the current value."""
+        # Use optimistic value if set (immediate feedback)
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        # Otherwise use coordinator data
         if self.coordinator.data and "ircut" in self.coordinator.data:
             filter_time = self.coordinator.data["ircut"].get("filter_time")
             if filter_time is not None:
@@ -128,12 +153,25 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        # Optimistic update - show immediately
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+        
+        # Send to device
         success = await self.hass.async_add_executor_job(
             self.api.set_ircut_filter_time, int(value)
         )
+        
         if success:
-            # Refresh coordinator to get updated state
+            # Refresh coordinator to sync with device
             await self.coordinator.async_request_refresh()
+            # Only clear optimistic if coordinator confirms the change
+            if (self.coordinator.data and 
+                self.coordinator.data.get("ircut", {}).get("filter_time") == int(value)):
+                self._optimistic_value = None
+        else:
+            # Write failed, clear optimistic and let coordinator show actual state
+            self._optimistic_value = None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
