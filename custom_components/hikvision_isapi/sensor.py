@@ -1,14 +1,13 @@
+"""Sensor platform for Hikvision ISAPI."""
 import logging
-import requests
-import xml.etree.ElementTree as ET
-
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
 
 from .const import DOMAIN
+from .api import HikvisionISAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,44 +24,116 @@ async def async_setup_entry(
     username = config[CONF_USERNAME]
     password = config[CONF_PASSWORD]
 
+    api = HikvisionISAPI(host, username, password)
+
     entities = [
-        HikvisionIRCutSensor(host, username, password),
+        HikvisionIRModeSensor(api, host),
+        HikvisionIRSensitivitySensor(api, host),
+        HikvisionIRFilterTimeSensor(api, host),
+        HikvisionLightModeSensor(api, host),
     ]
 
     async_add_entities(entities, True)
 
 
-class HikvisionIRCutSensor(SensorEntity):
-    """Represents IR-cut filter mode."""
+class HikvisionIRModeSensor(SensorEntity):
+    """Sensor for IR cut mode."""
 
-    _attr_name = "Hikvision IR Cut Mode"
-    _attr_unique_id = "hikvision_ircut_mode"
+    _attr_name = "IR Mode"
+    _attr_unique_id = "hikvision_ir_mode_sensor"
+    _attr_icon = "mdi:weather-night"
 
-    def __init__(self, host, username, password):
+    def __init__(self, api: HikvisionISAPI, host: str):
+        """Initialize the sensor."""
+        self.api = api
         self._host = host
-        self._username = username
-        self._password = password
+        self._attr_unique_id = f"{host}_ir_mode_sensor"
         self._state = None
 
     @property
     def native_value(self):
+        """Return the current IR mode."""
         return self._state
 
     def update(self):
-        """Fetch IR cut mode from camera."""
-        url = f"http://{self._host}/ISAPI/Image/channels/1/IrcutFilter"
+        """Fetch IR mode from camera."""
+        ircut_data = self.api.get_ircut_filter()
+        self._state = ircut_data.get("mode", "unknown")
 
-        try:
-            r = requests.get(url, auth=(self._username, self._password), verify=False, timeout=5)
-            xml = ET.fromstring(r.text)
 
-            mode = xml.find(".//{http://www.hikvision.com/ver20/XMLSchema}IrcutFilterType")
+class HikvisionIRSensitivitySensor(SensorEntity):
+    """Sensor for IR sensitivity."""
 
-            if mode is not None:
-                self._state = mode.text.strip()
-            else:
-                self._state = "unknown"
+    _attr_name = "IR Sensitivity"
+    _attr_unique_id = "hikvision_ir_sensitivity_sensor"
+    _attr_icon = "mdi:adjust"
 
-        except Exception as e:
-            _LOGGER.error("Failed to update IR Cut sensor: %s", e)
-            self._state = "error"
+    def __init__(self, api: HikvisionISAPI, host: str):
+        """Initialize the sensor."""
+        self.api = api
+        self._host = host
+        self._attr_unique_id = f"{host}_ir_sensitivity_sensor"
+        self._state = None
+
+    @property
+    def native_value(self):
+        """Return the current IR sensitivity."""
+        return self._state
+
+    def update(self):
+        """Fetch IR sensitivity from camera."""
+        ircut_data = self.api.get_ircut_filter()
+        sensitivity = ircut_data.get("sensitivity")
+        self._state = sensitivity if sensitivity is not None else "unknown"
+
+
+class HikvisionIRFilterTimeSensor(SensorEntity):
+    """Sensor for IR filter time."""
+
+    _attr_name = "IR Filter Time"
+    _attr_unique_id = "hikvision_ir_filter_time_sensor"
+    _attr_native_unit_of_measurement = "s"
+    _attr_icon = "mdi:timer"
+
+    def __init__(self, api: HikvisionISAPI, host: str):
+        """Initialize the sensor."""
+        self.api = api
+        self._host = host
+        self._attr_unique_id = f"{host}_ir_filter_time_sensor"
+        self._state = None
+
+    @property
+    def native_value(self):
+        """Return the current IR filter time."""
+        return self._state
+
+    def update(self):
+        """Fetch IR filter time from camera."""
+        ircut_data = self.api.get_ircut_filter()
+        filter_time = ircut_data.get("filter_time")
+        self._state = filter_time if filter_time is not None else "unknown"
+
+
+class HikvisionLightModeSensor(SensorEntity):
+    """Sensor for supplement light mode."""
+
+    _attr_name = "Light Mode"
+    _attr_unique_id = "hikvision_light_mode_sensor"
+    _attr_icon = "mdi:lightbulb"
+
+    def __init__(self, api: HikvisionISAPI, host: str):
+        """Initialize the sensor."""
+        self.api = api
+        self._host = host
+        self._attr_unique_id = f"{host}_light_mode_sensor"
+        self._state = None
+
+    @property
+    def native_value(self):
+        """Return the current light mode."""
+        return self._state
+
+    def update(self):
+        """Fetch light mode from camera."""
+        mode = self.api.get_supplement_light()
+        self._state = mode if mode else "unknown"
