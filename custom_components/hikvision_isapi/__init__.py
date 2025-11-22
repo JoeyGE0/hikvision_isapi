@@ -26,10 +26,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     device_info = await hass.async_add_executor_job(api.get_device_info)
     
     device_registry = dr.async_get(hass)
+    
+    # Build identifiers - use MAC address if available for auto-linking
+    identifiers = {(DOMAIN, host)}
+    if mac_address := device_info.get("macAddress"):
+        # Add MAC address identifier for auto-linking with other integrations (UniFi, etc.)
+        identifiers.add(("mac", mac_address.lower()))
+    
+    # Add serial number as additional identifier if available
+    if serial_number := device_info.get("serialNumber"):
+        identifiers.add((DOMAIN, serial_number))
+    
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, host)},
-        manufacturer="Hikvision",
+        identifiers=identifiers,
+        manufacturer=device_info.get("manufacturer", "Hikvision").title(),
         model=device_info.get("model", "Hikvision Camera"),
         name=device_info.get("deviceName", host),
         sw_version=device_info.get("firmwareVersion"),
@@ -50,7 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     }
 
     await hass.config_entries.async_forward_entry_setups(
-        entry, ["sensor", "select", "number"]
+        entry, ["sensor", "select", "number", "media_player"]
     )
 
     return True
@@ -58,7 +69,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_unload_platforms(
-        entry, ["sensor", "select", "number"]
+        entry, ["sensor", "select", "number", "media_player"]
     )
     hass.data[DOMAIN].pop(entry.entry_id, None)
     return True
