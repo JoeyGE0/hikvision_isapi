@@ -21,10 +21,11 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
+    device_name = data["device_info"].get("deviceName", host)
 
     entities = [
-        HikvisionLightModeSelect(coordinator, api, entry, host),
-        HikvisionIRModeSelect(coordinator, api, entry, host),
+        HikvisionLightModeSelect(coordinator, api, entry, host, device_name),
+        HikvisionIRModeSelect(coordinator, api, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -33,17 +34,26 @@ async def async_setup_entry(
 class HikvisionLightModeSelect(SelectEntity):
     """Select entity for supplement light mode."""
 
-    _attr_name = "Light Mode"
     _attr_unique_id = "hikvision_light_mode"
-    _attr_options = ["eventIntelligence", "irLight", "close"]
+    _attr_options = ["Smart", "IR Supplement Light", "Off"]
     _attr_icon = "mdi:lightbulb"
+    
+    # Map display names to API values
+    _api_value_map = {
+        "Smart": "eventIntelligence",
+        "IR Supplement Light": "irLight",
+        "Off": "close"
+    }
+    # Reverse map for reading
+    _display_value_map = {v: k for k, v in _api_value_map.items()}
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the select entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
+        self._attr_name = f"{device_name} Supplement Light"
         self._attr_unique_id = f"{host}_light_mode"
         self._optimistic_value = None
 
@@ -66,22 +76,26 @@ class HikvisionLightModeSelect(SelectEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
-        # Otherwise use coordinator data
+        # Otherwise use coordinator data - convert API value to display name
         if self.coordinator.data and "light_mode" in self.coordinator.data:
-            mode = self.coordinator.data["light_mode"]
-            if mode in self._attr_options:
-                return mode
+            api_value = self.coordinator.data["light_mode"]
+            display_value = self._display_value_map.get(api_value)
+            if display_value in self._attr_options:
+                return display_value
         return None
 
     async def async_select_option(self, option: str):
         """Change the selected option."""
+        # Convert display name to API value
+        api_value = self._api_value_map.get(option, option)
+        
         # Optimistic update - show immediately
         self._optimistic_value = option
         self.async_write_ha_state()
         
-        # Send to device
+        # Send to device (using API value)
         success = await self.hass.async_add_executor_job(
-            self.api.set_supplement_light, option
+            self.api.set_supplement_light, api_value
         )
         
         if success:
@@ -89,7 +103,7 @@ class HikvisionLightModeSelect(SelectEntity):
             await self.coordinator.async_request_refresh()
             # Only clear optimistic if coordinator confirms the change
             if (self.coordinator.data and 
-                self.coordinator.data.get("light_mode") == option):
+                self.coordinator.data.get("light_mode") == api_value):
                 self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
@@ -106,17 +120,26 @@ class HikvisionLightModeSelect(SelectEntity):
 class HikvisionIRModeSelect(SelectEntity):
     """Select entity for IR cut mode."""
 
-    _attr_name = "IR Mode"
     _attr_unique_id = "hikvision_ir_mode"
-    _attr_options = ["auto", "day", "night"]
+    _attr_options = ["Day", "Night", "Auto"]
     _attr_icon = "mdi:weather-night"
+    
+    # Map display names to API values
+    _api_value_map = {
+        "Day": "day",
+        "Night": "night",
+        "Auto": "auto"
+    }
+    # Reverse map for reading
+    _display_value_map = {v: k for k, v in _api_value_map.items()}
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the select entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
+        self._attr_name = f"{device_name} Day/Night Switch"
         self._attr_unique_id = f"{host}_ir_mode"
         self._optimistic_value = None
 
@@ -139,22 +162,26 @@ class HikvisionIRModeSelect(SelectEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
-        # Otherwise use coordinator data
+        # Otherwise use coordinator data - convert API value to display name
         if self.coordinator.data and "ircut" in self.coordinator.data:
-            mode = self.coordinator.data["ircut"].get("mode")
-            if mode in self._attr_options:
-                return mode
+            api_value = self.coordinator.data["ircut"].get("mode")
+            display_value = self._display_value_map.get(api_value)
+            if display_value in self._attr_options:
+                return display_value
         return None
 
     async def async_select_option(self, option: str):
         """Change the selected option."""
+        # Convert display name to API value
+        api_value = self._api_value_map.get(option, option)
+        
         # Optimistic update - show immediately
         self._optimistic_value = option
         self.async_write_ha_state()
         
-        # Send to device
+        # Send to device (using API value)
         success = await self.hass.async_add_executor_job(
-            self.api.set_ircut_mode, option
+            self.api.set_ircut_mode, api_value
         )
         
         if success:
@@ -162,7 +189,7 @@ class HikvisionIRModeSelect(SelectEntity):
             await self.coordinator.async_request_refresh()
             # Only clear optimistic if coordinator confirms the change
             if (self.coordinator.data and 
-                self.coordinator.data.get("ircut", {}).get("mode") == option):
+                self.coordinator.data.get("ircut", {}).get("mode") == api_value):
                 self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
