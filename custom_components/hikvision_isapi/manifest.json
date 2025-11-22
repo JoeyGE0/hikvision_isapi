@@ -11,5 +11,5 @@
   "after_dependencies": [],
   "quality_scale": "internal",
   "domains": [],
-  "platforms": ["sensor"]
+  "platforms": ["sensor", "select", "number"]
 }
