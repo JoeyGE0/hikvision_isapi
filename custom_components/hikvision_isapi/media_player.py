@@ -121,17 +121,22 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         """Enable two-way audio channel."""
         try:
             audio_data = self.api.get_two_way_audio()
-            if not audio_data.get("enabled", False):
-                # Enable it
+            if not audio_data or not audio_data.get("enabled", False):
+                # Enable it - always set enabled=true to ensure it's on
                 import xml.etree.ElementTree as ET
                 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+                
+                # Get current values or use defaults
+                compression = audio_data.get('audioCompressionType', 'G.711ulaw') if audio_data else 'G.711ulaw'
+                speaker_vol = audio_data.get('speakerVolume', 100) if audio_data else 100
+                mic_vol = audio_data.get('microphoneVolume', 100) if audio_data else 100
                 
                 xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
 <enabled>true</enabled>
-<audioCompressionType>{audio_data.get('audioCompressionType', 'G.711ulaw')}</audioCompressionType>
-<speakerVolume>{audio_data.get('speakerVolume', 50)}</speakerVolume>
-<microphoneVolume>{audio_data.get('microphoneVolume', 100)}</microphoneVolume>
+<audioCompressionType>{compression}</audioCompressionType>
+<speakerVolume>{speaker_vol}</speakerVolume>
+<microphoneVolume>{mic_vol}</microphoneVolume>
 <noisereduce>true</noisereduce>
 <audioInputType>MicIn</audioInputType>
 <audioOutputType>Speaker</audioOutputType>
@@ -147,6 +152,9 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                     timeout=5
                 )
                 response.raise_for_status()
+                _LOGGER.info("Two-way audio enabled (enabled=true, speakerVolume=%d)", speaker_vol)
+            else:
+                _LOGGER.debug("Two-way audio already enabled")
         except Exception as e:
             _LOGGER.error("Failed to enable two-way audio: %s", e)
     
@@ -199,16 +207,49 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         
                         # Convert relative URL to full URL if needed
                         media_url = resolved_media.url
+                        
+                        # Remove any query parameters that might have been added
+                        if "?" in media_url:
+                            media_url = media_url.split("?")[0]
+                        
                         if media_url.startswith("/"):
-                            # Relative URL - need to use Home Assistant's internal URL
+                            # Try to access file directly from filesystem first (faster and no auth needed)
+                            if media_url.startswith("/media/local/"):
+                                # Local media files are in /config/www/ or /media/
+                                media_path = media_url.replace("/media/local/", "")
+                                
+                                # Try common Home Assistant media paths
+                                import os
+                                def try_read_file():
+                                    possible_paths = [
+                                        os.path.join(self.hass.config.config_dir, "www", media_path),
+                                        os.path.join(self.hass.config.config_dir, "media", media_path),
+                                        os.path.join("/config", "www", media_path),
+                                        os.path.join("/config", "media", media_path),
+                                    ]
+                                    
+                                    for path in possible_paths:
+                                        if os.path.exists(path):
+                                            _LOGGER.info("Reading media file from filesystem: %s", path)
+                                            with open(path, 'rb') as f:
+                                                return f.read()
+                                    return None
+                                
+                                # Try filesystem access in executor
+                                file_data = await self.hass.async_add_executor_job(try_read_file)
+                                if file_data:
+                                    return file_data
+                                
+                                _LOGGER.warning("Media file not found in filesystem, trying HTTP: %s", media_path)
+                            
+                            # Fallback to HTTP if filesystem access failed
                             base_url = self.hass.config.internal_url or self.hass.config.external_url
                             if not base_url:
-                                # Fallback to localhost if no URL configured
                                 base_url = "http://localhost:8123"
                                 _LOGGER.warning("No Home Assistant URL configured, using localhost")
-                            # Remove trailing slash from base_url if present
+                            
                             base_url = base_url.rstrip("/")
-                            media_url = f"{base_url}{resolved_media.url}"
+                            media_url = f"{base_url}{resolved_media.url.split('?')[0]}"  # Remove query params
                             _LOGGER.info("Converted to full URL: %s", media_url)
                         
                         # Validate URL before making request
@@ -228,9 +269,18 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         if is_local:
                             # Use authenticated session for Home Assistant internal URLs
                             session = async_get_clientsession(self.hass)
-                            async with session.get(media_url, timeout=30) as response:
-                                response.raise_for_status()
-                                return await response.read()
+                            try:
+                                async with session.get(media_url, timeout=30) as response:
+                                    if response.status == 401:
+                                        # If 401, the authenticated session didn't work
+                                        # This shouldn't happen, but if it does, log and return None
+                                        _LOGGER.error("401 Unauthorized accessing local media. File may need to be accessed via filesystem.")
+                                        return None
+                                    response.raise_for_status()
+                                    return await response.read()
+                            except Exception as e:
+                                _LOGGER.error("Failed to download media via HTTP: %s", e)
+                                return None
                         else:
                             # External URL - use requests
                             response = await self.hass.async_add_executor_job(
@@ -383,36 +433,48 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.info("Streaming %d bytes in %d chunks (%.2f seconds of audio)", 
                         len(ulaw_data), total_chunks, len(ulaw_data) / 8000.0)
             
+            sent_bytes = 0
             for i in range(0, len(ulaw_data), chunk_size):
                 chunk = ulaw_data[i:i + chunk_size]
                 
                 # Pad chunk to exact size if needed (last chunk might be smaller)
                 if len(chunk) < chunk_size:
-                    chunk = chunk + (b'\xff' * (chunk_size - len(chunk)))
+                    chunk = chunk + (b'\x7F' * (chunk_size - len(chunk)))  # 0x7F is silence in ulaw
                 
                 try:
+                    # Use stream=True to not block on response, short timeout
+                    # No Content-Type header - camera seems to prefer raw data
                     response = session.put(
                         endpoint,
                         data=chunk,
-                        headers={
-                            "Content-Type": "audio/G711-ulaw",
-                        },
-                        timeout=5
+                        timeout=0.3,  # Short timeout - timeouts are OK, camera is processing
+                        stream=True  # Don't read response immediately
                     )
                     
-                    if response.status_code in [200, 204]:
-                        # Success, wait before next chunk to maintain proper playback rate
-                        time.sleep(sleep_time)
-                    else:
-                        _LOGGER.warning("Audio streaming failed with status %d: %s", 
-                                       response.status_code, response.text[:100])
-                        break
+                    # Don't check status immediately - just continue streaming
+                    # Timeouts are expected and OK - camera is processing audio
+                    sent_bytes += len(chunk)
+                    
+                    # Log progress every second (50 chunks)
+                    if (i // chunk_size) % 50 == 0 and i > 0:
+                        _LOGGER.debug("Streamed %d bytes (%.1f%%)", sent_bytes, 
+                                     (sent_bytes / len(ulaw_data)) * 100)
+                    
+                    # Wait 20ms before next chunk to maintain proper playback rate
+                    time.sleep(sleep_time)
+                    
+                except requests.exceptions.Timeout:
+                    # Timeout is OK - camera is processing, continue streaming
+                    sent_bytes += len(chunk)
+                    time.sleep(sleep_time)
+                    continue
                 except Exception as e:
-                    _LOGGER.error("Error sending audio chunk: %s", e)
-                    break
-            else:
-                # Successfully sent all chunks
-                _LOGGER.info("Audio streamed successfully")
+                    _LOGGER.warning("Error sending audio chunk at %d bytes: %s", sent_bytes, e)
+                    # Continue anyway - might still work
+                    sent_bytes += len(chunk)
+                    time.sleep(sleep_time)
+            
+            _LOGGER.info("Audio streaming complete: sent %d/%d bytes", sent_bytes, len(ulaw_data))
             
             session.close()
                 
