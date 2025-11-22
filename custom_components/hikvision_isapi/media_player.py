@@ -203,29 +203,23 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             # Relative URL - need to use Home Assistant's internal URL
                             base_url = self.hass.config.internal_url or self.hass.config.external_url
                             if not base_url:
-                                _LOGGER.error("No Home Assistant URL configured")
-                                return None
+                                # Fallback to localhost if no URL configured
+                                base_url = "http://localhost:8123"
+                                _LOGGER.warning("No Home Assistant URL configured, using localhost")
                             # Remove trailing slash from base_url if present
                             base_url = base_url.rstrip("/")
                             media_url = f"{base_url}{resolved_media.url}"
                             _LOGGER.info("Converted to full URL: %s", media_url)
                         
+                        # Validate URL before making request
+                        if not media_url.startswith("http://") and not media_url.startswith("https://"):
+                            _LOGGER.error("Invalid URL format after conversion: %s", media_url)
+                            return None
+                        
                         # Download from resolved URL
-                        # Use Home Assistant's internal request if it's a local URL
-                        if media_url.startswith("http://") or media_url.startswith("https://"):
-                            response = await self.hass.async_add_executor_job(
-                                requests.get, media_url, {"timeout": 30}
-                            )
-                        else:
-                            # Try using Home Assistant's built-in method for local media
-                            from homeassistant.components.media_source import async_resolve_media
-                            # For local media, we might need to use a different approach
-                            # Try accessing via the internal URL
-                            internal_url = self.hass.config.internal_url or "http://localhost:8123"
-                            full_url = f"{internal_url.rstrip('/')}{resolved_media.url}"
-                            response = await self.hass.async_add_executor_job(
-                                requests.get, full_url, {"timeout": 30}
-                            )
+                        response = await self.hass.async_add_executor_job(
+                            requests.get, media_url, {"timeout": 30}
+                        )
                         response.raise_for_status()
                         return response.content
                     else:
@@ -253,9 +247,16 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         media_url = resolved_media.url
                         if media_url.startswith("/"):
                             base_url = self.hass.config.internal_url or self.hass.config.external_url
-                            if base_url:
-                                base_url = base_url.rstrip("/")
-                                media_url = f"{base_url}{resolved_media.url}"
+                            if not base_url:
+                                base_url = "http://localhost:8123"
+                            base_url = base_url.rstrip("/")
+                            media_url = f"{base_url}{resolved_media.url}"
+                            _LOGGER.info("Converted TTS URL to: %s", media_url)
+                        
+                        # Validate URL
+                        if not media_url.startswith("http://") and not media_url.startswith("https://"):
+                            _LOGGER.error("Invalid TTS URL format: %s", media_url)
+                            return None
                         
                         response = await self.hass.async_add_executor_job(
                             requests.get, media_url, {"timeout": 30}
