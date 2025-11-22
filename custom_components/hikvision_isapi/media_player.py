@@ -183,18 +183,34 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             await self.async_media_stop()
     
     async def _get_audio_data(self, media_id: str, media_type: str) -> bytes | None:
-        """Get audio data from media_id (URL or TTS)."""
+        """Get audio data from media_id (URL, TTS, or media-source)."""
+        from homeassistant.components.media_source import (
+            async_resolve_media,
+            is_media_source_id,
+        )
+        
         try:
-            # Handle TTS
-            if media_id.startswith("tts:"):
-                # Use Home Assistant TTS
-                from homeassistant.components.tts import async_get_media_source_url
-                tts_text = media_id[4:]  # Remove "tts:" prefix
-                # This is a simplified version - you'd need to call TTS service
-                _LOGGER.warning("TTS support needs TTS service integration")
-                return None
+            # Handle media-source IDs first (includes TTS and local media)
+            if is_media_source_id(media_id):
+                try:
+                    resolved_media = await async_resolve_media(self.hass, media_id)
+                    if resolved_media and resolved_media.url:
+                        _LOGGER.info("Resolved media source: %s -> %s", media_id, resolved_media.url)
+                        
+                        # Download from resolved URL
+                        response = await self.hass.async_add_executor_job(
+                            requests.get, resolved_media.url, {"timeout": 30}
+                        )
+                        response.raise_for_status()
+                        return response.content
+                    else:
+                        _LOGGER.error("Failed to resolve media source URL")
+                        return None
+                except Exception as e:
+                    _LOGGER.error("Failed to resolve media source: %s", e)
+                    return None
             
-            # Handle URLs
+            # Handle direct URLs
             if media_id.startswith("http://") or media_id.startswith("https://"):
                 response = await self.hass.async_add_executor_job(
                     requests.get, media_id, {"timeout": 30}
@@ -202,34 +218,32 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 response.raise_for_status()
                 return response.content
             
-            # Handle media-source (Home Assistant media browser)
-            if media_id.startswith("media-source://"):
-                # Resolve media source URL to actual file URL
-                from homeassistant.components.media_player import async_get_media_source_url
-                
+            # Handle TTS (legacy format)
+            if media_id.startswith("tts:"):
+                # Try to resolve as media source
                 try:
-                    # Resolve media source to actual URL
-                    resolved_url = await async_get_media_source_url(
-                        self.hass, media_id, None
-                    )
-                    _LOGGER.info("Resolved media source: %s -> %s", media_id, resolved_url)
-                    
-                    # Download from resolved URL
-                    response = await self.hass.async_add_executor_job(
-                        requests.get, resolved_url, {"timeout": 30}
-                    )
-                    response.raise_for_status()
-                    return response.content
-                except Exception as e:
-                    _LOGGER.error("Failed to resolve media source: %s", e)
-                    return None
+                    resolved_media = await async_resolve_media(self.hass, media_id)
+                    if resolved_media and resolved_media.url:
+                        response = await self.hass.async_add_executor_job(
+                            requests.get, resolved_media.url, {"timeout": 30}
+                        )
+                        response.raise_for_status()
+                        return response.content
+                except Exception:
+                    pass
+                _LOGGER.warning("TTS format not supported: %s", media_id)
+                return None
             
-            # Try as direct file path or URL
-            response = await self.hass.async_add_executor_job(
-                requests.get, media_id, {"timeout": 30}
-            )
-            response.raise_for_status()
-            return response.content
+            # Try as direct file path or URL (fallback)
+            try:
+                response = await self.hass.async_add_executor_job(
+                    requests.get, media_id, {"timeout": 30}
+                )
+                response.raise_for_status()
+                return response.content
+            except Exception:
+                _LOGGER.error("Unsupported media_id format: %s", media_id)
+                return None
             
         except Exception as e:
             _LOGGER.error("Failed to get audio data: %s", e)
