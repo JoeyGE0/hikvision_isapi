@@ -2,8 +2,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry as dr
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
 from .api import HikvisionISAPI
+from .coordinator import HikvisionDataUpdateCoordinator
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -17,6 +18,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     host = entry.data["host"]
     username = entry.data["username"]
     password = entry.data["password"]
+    update_interval = entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
     
     api = HikvisionISAPI(host, username, password)
     
@@ -34,8 +36,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hw_version=device_info.get("hardwareVersion"),
     )
     
-    # Store API and device info
+    # Create coordinator
+    coordinator = HikvisionDataUpdateCoordinator(hass, entry, api, update_interval)
+    await coordinator.async_config_entry_first_refresh()
+    
+    # Store coordinator, API and device info
     hass.data[DOMAIN][entry.entry_id] = {
+        "coordinator": coordinator,
         "api": api,
         "device_info": device_info,
         "host": host,
