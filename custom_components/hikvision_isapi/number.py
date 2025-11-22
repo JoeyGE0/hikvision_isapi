@@ -21,10 +21,11 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
+    device_name = data["device_info"].get("deviceName", host)
 
     entities = [
-        HikvisionIRSensitivityNumber(coordinator, api, entry, host),
-        HikvisionIRFilterTimeNumber(coordinator, api, entry, host),
+        HikvisionIRSensitivityNumber(coordinator, api, entry, host, device_name),
+        HikvisionIRFilterTimeNumber(coordinator, api, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -33,19 +34,19 @@ async def async_setup_entry(
 class HikvisionIRSensitivityNumber(NumberEntity):
     """Number entity for IR sensitivity."""
 
-    _attr_name = "IR Sensitivity"
     _attr_unique_id = "hikvision_ir_sensitivity"
     _attr_native_min_value = 0
     _attr_native_max_value = 7
     _attr_native_step = 1
     _attr_icon = "mdi:adjust"
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
+        self._attr_name = f"{device_name} IR Sensitivity"
         self._attr_unique_id = f"{host}_ir_sensitivity"
         self._optimistic_value = None
 
@@ -108,7 +109,6 @@ class HikvisionIRSensitivityNumber(NumberEntity):
 class HikvisionIRFilterTimeNumber(NumberEntity):
     """Number entity for IR filter time."""
 
-    _attr_name = "IR Filter Time"
     _attr_unique_id = "hikvision_ir_filter_time"
     _attr_native_min_value = 5
     _attr_native_max_value = 120
@@ -116,12 +116,13 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
     _attr_native_unit_of_measurement = "s"
     _attr_icon = "mdi:timer"
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
+        self._attr_name = f"{device_name} IR Filter Time"
         self._attr_unique_id = f"{host}_ir_filter_time"
         self._optimistic_value = None
 
