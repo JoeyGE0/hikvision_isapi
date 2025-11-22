@@ -45,10 +45,14 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             light_mode = await self.hass.async_add_executor_job(
                 self.api.get_supplement_light
             )
+            audio_data = await self.hass.async_add_executor_job(
+                self.api.get_two_way_audio
+            )
 
             return {
                 "ircut": ircut_data,
                 "light_mode": light_mode,
+                "audio": audio_data,
             }
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
