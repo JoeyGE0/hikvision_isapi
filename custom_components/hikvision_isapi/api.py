@@ -127,3 +127,34 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set IR filter time: %s", e)
             return False
 
+    def get_device_info(self) -> dict:
+        """Get device information from ISAPI."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/deviceInfo"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+            
+            device_info = {}
+            device_info["deviceName"] = xml.find(f".//{XML_NS}deviceName")
+            device_info["model"] = xml.find(f".//{XML_NS}model")
+            device_info["serialNumber"] = xml.find(f".//{XML_NS}serialNumber")
+            device_info["firmwareVersion"] = xml.find(f".//{XML_NS}firmwareVersion")
+            device_info["hardwareVersion"] = xml.find(f".//{XML_NS}hardwareVersion")
+            
+            # Extract text values
+            result = {}
+            for key, element in device_info.items():
+                if element is not None and element.text:
+                    result[key] = element.text.strip()
+            
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get device info: %s", e)
+            return {}
+
