@@ -205,110 +205,53 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                     if resolved_media and resolved_media.url:
                         _LOGGER.info("Resolved media source: %s -> %s", media_id, resolved_media.url)
                         
-                        # Convert relative URL to full URL if needed
+                        # Use the resolved URL - for local media, read directly from filesystem
                         media_url = resolved_media.url
                         
-                        # Remove any query parameters that might have been added
+                        # Remove any query parameters
                         if "?" in media_url:
                             media_url = media_url.split("?")[0]
                         
-                        if media_url.startswith("/"):
-                            # Try to access file directly from filesystem first (faster and no auth needed)
-                            if media_url.startswith("/media/local/"):
-                                # Local media files are in /config/www/ or /media/
-                                media_path = media_url.replace("/media/local/", "")
-                                
-                                # Try common Home Assistant media paths
-                                import os
-                                def try_read_file():
-                                    config_dir = self.hass.config.config_dir
-                                    possible_paths = [
-                                        # Standard paths
-                                        os.path.join(config_dir, "www", media_path),
-                                        os.path.join(config_dir, "media", media_path),
-                                        # Docker/container paths
-                                        os.path.join("/config", "www", media_path),
-                                        os.path.join("/config", "media", media_path),
-                                        # Alternative locations
-                                        os.path.join(config_dir, "www", "local", media_path),
-                                        os.path.join(config_dir, "media", "local", media_path),
-                                        # Direct in config
-                                        os.path.join(config_dir, media_path),
-                                        # Try with just the filename if it's in a subdirectory
-                                        os.path.join(config_dir, "www", os.path.basename(media_path)),
-                                    ]
-                                    
-                                    _LOGGER.debug("Trying to find media file: %s", media_path)
-                                    for path in possible_paths:
-                                        _LOGGER.debug("  Checking: %s", path)
-                                        if os.path.exists(path) and os.path.isfile(path):
-                                            _LOGGER.info("Found media file at: %s", path)
-                                            with open(path, 'rb') as f:
-                                                return f.read()
-                                    
-                                    # Log all attempted paths for debugging
-                                    _LOGGER.warning("Media file not found. Tried paths: %s", possible_paths[:3])
-                                    return None
-                                
-                                # Try filesystem access in executor
-                                file_data = await self.hass.async_add_executor_job(try_read_file)
-                                if file_data:
-                                    return file_data
-                                
-                                _LOGGER.warning("Media file not found in filesystem. Expected at: %s/www/%s or %s/media/%s", 
-                                              self.hass.config.config_dir, media_path, 
-                                              self.hass.config.config_dir, media_path)
-                                _LOGGER.warning("Please ensure the file is in your Home Assistant www/ or media/ directory")
-                                
-                                # Don't try HTTP fallback - it requires auth and filesystem is more reliable
+                        # For local media files, read directly from filesystem (no auth needed)
+                        if media_url.startswith("/media/local/"):
+                            media_path = media_url.replace("/media/local/", "")
+                            
+                            import os
+                            def read_media_file():
+                                config_dir = self.hass.config.config_dir
+                                # Home Assistant serves /media/local/ from www/ directory
+                                file_path = os.path.join(config_dir, "www", media_path)
+                                if os.path.exists(file_path) and os.path.isfile(file_path):
+                                    _LOGGER.info("Reading media file: %s", file_path)
+                                    with open(file_path, 'rb') as f:
+                                        return f.read()
+                                _LOGGER.error("Media file not found at: %s", file_path)
                                 return None
                             
-                            # For non-local media URLs, try HTTP
-                            base_url = self.hass.config.internal_url or self.hass.config.external_url
-                            if not base_url:
-                                _LOGGER.error("No Home Assistant URL configured and filesystem access failed")
-                                return None
-                            
-                            base_url = base_url.rstrip("/")
-                            media_url = f"{base_url}{resolved_media.url.split('?')[0]}"  # Remove query params
-                            _LOGGER.info("Converted to full URL: %s", media_url)
-                        
-                        # Validate URL before making request
-                        if not media_url.startswith("http://") and not media_url.startswith("https://"):
-                            _LOGGER.error("Invalid URL format after conversion: %s", media_url)
+                            file_data = await self.hass.async_add_executor_job(read_media_file)
+                            if file_data:
+                                return file_data
                             return None
                         
-                        # Download from resolved URL
-                        # Use Home Assistant's authenticated HTTP client for local URLs
-                        is_local = (
-                            "localhost" in media_url or 
-                            "127.0.0.1" in media_url or
-                            (self.hass.config.internal_url and self.hass.config.internal_url in media_url) or 
-                            (self.hass.config.external_url and self.hass.config.external_url in media_url)
-                        )
+                        # For other URLs (TTS, external, etc), use HTTP
+                        if media_url.startswith("/"):
+                            base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
+                            base_url = base_url.rstrip("/")
+                            media_url = f"{base_url}{media_url}"
                         
-                        if is_local:
-                            # Use authenticated session for Home Assistant internal URLs
-                            session = async_get_clientsession(self.hass)
-                            try:
-                                async with session.get(media_url, timeout=30) as response:
-                                    if response.status == 401:
-                                        # If 401, the authenticated session didn't work
-                                        # This shouldn't happen, but if it does, log and return None
-                                        _LOGGER.error("401 Unauthorized accessing local media. File may need to be accessed via filesystem.")
-                                        return None
-                                    response.raise_for_status()
-                                    return await response.read()
-                            except Exception as e:
-                                _LOGGER.error("Failed to download media via HTTP: %s", e)
-                                return None
-                        else:
-                            # External URL - use requests
-                            response = await self.hass.async_add_executor_job(
-                                requests.get, media_url, {"timeout": 30}
-                            )
-                            response.raise_for_status()
-                            return response.content
+                        if not media_url.startswith("http://") and not media_url.startswith("https://"):
+                            _LOGGER.error("Invalid URL: %s", media_url)
+                            return None
+                        
+                        # Download via HTTP
+                        session = async_get_clientsession(self.hass)
+                        try:
+                            async with session.get(media_url, timeout=30) as response:
+                                response.raise_for_status()
+                                return await response.read()
+                        except Exception as e:
+                            _LOGGER.error("Failed to download media: %s", e)
+                            return None
                     else:
                         _LOGGER.error("Failed to resolve media source URL")
                         return None
