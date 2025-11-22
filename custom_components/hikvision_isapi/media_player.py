@@ -80,18 +80,18 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         """Return if entity is available."""
         return self.coordinator.last_update_success
 
-           @property
-           def volume_level(self) -> float | None:
-               """Volume level of the media player (0..1).
-               
-               Note: Camera API has swapped fields - microphoneVolume actually controls speaker.
-               """
-               if self.coordinator.data and "audio" in self.coordinator.data:
-                   # Camera has swapped fields - microphoneVolume is actually speaker volume
-                   volume = self.coordinator.data["audio"].get("microphoneVolume")
-                   if volume is not None:
-                       return float(volume) / 100.0
-               return None
+    @property
+    def volume_level(self) -> float | None:
+        """Volume level of the media player (0..1).
+        
+        Note: Camera API has swapped fields - microphoneVolume actually controls speaker.
+        """
+        if self.coordinator.data and "audio" in self.coordinator.data:
+            # Camera has swapped fields - microphoneVolume is actually speaker volume
+            volume = self.coordinator.data["audio"].get("microphoneVolume")
+            if volume is not None:
+                return float(volume) / 100.0
+        return None
 
     @property
     def state(self):
