@@ -18,15 +18,16 @@ async def async_setup_entry(
 ):
     """Set up select entities for the entry."""
     data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
 
     entities = [
-        HikvisionLightModeSelect(api, entry, host),
-        HikvisionIRModeSelect(api, entry, host),
+        HikvisionLightModeSelect(coordinator, api, entry, host),
+        HikvisionIRModeSelect(coordinator, api, entry, host),
     ]
 
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
 class HikvisionLightModeSelect(SelectEntity):
@@ -37,13 +38,13 @@ class HikvisionLightModeSelect(SelectEntity):
     _attr_options = ["eventIntelligence", "irLight", "close"]
     _attr_icon = "mdi:lightbulb"
 
-    def __init__(self, api, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
+        self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
         self._attr_unique_id = f"{host}_light_mode"
-        self._current_option = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -53,23 +54,18 @@ class HikvisionLightModeSelect(SelectEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        return self._current_option
-
-    def update(self):
-        """Fetch current light mode from camera."""
-        mode = self.api.get_supplement_light()
-        if mode:
-            # Map API values to our options
-            if mode == "eventIntelligence":
-                self._current_option = "eventIntelligence"
-            elif mode == "irLight":
-                self._current_option = "irLight"
-            elif mode == "close":
-                self._current_option = "close"
-            else:
-                self._current_option = mode
+        if self.coordinator.data and "light_mode" in self.coordinator.data:
+            mode = self.coordinator.data["light_mode"]
+            if mode in self._attr_options:
+                return mode
+        return None
 
     async def async_select_option(self, option: str):
         """Change the selected option."""
@@ -77,8 +73,15 @@ class HikvisionLightModeSelect(SelectEntity):
             self.api.set_supplement_light, option
         )
         if success:
-            self._current_option = option
-            self.async_write_ha_state()
+            # Refresh coordinator to get updated state
+            await self.coordinator.async_request_refresh()
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
 
 
 class HikvisionIRModeSelect(SelectEntity):
@@ -89,13 +92,13 @@ class HikvisionIRModeSelect(SelectEntity):
     _attr_options = ["auto", "day", "night"]
     _attr_icon = "mdi:weather-night"
 
-    def __init__(self, api, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
+        self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
         self._attr_unique_id = f"{host}_ir_mode"
-        self._current_option = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -105,16 +108,18 @@ class HikvisionIRModeSelect(SelectEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        return self._current_option
-
-    def update(self):
-        """Fetch current IR mode from camera."""
-        ircut_data = self.api.get_ircut_filter()
-        mode = ircut_data.get("mode")
-        if mode:
-            self._current_option = mode
+        if self.coordinator.data and "ircut" in self.coordinator.data:
+            mode = self.coordinator.data["ircut"].get("mode")
+            if mode in self._attr_options:
+                return mode
+        return None
 
     async def async_select_option(self, option: str):
         """Change the selected option."""
@@ -122,6 +127,13 @@ class HikvisionIRModeSelect(SelectEntity):
             self.api.set_ircut_mode, option
         )
         if success:
-            self._current_option = option
-            self.async_write_ha_state()
+            # Refresh coordinator to get updated state
+            await self.coordinator.async_request_refresh()
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
 
