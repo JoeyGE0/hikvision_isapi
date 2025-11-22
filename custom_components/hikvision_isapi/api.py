@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import requests
 import xml.etree.ElementTree as ET
 from typing import Optional
@@ -76,6 +77,54 @@ class HikvisionISAPI:
             return True
         except Exception as e:
             _LOGGER.error("Failed to set supplement light: %s", e)
+            return False
+
+    def get_white_light_time(self) -> Optional[int]:
+        """Get white light duration (10-300 seconds)."""
+        try:
+            xml = self._get("/supplementLight")
+            time_elem = xml.find(f".//{XML_NS}whiteLightTime")
+            if time_elem is not None and time_elem.text:
+                return int(time_elem.text.strip())
+            return None
+        except Exception as e:
+            _LOGGER.error("Failed to get white light time: %s", e)
+            return None
+
+    def set_white_light_time(self, duration: int) -> bool:
+        """Set white light duration (10-300 seconds)."""
+        try:
+            # Get current settings first
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace whiteLightTime value
+            xml_str = re.sub(
+                r'<whiteLightTime>.*?</whiteLightTime>',
+                f'<whiteLightTime>{duration}</whiteLightTime>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to set white light time: %s", e)
             return False
 
     def get_ircut_filter(self) -> dict:
@@ -434,3 +483,19 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to get snapshot: %s", e)
             return None
+
+    def restart(self) -> bool:
+        """Restart the camera."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/reboot"
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to restart camera: %s", e)
+            return False
