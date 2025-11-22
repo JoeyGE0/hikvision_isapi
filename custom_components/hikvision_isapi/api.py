@@ -297,3 +297,140 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to close audio session: %s", e)
             return False
+
+    def get_motion_detection(self) -> dict:
+        """Get motion detection settings."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+            
+            result = {}
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get motion detection: %s", e)
+            return {}
+
+    def set_motion_detection(self, enabled: bool) -> bool:
+        """Enable/disable motion detection."""
+        try:
+            # Get current settings first
+            current = self.get_motion_detection()
+            if not current:
+                return False
+            
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
+            
+            # Get full XML to preserve other settings
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace enabled value
+            import re
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to set motion detection: %s", e)
+            return False
+
+    def get_tamper_detection(self) -> dict:
+        """Get tamper detection settings."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/tamperDetection"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+            
+            result = {}
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get tamper detection: %s", e)
+            return {}
+
+    def set_tamper_detection(self, enabled: bool) -> bool:
+        """Enable/disable tamper detection."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/tamperDetection"
+            
+            # Get current settings
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace enabled value
+            import re
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to set tamper detection: %s", e)
+            return False
+
+    def get_snapshot(self) -> Optional[bytes]:
+        """Get camera snapshot image."""
+        try:
+            url = f"http://{self.host}/ISAPI/Streaming/channels/101/picture"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=10
+            )
+            response.raise_for_status()
+            return response.content
+        except Exception as e:
+            _LOGGER.error("Failed to get snapshot: %s", e)
+            return None
