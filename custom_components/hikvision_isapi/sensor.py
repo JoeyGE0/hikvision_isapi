@@ -20,12 +20,13 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     host = data["host"]
+    device_name = data["device_info"].get("deviceName", host)
 
     entities = [
-        HikvisionIRModeSensor(coordinator, entry, host),
-        HikvisionIRSensitivitySensor(coordinator, entry, host),
-        HikvisionIRFilterTimeSensor(coordinator, entry, host),
-        HikvisionLightModeSensor(coordinator, entry, host),
+        HikvisionIRModeSensor(coordinator, entry, host, device_name),
+        HikvisionIRSensitivitySensor(coordinator, entry, host, device_name),
+        HikvisionIRFilterTimeSensor(coordinator, entry, host, device_name),
+        HikvisionLightModeSensor(coordinator, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -34,15 +35,15 @@ async def async_setup_entry(
 class HikvisionIRModeSensor(SensorEntity):
     """Sensor for IR cut mode."""
 
-    _attr_name = "IR Mode"
     _attr_unique_id = "hikvision_ir_mode_sensor"
     _attr_icon = "mdi:weather-night"
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
+        self._attr_name = f"{device_name} Day/Night Switch"
         self._attr_unique_id = f"{host}_ir_mode_sensor"
 
     @property
@@ -60,8 +61,15 @@ class HikvisionIRModeSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the current IR mode."""
+        # Map API values to display names
+        api_to_display = {
+            "day": "Day",
+            "night": "Night",
+            "auto": "Auto"
+        }
         if self.coordinator.data and "ircut" in self.coordinator.data:
-            return self.coordinator.data["ircut"].get("mode", "unknown")
+            api_value = self.coordinator.data["ircut"].get("mode", "unknown")
+            return api_to_display.get(api_value, api_value)
         return "unknown"
 
     async def async_added_to_hass(self) -> None:
@@ -75,15 +83,15 @@ class HikvisionIRModeSensor(SensorEntity):
 class HikvisionIRSensitivitySensor(SensorEntity):
     """Sensor for IR sensitivity."""
 
-    _attr_name = "IR Sensitivity"
     _attr_unique_id = "hikvision_ir_sensitivity_sensor"
     _attr_icon = "mdi:adjust"
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
+        self._attr_name = f"{device_name} IR Sensitivity"
         self._attr_unique_id = f"{host}_ir_sensitivity_sensor"
 
     @property
@@ -117,16 +125,16 @@ class HikvisionIRSensitivitySensor(SensorEntity):
 class HikvisionIRFilterTimeSensor(SensorEntity):
     """Sensor for IR filter time."""
 
-    _attr_name = "IR Filter Time"
     _attr_unique_id = "hikvision_ir_filter_time_sensor"
     _attr_native_unit_of_measurement = "s"
     _attr_icon = "mdi:timer"
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
+        self._attr_name = f"{device_name} IR Filter Time"
         self._attr_unique_id = f"{host}_ir_filter_time_sensor"
 
     @property
@@ -160,15 +168,15 @@ class HikvisionIRFilterTimeSensor(SensorEntity):
 class HikvisionLightModeSensor(SensorEntity):
     """Sensor for supplement light mode."""
 
-    _attr_name = "Light Mode"
     _attr_unique_id = "hikvision_light_mode_sensor"
     _attr_icon = "mdi:lightbulb"
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
+        self._attr_name = f"{device_name} Supplement Light"
         self._attr_unique_id = f"{host}_light_mode_sensor"
 
     @property
@@ -186,9 +194,15 @@ class HikvisionLightModeSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the current light mode."""
+        # Map API values to display names
+        api_to_display = {
+            "eventIntelligence": "Smart",
+            "irLight": "IR Supplement Light",
+            "close": "Off"
+        }
         if self.coordinator.data and "light_mode" in self.coordinator.data:
-            mode = self.coordinator.data["light_mode"]
-            return mode if mode else "unknown"
+            api_value = self.coordinator.data["light_mode"]
+            return api_to_display.get(api_value, api_value if api_value else "unknown")
         return "unknown"
 
     async def async_added_to_hass(self) -> None:
