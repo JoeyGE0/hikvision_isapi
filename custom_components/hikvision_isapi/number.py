@@ -52,7 +52,7 @@ class HikvisionIRSensitivityNumber(NumberEntity):
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} IR Sensitivity"
+        self._attr_name = f"{device_name} Day/Night Switch Sensitivity"
         self._attr_unique_id = f"{host}_ir_sensitivity"
         self._optimistic_value = None
 
@@ -128,7 +128,7 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} IR Filter Time"
+        self._attr_name = f"{device_name} Day/Night Switch Delay"
         self._attr_unique_id = f"{host}_ir_filter_time"
         self._optimistic_value = None
 
@@ -347,7 +347,7 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} LED Duration"
+        self._attr_name = f"{device_name} LED On Duration"
         self._attr_unique_id = f"{host}_white_light_time"
         self._optimistic_value = None
 
@@ -391,13 +391,6 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
                 self._optimistic_value = None
         else:
             self._optimistic_value = None
-
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
