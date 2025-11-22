@@ -12,7 +12,9 @@ from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaType,
+    BrowseMedia,
 )
+from homeassistant.components.media_player import async_process_play_media_url
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -49,6 +51,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         MediaPlayerEntityFeature.PLAY_MEDIA
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.VOLUME_STEP
+        | MediaPlayerEntityFeature.BROWSE_MEDIA
     )
     _attr_media_content_type = MediaType.MUSIC
     _attr_unique_id = "hikvision_media_player"
@@ -199,13 +202,27 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 response.raise_for_status()
                 return response.content
             
-            # Handle media-source (Home Assistant media)
+            # Handle media-source (Home Assistant media browser)
             if media_id.startswith("media-source://"):
-                # Resolve media source URL
-                parsed = urlparse(media_id)
-                # This would need Home Assistant media source resolution
-                _LOGGER.warning("Media source resolution needs implementation")
-                return None
+                # Resolve media source URL to actual file URL
+                from homeassistant.components.media_player import async_get_media_source_url
+                
+                try:
+                    # Resolve media source to actual URL
+                    resolved_url = await async_get_media_source_url(
+                        self.hass, media_id, None
+                    )
+                    _LOGGER.info("Resolved media source: %s -> %s", media_id, resolved_url)
+                    
+                    # Download from resolved URL
+                    response = await self.hass.async_add_executor_job(
+                        requests.get, resolved_url, {"timeout": 30}
+                    )
+                    response.raise_for_status()
+                    return response.content
+                except Exception as e:
+                    _LOGGER.error("Failed to resolve media source: %s", e)
+                    return None
             
             # Try as direct file path or URL
             response = await self.hass.async_add_executor_job(
@@ -250,53 +267,87 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             return None
     
     def _send_audio_stream(self, ulaw_data: bytes):
-        """Send audio stream to camera."""
+        """Send audio stream to camera.
+        
+        Based on Stack Overflow findings: Must send at correct rate (8000 bytes/sec for G.711ulaw).
+        For 160-byte chunks, delay 20ms between chunks to maintain proper playback speed.
+        """
+        session_id = None
         try:
-            # Try different possible endpoints for audio streaming
-            endpoints = [
-                f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/audioData",
-                f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/audio",
-                f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/stream",
-            ]
+            # Ensure two-way audio is enabled
+            self._enable_two_way_audio()
             
-            chunk_size = 160  # 20ms of audio at 8kHz (typical for G.711)
+            # Open audio session first
+            session_id = self.api.open_audio_session()
+            if not session_id:
+                _LOGGER.error("Failed to open audio session")
+                return
+            
+            _LOGGER.info("Opened audio session: %s", session_id)
+            
+            # Use the audioData endpoint with PUT
+            endpoint = f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/audioData"
+            
+            # Chunk size: 160 bytes = 20ms of audio at 8kHz (8000 bytes/sec)
+            # G.711ulaw: 1 byte per sample, 8000 samples/sec = 8000 bytes/sec
+            # 160 bytes / 8000 bytes/sec = 0.02 seconds = 20ms per chunk
+            chunk_size = 160
+            sleep_time = 0.02  # 20ms delay to maintain 8000 bytes/sec rate
             import time
             
-            for endpoint in endpoints:
-                try:
-                    # Send audio in chunks
-                    for i in range(0, len(ulaw_data), chunk_size):
-                        chunk = ulaw_data[i:i + chunk_size]
-                        
-                        response = requests.put(
-                            endpoint,
-                            auth=(self.api.username, self.api.password),
-                            data=chunk,
-                            headers={
-                                "Content-Type": "audio/G711-ulaw",
-                            },
-                            verify=False,
-                            timeout=5
-                        )
-                        
-                        if response.status_code in [200, 204]:
-                            # This endpoint works, continue with it
-                            time.sleep(0.02)  # 20ms delay
-                        else:
-                            # Try next endpoint
-                            break
-                    else:
-                        # Successfully sent all chunks
-                        _LOGGER.info("Audio streamed successfully via %s", endpoint)
-                        return
-                except Exception as e:
-                    _LOGGER.debug("Endpoint %s failed: %s", endpoint, e)
-                    continue
+            # Create a session for persistent connection (more efficient than individual requests)
+            session = requests.Session()
+            session.auth = (self.api.username, self.api.password)
+            session.verify = False
             
-            _LOGGER.warning("Could not find working audio streaming endpoint")
+            # Send audio in chunks with proper timing
+            total_chunks = (len(ulaw_data) + chunk_size - 1) // chunk_size
+            _LOGGER.info("Streaming %d bytes in %d chunks (%.2f seconds of audio)", 
+                        len(ulaw_data), total_chunks, len(ulaw_data) / 8000.0)
+            
+            for i in range(0, len(ulaw_data), chunk_size):
+                chunk = ulaw_data[i:i + chunk_size]
+                
+                # Pad chunk to exact size if needed (last chunk might be smaller)
+                if len(chunk) < chunk_size:
+                    chunk = chunk + (b'\xff' * (chunk_size - len(chunk)))
+                
+                try:
+                    response = session.put(
+                        endpoint,
+                        data=chunk,
+                        headers={
+                            "Content-Type": "audio/G711-ulaw",
+                        },
+                        timeout=5
+                    )
+                    
+                    if response.status_code in [200, 204]:
+                        # Success, wait before next chunk to maintain proper playback rate
+                        time.sleep(sleep_time)
+                    else:
+                        _LOGGER.warning("Audio streaming failed with status %d: %s", 
+                                       response.status_code, response.text[:100])
+                        break
+                except Exception as e:
+                    _LOGGER.error("Error sending audio chunk: %s", e)
+                    break
+            else:
+                # Successfully sent all chunks
+                _LOGGER.info("Audio streamed successfully")
+            
+            session.close()
                 
         except Exception as e:
             _LOGGER.error("Failed to send audio stream: %s", e)
+        finally:
+            # Always close the session
+            if session_id:
+                try:
+                    self.api.close_audio_session()
+                    _LOGGER.info("Closed audio session")
+                except Exception as e:
+                    _LOGGER.warning("Failed to close audio session: %s", e)
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
@@ -330,6 +381,21 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             
             self._audio_session_id = None
             self.async_write_ha_state()
+
+    async def async_browse_media(
+        self,
+        media_content_type: MediaType | str | None = None,
+        media_content_id: str | None = None,
+    ) -> BrowseMedia:
+        """Browse media."""
+        from homeassistant.components.media_player import async_process_play_media_url
+        from homeassistant.components.media_source import async_browse_media
+        
+        return await async_browse_media(
+            self.hass,
+            media_content_id,
+            media_content_type,
+        )
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
