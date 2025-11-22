@@ -4,10 +4,9 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-from .api import HikvisionISAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,17 +17,13 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ):
     """Set up select entities for the entry."""
-    config = hass.data[DOMAIN][entry.entry_id]
-
-    host = config[CONF_HOST]
-    username = config[CONF_USERNAME]
-    password = config[CONF_PASSWORD]
-
-    api = HikvisionISAPI(host, username, password)
+    data = hass.data[DOMAIN][entry.entry_id]
+    api = data["api"]
+    host = data["host"]
 
     entities = [
-        HikvisionLightModeSelect(api, host),
-        HikvisionIRModeSelect(api, host),
+        HikvisionLightModeSelect(api, entry, host),
+        HikvisionIRModeSelect(api, entry, host),
     ]
 
     async_add_entities(entities, True)
@@ -42,12 +37,20 @@ class HikvisionLightModeSelect(SelectEntity):
     _attr_options = ["eventIntelligence", "irLight", "close"]
     _attr_icon = "mdi:lightbulb"
 
-    def __init__(self, api: HikvisionISAPI, host: str):
+    def __init__(self, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
         self.api = api
         self._host = host
+        self._entry = entry
         self._attr_unique_id = f"{host}_light_mode"
         self._current_option = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
 
     @property
     def current_option(self) -> str | None:
@@ -86,12 +89,20 @@ class HikvisionIRModeSelect(SelectEntity):
     _attr_options = ["auto", "day", "night"]
     _attr_icon = "mdi:weather-night"
 
-    def __init__(self, api: HikvisionISAPI, host: str):
+    def __init__(self, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
         self.api = api
         self._host = host
+        self._entry = entry
         self._attr_unique_id = f"{host}_ir_mode"
         self._current_option = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
 
     @property
     def current_option(self) -> str | None:
