@@ -18,15 +18,16 @@ async def async_setup_entry(
 ):
     """Set up number entities for the entry."""
     data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
 
     entities = [
-        HikvisionIRSensitivityNumber(api, entry, host),
-        HikvisionIRFilterTimeNumber(api, entry, host),
+        HikvisionIRSensitivityNumber(coordinator, api, entry, host),
+        HikvisionIRFilterTimeNumber(coordinator, api, entry, host),
     ]
 
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
 class HikvisionIRSensitivityNumber(NumberEntity):
@@ -39,13 +40,13 @@ class HikvisionIRSensitivityNumber(NumberEntity):
     _attr_native_step = 1
     _attr_icon = "mdi:adjust"
 
-    def __init__(self, api, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
+        self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
         self._attr_unique_id = f"{host}_ir_sensitivity"
-        self._attr_native_value = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -55,16 +56,18 @@ class HikvisionIRSensitivityNumber(NumberEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
     def native_value(self) -> float | None:
         """Return the current value."""
-        return self._attr_native_value
-
-    def update(self):
-        """Fetch current IR sensitivity from camera."""
-        ircut_data = self.api.get_ircut_filter()
-        sensitivity = ircut_data.get("sensitivity")
-        if sensitivity is not None:
-            self._attr_native_value = float(sensitivity)
+        if self.coordinator.data and "ircut" in self.coordinator.data:
+            sensitivity = self.coordinator.data["ircut"].get("sensitivity")
+            if sensitivity is not None:
+                return float(sensitivity)
+        return None
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
@@ -72,8 +75,15 @@ class HikvisionIRSensitivityNumber(NumberEntity):
             self.api.set_ircut_sensitivity, int(value)
         )
         if success:
-            self._attr_native_value = value
-            self.async_write_ha_state()
+            # Refresh coordinator to get updated state
+            await self.coordinator.async_request_refresh()
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
 
 
 class HikvisionIRFilterTimeNumber(NumberEntity):
@@ -87,13 +97,13 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
     _attr_native_unit_of_measurement = "s"
     _attr_icon = "mdi:timer"
 
-    def __init__(self, api, entry: ConfigEntry, host: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
+        self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
         self._attr_unique_id = f"{host}_ir_filter_time"
-        self._attr_native_value = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -103,16 +113,18 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
     def native_value(self) -> float | None:
         """Return the current value."""
-        return self._attr_native_value
-
-    def update(self):
-        """Fetch current IR filter time from camera."""
-        ircut_data = self.api.get_ircut_filter()
-        filter_time = ircut_data.get("filter_time")
-        if filter_time is not None:
-            self._attr_native_value = float(filter_time)
+        if self.coordinator.data and "ircut" in self.coordinator.data:
+            filter_time = self.coordinator.data["ircut"].get("filter_time")
+            if filter_time is not None:
+                return float(filter_time)
+        return None
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
@@ -120,6 +132,13 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
             self.api.set_ircut_filter_time, int(value)
         )
         if success:
-            self._attr_native_value = value
-            self.async_write_ha_state()
+            # Refresh coordinator to get updated state
+            await self.coordinator.async_request_refresh()
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
 
