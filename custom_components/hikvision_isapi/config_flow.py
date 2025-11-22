@@ -1,12 +1,15 @@
 """Config flow for the Hikvision ISAPI integration."""
 import voluptuous as vol
 from homeassistant import config_entries
-from .const import DOMAIN  # define DOMAIN = "hikvision_isapi" in const.py
+from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
 
 DATA_SCHEMA = vol.Schema({
     vol.Required("host"): str,
     vol.Required("username"): str,
     vol.Required("password"): str,
+    vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
+        vol.Coerce(int), vol.Range(min=5, max=300)
+    ),
 })
 
 class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
