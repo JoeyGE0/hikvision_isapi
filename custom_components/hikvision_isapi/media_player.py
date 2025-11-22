@@ -55,6 +55,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     )
     _attr_media_content_type = MediaType.MUSIC
     _attr_unique_id = "hikvision_media_player"
+    _attr_entity_registry_enabled_default = False  # Disabled by default
 
     def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the media player."""
@@ -79,14 +80,18 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         """Return if entity is available."""
         return self.coordinator.last_update_success
 
-    @property
-    def volume_level(self) -> float | None:
-        """Volume level of the media player (0..1)."""
-        if self.coordinator.data and "audio" in self.coordinator.data:
-            volume = self.coordinator.data["audio"].get("speakerVolume")
-            if volume is not None:
-                return float(volume) / 100.0
-        return None
+           @property
+           def volume_level(self) -> float | None:
+               """Volume level of the media player (0..1).
+               
+               Note: Camera API has swapped fields - microphoneVolume actually controls speaker.
+               """
+               if self.coordinator.data and "audio" in self.coordinator.data:
+                   # Camera has swapped fields - microphoneVolume is actually speaker volume
+                   volume = self.coordinator.data["audio"].get("microphoneVolume")
+                   if volume is not None:
+                       return float(volume) / 100.0
+               return None
 
     @property
     def state(self):
@@ -128,8 +133,10 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 
                 # Get current values or use defaults
                 compression = audio_data.get('audioCompressionType', 'G.711ulaw') if audio_data else 'G.711ulaw'
-                speaker_vol = audio_data.get('speakerVolume', 100) if audio_data else 100
-                mic_vol = audio_data.get('microphoneVolume', 100) if audio_data else 100
+                # Camera has swapped fields - swap them back for correct display
+                # speakerVolume field actually controls microphone, microphoneVolume controls speaker
+                mic_vol = audio_data.get('speakerVolume', 100) if audio_data else 100  # speakerVolume = mic
+                speaker_vol = audio_data.get('microphoneVolume', 100) if audio_data else 100  # microphoneVolume = speaker
                 
                 xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
