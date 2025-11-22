@@ -1,10 +1,14 @@
+import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry as dr
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
-from .api import HikvisionISAPI
+from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -22,8 +26,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     
     api = HikvisionISAPI(host, username, password)
     
-    # Fetch device info
-    device_info = await hass.async_add_executor_job(api.get_device_info)
+    # Fetch device info - validate connection and credentials
+    try:
+        device_info = await hass.async_add_executor_job(api.get_device_info)
+        if not device_info:
+            raise ConfigEntryNotReady(
+                f"Failed to connect to {host}. Please check your credentials and network connection."
+            )
+    except AuthenticationError as err:
+        _LOGGER.error("Authentication failed for %s: %s", host, err)
+        raise ConfigEntryNotReady(
+            f"Authentication failed for {host}. Please check your username and password. "
+            f"Note: Username is case-sensitive (e.g., 'admin' not 'Admin')."
+        ) from err
+    except Exception as err:
+        _LOGGER.error("Failed to connect to %s: %s", host, err)
+        raise ConfigEntryNotReady(
+            f"Failed to connect to {host}: {err}. Please check your network connection and that the device is online."
+        ) from err
     
     device_registry = dr.async_get(hass)
     
@@ -67,7 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     }
 
     await hass.config_entries.async_forward_entry_setups(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
+        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"]
     )
 
     return True
@@ -75,7 +95,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_unload_platforms(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
+        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"]
     )
     hass.data[DOMAIN].pop(entry.entry_id, None)
     return True
