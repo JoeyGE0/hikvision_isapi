@@ -12,6 +12,11 @@ _LOGGER = logging.getLogger(__name__)
 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
 
 
+class AuthenticationError(Exception):
+    """Raised when authentication fails."""
+    pass
+
+
 class HikvisionISAPI:
     """Helper class for Hikvision ISAPI calls."""
 
@@ -35,8 +40,20 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             return ET.fromstring(response.text)
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code in (401, 403):
+                raise AuthenticationError(f"Authentication failed: {e}") from e
+            _LOGGER.error("HTTP error GET %s: %s", endpoint, e)
+            raise
+        except requests.exceptions.RequestException as e:
+            _LOGGER.error("Request error GET %s: %s", endpoint, e)
+            raise
         except Exception as e:
             _LOGGER.error("Failed to GET %s: %s", endpoint, e)
             raise
@@ -53,8 +70,20 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             return ET.fromstring(response.text)
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code in (401, 403):
+                raise AuthenticationError(f"Authentication failed: {e}") from e
+            _LOGGER.error("HTTP error PUT %s: %s", endpoint, e)
+            raise
+        except requests.exceptions.RequestException as e:
+            _LOGGER.error("Request error PUT %s: %s", endpoint, e)
+            raise
         except Exception as e:
             _LOGGER.error("Failed to PUT %s: %s", endpoint, e)
             raise
@@ -102,6 +131,10 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             xml_str = response.text
             
@@ -121,8 +154,14 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             return True
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to set white light time: %s", e)
             return False
@@ -229,6 +268,8 @@ class HikvisionISAPI:
                         audio_info[key] = element.text.strip()
             
             return audio_info
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to get two-way audio: %s", e)
             return {}
@@ -267,8 +308,14 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             return True
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to set speaker volume: %s", e)
             return False
@@ -307,8 +354,14 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             return True
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to set microphone volume: %s", e)
             return False
@@ -357,6 +410,10 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             xml = ET.fromstring(response.text)
             
@@ -366,6 +423,8 @@ class HikvisionISAPI:
                 result["enabled"] = enabled.text.strip().lower() == "true"
             
             return result
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to get motion detection: %s", e)
             return {}
@@ -387,6 +446,10 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             xml_str = response.text
             
@@ -404,8 +467,14 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             return True
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to set motion detection: %s", e)
             return False
@@ -420,6 +489,10 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             xml = ET.fromstring(response.text)
             
@@ -429,6 +502,8 @@ class HikvisionISAPI:
                 result["enabled"] = enabled.text.strip().lower() == "true"
             
             return result
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to get tamper detection: %s", e)
             return {}
@@ -445,6 +520,10 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             xml_str = response.text
             
@@ -462,224 +541,17 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             return True
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to set tamper detection: %s", e)
             return False
-
-    def get_alarm_input(self, input_id: int = 1) -> dict:
-        """Get alarm input settings."""
-        try:
-            url = f"http://{self.host}/ISAPI/System/IO/inputs/{input_id}"
-            response = requests.get(
-                url,
-                auth=(self.username, self.password),
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            xml = ET.fromstring(response.text)
-            
-            result = {}
-            enabled = xml.find(f".//{XML_NS}enabled")
-            if enabled is not None:
-                result["enabled"] = enabled.text.strip().lower() == "true"
-            
-            return result
-        except Exception as e:
-            _LOGGER.error("Failed to get alarm input %d: %s", input_id, e)
-            return {}
-
-    def set_alarm_input(self, input_id: int = 1, enabled: bool = True) -> bool:
-        """Enable/disable alarm input."""
-        try:
-            url = f"http://{self.host}/ISAPI/System/IO/inputs/{input_id}"
-            
-            # Get current settings
-            response = requests.get(
-                url,
-                auth=(self.username, self.password),
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace enabled value
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=(self.username, self.password),
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            return True
-        except Exception as e:
-            _LOGGER.error("Failed to set alarm input %d: %s", input_id, e)
-            return False
-
-    def get_alarm_output(self, output_id: int = 1) -> dict:
-        """Get alarm output settings."""
-        try:
-            url = f"http://{self.host}/ISAPI/System/IO/outputs/{output_id}"
-            response = requests.get(
-                url,
-                auth=(self.username, self.password),
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            xml = ET.fromstring(response.text)
-            
-            result = {}
-            # Alarm output doesn't have enabled, but we can check normalStatus
-            normal_status = xml.find(f".//{XML_NS}normalStatus")
-            if normal_status is not None:
-                # "open" means enabled, "close" means disabled
-                result["enabled"] = normal_status.text.strip().lower() == "open"
-            
-            return result
-        except Exception as e:
-            _LOGGER.error("Failed to get alarm output %d: %s", output_id, e)
-            return {}
-
-    def set_alarm_output(self, output_id: int = 1, enabled: bool = True) -> bool:
-        """Enable/disable alarm output."""
-        try:
-            url = f"http://{self.host}/ISAPI/System/IO/outputs/{output_id}"
-            
-            # Get current settings
-            response = requests.get(
-                url,
-                auth=(self.username, self.password),
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace normalStatus value (open = enabled, close = disabled)
-            status_str = "open" if enabled else "close"
-            xml_str = re.sub(r'<normalStatus>.*?</normalStatus>', f'<normalStatus>{status_str}</normalStatus>', xml_str)
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=(self.username, self.password),
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            return True
-        except Exception as e:
-            _LOGGER.error("Failed to set alarm output %d: %s", output_id, e)
-            return False
-
-    def _get_detection(self, detection_type: str) -> dict:
-        """Generic method to get detection settings."""
-        try:
-            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/{detection_type}"
-            response = requests.get(
-                url,
-                auth=(self.username, self.password),
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            xml = ET.fromstring(response.text)
-            
-            result = {}
-            enabled = xml.find(f".//{XML_NS}enabled")
-            if enabled is not None:
-                result["enabled"] = enabled.text.strip().lower() == "true"
-            
-            return result
-        except Exception as e:
-            _LOGGER.debug("Failed to get %s: %s", detection_type, e)
-            return {}
-
-    def _set_detection(self, detection_type: str, enabled: bool) -> bool:
-        """Generic method to set detection settings."""
-        try:
-            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/{detection_type}"
-            
-            # Get current settings
-            response = requests.get(
-                url,
-                auth=(self.username, self.password),
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace enabled value
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=(self.username, self.password),
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            return True
-        except Exception as e:
-            _LOGGER.debug("Failed to set %s: %s", detection_type, e)
-            return False
-
-    def get_intrusion_detection(self) -> dict:
-        """Get intrusion detection settings."""
-        return self._get_detection("intrusionDetection")
-
-    def set_intrusion_detection(self, enabled: bool) -> bool:
-        """Enable/disable intrusion detection."""
-        return self._set_detection("intrusionDetection", enabled)
-
-    def get_line_crossing_detection(self) -> dict:
-        """Get line crossing detection settings."""
-        return self._get_detection("lineDetection")
-
-    def set_line_crossing_detection(self, enabled: bool) -> bool:
-        """Enable/disable line crossing detection."""
-        return self._set_detection("lineDetection", enabled)
-
-    def get_region_entrance_detection(self) -> dict:
-        """Get region entrance detection settings."""
-        return self._get_detection("regionEntranceDetection")
-
-    def set_region_entrance_detection(self, enabled: bool) -> bool:
-        """Enable/disable region entrance detection."""
-        return self._set_detection("regionEntranceDetection", enabled)
-
-    def get_region_exiting_detection(self) -> dict:
-        """Get region exiting detection settings."""
-        return self._get_detection("regionExitingDetection")
-
-    def set_region_exiting_detection(self, enabled: bool) -> bool:
-        """Enable/disable region exiting detection."""
-        return self._set_detection("regionExitingDetection", enabled)
-
-    def get_scene_change_detection(self) -> dict:
-        """Get scene change detection settings."""
-        return self._get_detection("sceneChangeDetection")
-
-    def set_scene_change_detection(self, enabled: bool) -> bool:
-        """Enable/disable scene change detection."""
-        return self._set_detection("sceneChangeDetection", enabled)
 
     def get_snapshot(self) -> Optional[bytes]:
         """Get camera snapshot image."""
