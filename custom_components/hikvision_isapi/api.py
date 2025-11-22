@@ -468,6 +468,219 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set tamper detection: %s", e)
             return False
 
+    def get_alarm_input(self, input_id: int = 1) -> dict:
+        """Get alarm input settings."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/IO/inputs/{input_id}"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+            
+            result = {}
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get alarm input %d: %s", input_id, e)
+            return {}
+
+    def set_alarm_input(self, input_id: int = 1, enabled: bool = True) -> bool:
+        """Enable/disable alarm input."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/IO/inputs/{input_id}"
+            
+            # Get current settings
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace enabled value
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to set alarm input %d: %s", input_id, e)
+            return False
+
+    def get_alarm_output(self, output_id: int = 1) -> dict:
+        """Get alarm output settings."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/IO/outputs/{output_id}"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+            
+            result = {}
+            # Alarm output doesn't have enabled, but we can check normalStatus
+            normal_status = xml.find(f".//{XML_NS}normalStatus")
+            if normal_status is not None:
+                # "open" means enabled, "close" means disabled
+                result["enabled"] = normal_status.text.strip().lower() == "open"
+            
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get alarm output %d: %s", output_id, e)
+            return {}
+
+    def set_alarm_output(self, output_id: int = 1, enabled: bool = True) -> bool:
+        """Enable/disable alarm output."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/IO/outputs/{output_id}"
+            
+            # Get current settings
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace normalStatus value (open = enabled, close = disabled)
+            status_str = "open" if enabled else "close"
+            xml_str = re.sub(r'<normalStatus>.*?</normalStatus>', f'<normalStatus>{status_str}</normalStatus>', xml_str)
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to set alarm output %d: %s", output_id, e)
+            return False
+
+    def _get_detection(self, detection_type: str) -> dict:
+        """Generic method to get detection settings."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/{detection_type}"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+            
+            result = {}
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            
+            return result
+        except Exception as e:
+            _LOGGER.debug("Failed to get %s: %s", detection_type, e)
+            return {}
+
+    def _set_detection(self, detection_type: str, enabled: bool) -> bool:
+        """Generic method to set detection settings."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/{detection_type}"
+            
+            # Get current settings
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace enabled value
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.debug("Failed to set %s: %s", detection_type, e)
+            return False
+
+    def get_intrusion_detection(self) -> dict:
+        """Get intrusion detection settings."""
+        return self._get_detection("intrusionDetection")
+
+    def set_intrusion_detection(self, enabled: bool) -> bool:
+        """Enable/disable intrusion detection."""
+        return self._set_detection("intrusionDetection", enabled)
+
+    def get_line_crossing_detection(self) -> dict:
+        """Get line crossing detection settings."""
+        return self._get_detection("lineDetection")
+
+    def set_line_crossing_detection(self, enabled: bool) -> bool:
+        """Enable/disable line crossing detection."""
+        return self._set_detection("lineDetection", enabled)
+
+    def get_region_entrance_detection(self) -> dict:
+        """Get region entrance detection settings."""
+        return self._get_detection("regionEntranceDetection")
+
+    def set_region_entrance_detection(self, enabled: bool) -> bool:
+        """Enable/disable region entrance detection."""
+        return self._set_detection("regionEntranceDetection", enabled)
+
+    def get_region_exiting_detection(self) -> dict:
+        """Get region exiting detection settings."""
+        return self._get_detection("regionExitingDetection")
+
+    def set_region_exiting_detection(self, enabled: bool) -> bool:
+        """Enable/disable region exiting detection."""
+        return self._set_detection("regionExitingDetection", enabled)
+
+    def get_scene_change_detection(self) -> dict:
+        """Get scene change detection settings."""
+        return self._get_detection("sceneChangeDetection")
+
+    def set_scene_change_detection(self, enabled: bool) -> bool:
+        """Enable/disable scene change detection."""
+        return self._set_detection("sceneChangeDetection", enabled)
+
     def get_snapshot(self) -> Optional[bytes]:
         """Get camera snapshot image."""
         try:
