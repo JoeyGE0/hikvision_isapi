@@ -45,6 +45,7 @@ class HikvisionLightModeSelect(SelectEntity):
         self._host = host
         self._entry = entry
         self._attr_unique_id = f"{host}_light_mode"
+        self._optimistic_value = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -61,6 +62,11 @@ class HikvisionLightModeSelect(SelectEntity):
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
+        # Use optimistic value if set (immediate feedback)
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        # Otherwise use coordinator data
         if self.coordinator.data and "light_mode" in self.coordinator.data:
             mode = self.coordinator.data["light_mode"]
             if mode in self._attr_options:
@@ -69,12 +75,25 @@ class HikvisionLightModeSelect(SelectEntity):
 
     async def async_select_option(self, option: str):
         """Change the selected option."""
+        # Optimistic update - show immediately
+        self._optimistic_value = option
+        self.async_write_ha_state()
+        
+        # Send to device
         success = await self.hass.async_add_executor_job(
             self.api.set_supplement_light, option
         )
+        
         if success:
-            # Refresh coordinator to get updated state
+            # Refresh coordinator to sync with device
             await self.coordinator.async_request_refresh()
+            # Only clear optimistic if coordinator confirms the change
+            if (self.coordinator.data and 
+                self.coordinator.data.get("light_mode") == option):
+                self._optimistic_value = None
+        else:
+            # Write failed, clear optimistic and let coordinator show actual state
+            self._optimistic_value = None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -99,6 +118,7 @@ class HikvisionIRModeSelect(SelectEntity):
         self._host = host
         self._entry = entry
         self._attr_unique_id = f"{host}_ir_mode"
+        self._optimistic_value = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -115,6 +135,11 @@ class HikvisionIRModeSelect(SelectEntity):
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
+        # Use optimistic value if set (immediate feedback)
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        # Otherwise use coordinator data
         if self.coordinator.data and "ircut" in self.coordinator.data:
             mode = self.coordinator.data["ircut"].get("mode")
             if mode in self._attr_options:
@@ -123,12 +148,25 @@ class HikvisionIRModeSelect(SelectEntity):
 
     async def async_select_option(self, option: str):
         """Change the selected option."""
+        # Optimistic update - show immediately
+        self._optimistic_value = option
+        self.async_write_ha_state()
+        
+        # Send to device
         success = await self.hass.async_add_executor_job(
             self.api.set_ircut_mode, option
         )
+        
         if success:
-            # Refresh coordinator to get updated state
+            # Refresh coordinator to sync with device
             await self.coordinator.async_request_refresh()
+            # Only clear optimistic if coordinator confirms the change
+            if (self.coordinator.data and 
+                self.coordinator.data.get("ircut", {}).get("mode") == option):
+                self._optimistic_value = None
+        else:
+            # Write failed, clear optimistic and let coordinator show actual state
+            self._optimistic_value = None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
