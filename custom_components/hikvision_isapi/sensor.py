@@ -4,10 +4,9 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-from .api import HikvisionISAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,19 +17,15 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback
 ):
     """Set up sensors for the entry."""
-    config = hass.data[DOMAIN][entry.entry_id]
-
-    host = config[CONF_HOST]
-    username = config[CONF_USERNAME]
-    password = config[CONF_PASSWORD]
-
-    api = HikvisionISAPI(host, username, password)
+    data = hass.data[DOMAIN][entry.entry_id]
+    api = data["api"]
+    host = data["host"]
 
     entities = [
-        HikvisionIRModeSensor(api, host),
-        HikvisionIRSensitivitySensor(api, host),
-        HikvisionIRFilterTimeSensor(api, host),
-        HikvisionLightModeSensor(api, host),
+        HikvisionIRModeSensor(api, entry, host),
+        HikvisionIRSensitivitySensor(api, entry, host),
+        HikvisionIRFilterTimeSensor(api, entry, host),
+        HikvisionLightModeSensor(api, entry, host),
     ]
 
     async_add_entities(entities, True)
@@ -43,12 +38,20 @@ class HikvisionIRModeSensor(SensorEntity):
     _attr_unique_id = "hikvision_ir_mode_sensor"
     _attr_icon = "mdi:weather-night"
 
-    def __init__(self, api: HikvisionISAPI, host: str):
+    def __init__(self, api, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.api = api
         self._host = host
+        self._entry = entry
         self._attr_unique_id = f"{host}_ir_mode_sensor"
         self._state = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
 
     @property
     def native_value(self):
@@ -68,12 +71,20 @@ class HikvisionIRSensitivitySensor(SensorEntity):
     _attr_unique_id = "hikvision_ir_sensitivity_sensor"
     _attr_icon = "mdi:adjust"
 
-    def __init__(self, api: HikvisionISAPI, host: str):
+    def __init__(self, api, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.api = api
         self._host = host
+        self._entry = entry
         self._attr_unique_id = f"{host}_ir_sensitivity_sensor"
         self._state = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
 
     @property
     def native_value(self):
@@ -95,12 +106,20 @@ class HikvisionIRFilterTimeSensor(SensorEntity):
     _attr_native_unit_of_measurement = "s"
     _attr_icon = "mdi:timer"
 
-    def __init__(self, api: HikvisionISAPI, host: str):
+    def __init__(self, api, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.api = api
         self._host = host
+        self._entry = entry
         self._attr_unique_id = f"{host}_ir_filter_time_sensor"
         self._state = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
 
     @property
     def native_value(self):
@@ -121,12 +140,20 @@ class HikvisionLightModeSensor(SensorEntity):
     _attr_unique_id = "hikvision_light_mode_sensor"
     _attr_icon = "mdi:lightbulb"
 
-    def __init__(self, api: HikvisionISAPI, host: str):
+    def __init__(self, api, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.api = api
         self._host = host
+        self._entry = entry
         self._attr_unique_id = f"{host}_light_mode_sensor"
         self._state = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
 
     @property
     def native_value(self):
