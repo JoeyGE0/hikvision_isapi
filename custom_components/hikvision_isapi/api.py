@@ -185,7 +185,11 @@ class HikvisionISAPI:
             return {}
 
     def set_speaker_volume(self, volume: int) -> bool:
-        """Set speaker volume (0-100)."""
+        """Set speaker volume (0-100).
+        
+        Note: Camera API has swapped fields - speakerVolume actually controls microphone,
+        and microphoneVolume actually controls speaker. So we set microphoneVolume here.
+        """
         try:
             # Get current settings first
             current = self.get_two_way_audio()
@@ -193,8 +197,9 @@ class HikvisionISAPI:
                 return False
             
             # Build full XML with all required fields
+            # NOTE: Camera has swapped fields - microphoneVolume controls speaker output
             enabled = "true" if current.get("enabled", False) else "false"
-            mic_volume = current.get("microphoneVolume", 100)
+            mic_volume = current.get("speakerVolume", 100)  # Get current mic volume (from speakerVolume field)
             compression = current.get("audioCompressionType", "G.711ulaw")
             noise_reduce = "true"  # Default
             
@@ -202,8 +207,8 @@ class HikvisionISAPI:
 <id>1</id>
 <enabled>{enabled}</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
-<speakerVolume>{volume}</speakerVolume>
-<microphoneVolume>{mic_volume}</microphoneVolume>
+<speakerVolume>{mic_volume}</speakerVolume>
+<microphoneVolume>{volume}</microphoneVolume>
 <noisereduce>{noise_reduce}</noisereduce>
 <audioInputType>MicIn</audioInputType>
 <audioOutputType>Speaker</audioOutputType>
@@ -225,7 +230,11 @@ class HikvisionISAPI:
             return False
 
     def set_microphone_volume(self, volume: int) -> bool:
-        """Set microphone volume (0-100)."""
+        """Set microphone volume (0-100).
+        
+        Note: Camera API has swapped fields - speakerVolume actually controls microphone,
+        and microphoneVolume actually controls speaker. So we set speakerVolume here.
+        """
         try:
             # Get current settings first
             current = self.get_two_way_audio()
@@ -233,8 +242,9 @@ class HikvisionISAPI:
                 return False
             
             # Build full XML with all required fields
+            # NOTE: Camera has swapped fields - speakerVolume controls microphone input
             enabled = "true" if current.get("enabled", False) else "false"
-            speaker_volume = current.get("speakerVolume", 50)
+            speaker_volume = current.get("microphoneVolume", 50)  # Get current speaker volume (from microphoneVolume field)
             compression = current.get("audioCompressionType", "G.711ulaw")
             noise_reduce = "true"  # Default
             
@@ -242,8 +252,8 @@ class HikvisionISAPI:
 <id>1</id>
 <enabled>{enabled}</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
-<speakerVolume>{speaker_volume}</speakerVolume>
-<microphoneVolume>{volume}</microphoneVolume>
+<speakerVolume>{volume}</speakerVolume>
+<microphoneVolume>{speaker_volume}</microphoneVolume>
 <noisereduce>{noise_reduce}</noisereduce>
 <audioInputType>MicIn</audioInputType>
 <audioOutputType>Speaker</audioOutputType>
