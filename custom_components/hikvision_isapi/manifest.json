@@ -11,5 +11,5 @@
   "after_dependencies": [],
   "quality_scale": "internal",
   "domains": [],
-  "platforms": ["sensor", "select", "number", "media_player", "binary_sensor", "camera"]
+  "platforms": ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"]
 }
