@@ -18,7 +18,6 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback
 ):
-    """Set up sensors for the entry."""
     config = hass.data[DOMAIN][entry.entry_id]
 
     host = config[CONF_HOST]
@@ -33,7 +32,7 @@ async def async_setup_entry(
 
 
 class HikvisionIRCutSensor(SensorEntity):
-    """Represents IR-cut filter mode."""
+    """IR Cut filter mode sensor"""
 
     _attr_name = "Hikvision IR Cut Mode"
     _attr_unique_id = "hikvision_ircut_mode"
@@ -49,20 +48,21 @@ class HikvisionIRCutSensor(SensorEntity):
         return self._state
 
     def update(self):
-        """Fetch IR cut mode from camera."""
         url = f"http://{self._host}/ISAPI/Image/channels/1/IrcutFilter"
 
         try:
-            r = requests.get(url, auth=(self._username, self._password), verify=False, timeout=5)
+            r = requests.get(
+                url,
+                auth=(self._username, self._password),
+                verify=False,
+                timeout=5
+            )
             xml = ET.fromstring(r.text)
 
             mode = xml.find(".//{http://www.hikvision.com/ver20/XMLSchema}IrcutFilterType")
 
-            if mode is not None:
-                self._state = mode.text.strip()
-            else:
-                self._state = "unknown"
+            self._state = mode.text.strip() if mode is not None else "unknown"
 
         except Exception as e:
-            _LOGGER.error("Failed to update IR Cut sensor: %s", e)
+            _LOGGER.error("Failed updating IR Cut sensor: %s", e)
             self._state = "error"
