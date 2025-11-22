@@ -3,7 +3,7 @@
   "name": "Hikvision ISAPI Controls",
   "version": "0.0.1",
   "documentation": "https://github.com/JoeyGE0/hikvision_isapi",
-  "requirements": ["requests"],
+  "requirements": ["requests", "pydub>=0.25.1"],
   "config_flow": true,
   "iot_class": "local_polling",
   "codeowners": ["@JoeyGE0"],
@@ -11,5 +11,5 @@
   "after_dependencies": [],
   "quality_scale": "internal",
   "domains": [],
-  "platforms": ["sensor", "select", "number"]
+  "platforms": ["sensor", "select", "number", "media_player"]
 }
