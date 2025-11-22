@@ -1,7 +1,7 @@
 {
   "domain": "hikvision_isapi",
   "name": "Hikvision ISAPI Controls",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "documentation": "https://github.com/JoeyGE0/hikvision_isapi",
   "requirements": ["requests", "pydub>=0.25.1"],
   "config_flow": true,
