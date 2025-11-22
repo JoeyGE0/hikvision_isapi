@@ -388,13 +388,11 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         media_content_id: str | None = None,
     ) -> BrowseMedia:
         """Browse media."""
-        from homeassistant.components.media_player import async_process_play_media_url
         from homeassistant.components.media_source import async_browse_media
         
         return await async_browse_media(
             self.hass,
             media_content_id,
-            media_content_type,
         )
 
     async def async_added_to_hass(self) -> None:
