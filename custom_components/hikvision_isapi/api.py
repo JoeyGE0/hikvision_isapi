@@ -127,6 +127,115 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set IR filter time: %s", e)
             return False
 
+    def get_two_way_audio(self) -> dict:
+        """Get two-way audio settings."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+            
+            result = {}
+            result["enabled"] = xml.find(f".//{XML_NS}enabled")
+            result["speakerVolume"] = xml.find(f".//{XML_NS}speakerVolume")
+            result["microphoneVolume"] = xml.find(f".//{XML_NS}microphoneVolume")
+            result["audioCompressionType"] = xml.find(f".//{XML_NS}audioCompressionType")
+            
+            # Extract text values
+            audio_info = {}
+            for key, element in result.items():
+                if element is not None and element.text:
+                    if key == "enabled":
+                        audio_info[key] = element.text.strip().lower() == "true"
+                    elif key in ["speakerVolume", "microphoneVolume"]:
+                        audio_info[key] = int(element.text.strip())
+                    else:
+                        audio_info[key] = element.text.strip()
+            
+            return audio_info
+        except Exception as e:
+            _LOGGER.error("Failed to get two-way audio: %s", e)
+            return {}
+
+    def set_speaker_volume(self, volume: int) -> bool:
+        """Set speaker volume (0-100)."""
+        try:
+            # Get current settings first
+            current = self.get_two_way_audio()
+            if not current:
+                return False
+            
+            # Build full XML with all required fields
+            enabled = "true" if current.get("enabled", False) else "false"
+            mic_volume = current.get("microphoneVolume", 100)
+            compression = current.get("audioCompressionType", "G.711ulaw")
+            noise_reduce = "true"  # Default
+            
+            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>1</id>
+<enabled>{enabled}</enabled>
+<audioCompressionType>{compression}</audioCompressionType>
+<speakerVolume>{volume}</speakerVolume>
+<microphoneVolume>{mic_volume}</microphoneVolume>
+<noisereduce>{noise_reduce}</noisereduce>
+<audioInputType>MicIn</audioInputType>
+<audioOutputType>Speaker</audioOutputType>
+</TwoWayAudioChannel>"""
+            
+            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_data,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to set speaker volume: %s", e)
+            return False
+
+    def open_audio_session(self) -> Optional[str]:
+        """Open two-way audio session. Returns sessionId."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/open"
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+            session_id = xml.find(f".//{XML_NS}sessionId")
+            return session_id.text.strip() if session_id is not None else None
+        except Exception as e:
+            _LOGGER.error("Failed to open audio session: %s", e)
+            return None
+
+    def close_audio_session(self) -> bool:
+        """Close two-way audio session."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/close"
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to close audio session: %s", e)
+            return False
+
     def get_device_info(self) -> dict:
         """Get device information from ISAPI."""
         try:
@@ -146,6 +255,9 @@ class HikvisionISAPI:
             device_info["serialNumber"] = xml.find(f".//{XML_NS}serialNumber")
             device_info["firmwareVersion"] = xml.find(f".//{XML_NS}firmwareVersion")
             device_info["hardwareVersion"] = xml.find(f".//{XML_NS}hardwareVersion")
+            device_info["macAddress"] = xml.find(f".//{XML_NS}macAddress")
+            device_info["deviceID"] = xml.find(f".//{XML_NS}deviceID")
+            device_info["manufacturer"] = xml.find(f".//{XML_NS}manufacturer")
             
             # Extract text values
             result = {}
