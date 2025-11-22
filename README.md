@@ -84,9 +84,8 @@ Other models haven't been tested. May or may not work.
 
 **Entities not showing**: Check ISAPI is enabled and credentials are correct. Check logs.
 
-**Audio not working**: Make sure two-way audio is enabled on the camera and speaker volume is above 0.
+**Audio not working**: 
 
-**Logo not showing**: Needs to be added to Home Assistant Brands repository. See `LOGO_INSTRUCTIONS.md`.
 
 ## Reporting Issues
 
