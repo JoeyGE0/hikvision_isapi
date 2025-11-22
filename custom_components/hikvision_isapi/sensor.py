@@ -242,13 +242,17 @@ class HikvisionSpeakerVolumeSensor(SensorEntity):
         """Return if entity is available."""
         return self.coordinator.last_update_success
 
-    @property
-    def native_value(self):
-        """Return the current speaker volume."""
-        if self.coordinator.data and "audio" in self.coordinator.data:
-            volume = self.coordinator.data["audio"].get("speakerVolume")
-            return volume if volume is not None else "unknown"
-        return "unknown"
+           @property
+           def native_value(self):
+               """Return the current speaker volume.
+               
+               Note: Camera API has swapped fields - microphoneVolume actually controls speaker.
+               """
+               if self.coordinator.data and "audio" in self.coordinator.data:
+                   # Camera has swapped fields - microphoneVolume is actually speaker volume
+                   volume = self.coordinator.data["audio"].get("microphoneVolume")
+                   return volume if volume is not None else "unknown"
+               return "unknown"
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -285,13 +289,17 @@ class HikvisionMicrophoneVolumeSensor(SensorEntity):
         """Return if entity is available."""
         return self.coordinator.last_update_success
 
-    @property
-    def native_value(self):
-        """Return the current microphone volume."""
-        if self.coordinator.data and "audio" in self.coordinator.data:
-            volume = self.coordinator.data["audio"].get("microphoneVolume")
-            return volume if volume is not None else "unknown"
-        return "unknown"
+           @property
+           def native_value(self):
+               """Return the current microphone volume.
+               
+               Note: Camera API has swapped fields - speakerVolume actually controls microphone.
+               """
+               if self.coordinator.data and "audio" in self.coordinator.data:
+                   # Camera has swapped fields - speakerVolume is actually microphone volume
+                   volume = self.coordinator.data["audio"].get("speakerVolume")
+                   return volume if volume is not None else "unknown"
+               return "unknown"
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
