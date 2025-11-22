@@ -27,6 +27,8 @@ async def async_setup_entry(
         HikvisionIRSensitivitySensor(coordinator, entry, host, device_name),
         HikvisionIRFilterTimeSensor(coordinator, entry, host, device_name),
         HikvisionLightModeSensor(coordinator, entry, host, device_name),
+        HikvisionSpeakerVolumeSensor(coordinator, entry, host, device_name),
+        HikvisionMicrophoneVolumeSensor(coordinator, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -203,6 +205,92 @@ class HikvisionLightModeSensor(SensorEntity):
         if self.coordinator.data and "light_mode" in self.coordinator.data:
             api_value = self.coordinator.data["light_mode"]
             return api_to_display.get(api_value, api_value if api_value else "unknown")
+        return "unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionSpeakerVolumeSensor(SensorEntity):
+    """Sensor for speaker volume."""
+
+    _attr_unique_id = "hikvision_speaker_volume_sensor"
+    _attr_icon = "mdi:volume-high"
+    _attr_native_unit_of_measurement = "%"
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Speaker Volume"
+        self._attr_unique_id = f"{host}_speaker_volume_sensor"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the current speaker volume."""
+        if self.coordinator.data and "audio" in self.coordinator.data:
+            volume = self.coordinator.data["audio"].get("speakerVolume")
+            return volume if volume is not None else "unknown"
+        return "unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionMicrophoneVolumeSensor(SensorEntity):
+    """Sensor for microphone volume."""
+
+    _attr_unique_id = "hikvision_microphone_volume_sensor"
+    _attr_icon = "mdi:microphone"
+    _attr_native_unit_of_measurement = "%"
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Mic Volume"
+        self._attr_unique_id = f"{host}_microphone_volume_sensor"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the current microphone volume."""
+        if self.coordinator.data and "audio" in self.coordinator.data:
+            volume = self.coordinator.data["audio"].get("microphoneVolume")
+            return volume if volume is not None else "unknown"
         return "unknown"
 
     async def async_added_to_hass(self) -> None:
