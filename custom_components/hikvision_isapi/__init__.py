@@ -67,7 +67,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     }
 
     await hass.config_entries.async_forward_entry_setups(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"]
+        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
     )
 
     return True
@@ -75,7 +75,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_unload_platforms(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"]
+        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
     )
     hass.data[DOMAIN].pop(entry.entry_id, None)
     return True
