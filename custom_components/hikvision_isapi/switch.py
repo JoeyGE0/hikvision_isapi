@@ -1,61 +1,113 @@
+"""Switch platform for Hikvision ISAPI."""
 from __future__ import annotations
 import logging
-import requests
-import voluptuous as vol
-
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
-import homeassistant.helpers.config_validation as cv
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
+
+from .const import DOMAIN
+from .api import HikvisionISAPI
+from .coordinator import HikvisionDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "hikvision_isapi"
 
-CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: vol.Schema(
-            {
-                vol.Required(CONF_HOST): cv.string,
-                vol.Required(CONF_USERNAME): cv.string,
-                vol.Required(CONF_PASSWORD): cv.string,
-            }
-        )
-    },
-    extra=vol.ALLOW_EXTRA,
-)
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+):
+    """Set up switch entities for the entry."""
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data["coordinator"]
+    api = data["api"]
+    host = data["host"]
+    device_name = data["device_info"].get("deviceName", host)
 
+    entities = [
+        HikvisionNoiseReduceSwitch(coordinator, api, entry, host, device_name),
+    ]
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    host = config[DOMAIN][CONF_HOST]
-    user = config[DOMAIN][CONF_USERNAME]
-    password = config[DOMAIN][CONF_PASSWORD]
-
-    add_entities([
-        HikvisionTestSwitch(host, user, password)
-    ], True)
+    async_add_entities(entities)
 
 
-class HikvisionTestSwitch(SwitchEntity):
-    """A dummy switch to verify integration loads."""
+class HikvisionNoiseReduceSwitch(SwitchEntity):
+    """Switch entity for noise reduction."""
 
-    def __init__(self, host, user, password):
+    _attr_unique_id = "hikvision_noisereduce"
+    _attr_icon = "mdi:volume-off"
+
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the switch."""
+        self.coordinator = coordinator
+        self.api = api
         self._host = host
-        self._user = user
-        self._password = password
-        self._state = False
+        self._entry = entry
+        self._attr_name = f"{device_name} Noise Reduction"
+        self._attr_unique_id = f"{host}_noisereduce"
+        self._optimistic_value = None
 
     @property
-    def name(self):
-        return "Hikvision Test Switch"
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
 
     @property
-    def is_on(self):
-        return self._state
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
 
-    def turn_on(self, **kwargs):
-        self._state = True
-        _LOGGER.debug("Test switch turned ON")
+    @property
+    def is_on(self) -> bool:
+        """Return if noise reduction is enabled."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        if self.coordinator.data and "audio" in self.coordinator.data:
+            return self.coordinator.data["audio"].get("noisereduce", False)
+        return False
 
-    def turn_off(self, **kwargs):
-        self._state = False
-        _LOGGER.debug("Test switch turned OFF")
+    async def async_turn_on(self, **kwargs):
+        """Turn on noise reduction."""
+        self._optimistic_value = True
+        self.async_write_ha_state()
+        
+        success = await self.hass.async_add_executor_job(
+            self.api.set_noisereduce, True
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+            if (self.coordinator.data and 
+                self.coordinator.data.get("audio", {}).get("noisereduce") == True):
+                self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+
+    async def async_turn_off(self, **kwargs):
+        """Turn off noise reduction."""
+        self._optimistic_value = False
+        self.async_write_ha_state()
+        
+        success = await self.hass.async_add_executor_job(
+            self.api.set_noisereduce, False
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+            if (self.coordinator.data and 
+                self.coordinator.data.get("audio", {}).get("noisereduce") == False):
+                self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
