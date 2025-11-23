@@ -88,24 +88,185 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to PUT %s: %s", endpoint, e)
             raise
 
-    def get_supplement_light(self) -> Optional[str]:
-        """Get current supplement light mode."""
+    def get_supplement_light(self) -> dict:
+        """Get current supplement light settings."""
         try:
             xml = self._get("/supplementLight")
+            result = {}
+            
             mode = xml.find(f".//{XML_NS}supplementLightMode")
-            return mode.text.strip() if mode is not None else None
+            if mode is not None:
+                result["mode"] = mode.text.strip()
+            
+            white_bright = xml.find(f".//{XML_NS}whiteLightBrightness")
+            if white_bright is not None:
+                result["whiteLightBrightness"] = int(white_bright.text.strip())
+            
+            ir_bright = xml.find(f".//{XML_NS}irLightBrightness")
+            if ir_bright is not None:
+                result["irLightBrightness"] = int(ir_bright.text.strip())
+            
+            mixed_mode = xml.find(f".//{XML_NS}mixedLightBrightnessRegulatMode")
+            if mixed_mode is not None:
+                result["mixedLightBrightnessRegulatMode"] = mixed_mode.text.strip()
+            
+            brightness_mode = xml.find(f".//{XML_NS}brightnessRegulatMode")
+            if brightness_mode is not None:
+                result["brightnessRegulatMode"] = brightness_mode.text.strip()
+            
+            white_limit = xml.find(f".//{XML_NS}whiteLightbrightLimit")
+            if white_limit is not None:
+                result["whiteLightbrightLimit"] = int(white_limit.text.strip())
+            
+            ir_limit = xml.find(f".//{XML_NS}irLightbrightLimit")
+            if ir_limit is not None:
+                result["irLightbrightLimit"] = int(ir_limit.text.strip())
+            
+            return result
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to get supplement light: %s", e)
-            return None
+            return {}
 
     def set_supplement_light(self, mode: str) -> bool:
         """Set supplement light mode (eventIntelligence/irLight/close)."""
-        xml_data = f"<SupplementLight><supplementLightMode>{mode}</supplementLightMode></SupplementLight>"
         try:
-            self._put("/supplementLight", xml_data)
+            # Get current settings first to preserve other values
+            current = self.get_supplement_light()
+            if not current:
+                return False
+            
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace mode value
+            xml_str = re.sub(
+                r'<supplementLightMode>.*?</supplementLightMode>',
+                f'<supplementLightMode>{mode}</supplementLightMode>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
             return True
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to set supplement light: %s", e)
+            return False
+
+    def set_white_light_brightness(self, brightness: int) -> bool:
+        """Set white light brightness (0-100)."""
+        try:
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace whiteLightBrightness value
+            xml_str = re.sub(
+                r'<whiteLightBrightness>.*?</whiteLightBrightness>',
+                f'<whiteLightBrightness>{brightness}</whiteLightBrightness>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set white light brightness: %s", e)
+            return False
+
+    def set_ir_light_brightness(self, brightness: int) -> bool:
+        """Set IR light brightness (0-100)."""
+        try:
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace irLightBrightness value
+            xml_str = re.sub(
+                r'<irLightBrightness>.*?</irLightBrightness>',
+                f'<irLightBrightness>{brightness}</irLightBrightness>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set IR light brightness: %s", e)
             return False
 
     def get_white_light_time(self) -> Optional[int]:
@@ -255,12 +416,13 @@ class HikvisionISAPI:
             result["speakerVolume"] = xml.find(f".//{XML_NS}speakerVolume")
             result["microphoneVolume"] = xml.find(f".//{XML_NS}microphoneVolume")
             result["audioCompressionType"] = xml.find(f".//{XML_NS}audioCompressionType")
+            result["noisereduce"] = xml.find(f".//{XML_NS}noisereduce")
             
             # Extract text values
             audio_info = {}
             for key, element in result.items():
                 if element is not None and element.text:
-                    if key == "enabled":
+                    if key in ["enabled", "noisereduce"]:
                         audio_info[key] = element.text.strip().lower() == "true"
                     elif key in ["speakerVolume", "microphoneVolume"]:
                         audio_info[key] = int(element.text.strip())
@@ -366,6 +528,53 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set microphone volume: %s", e)
             return False
 
+    def set_noisereduce(self, enabled: bool) -> bool:
+        """Enable/disable noise reduction."""
+        try:
+            # Get current settings first
+            current = self.get_two_way_audio()
+            if not current:
+                return False
+            
+            # Build full XML with all required fields
+            audio_enabled = "true" if current.get("enabled", False) else "false"
+            speaker_volume = current.get("speakerVolume", 50)
+            mic_volume = current.get("microphoneVolume", 100)
+            compression = current.get("audioCompressionType", "G.711ulaw")
+            noise_reduce = "true" if enabled else "false"
+            
+            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>1</id>
+<enabled>{audio_enabled}</enabled>
+<audioCompressionType>{compression}</audioCompressionType>
+<speakerVolume>{speaker_volume}</speakerVolume>
+<microphoneVolume>{mic_volume}</microphoneVolume>
+<noisereduce>{noise_reduce}</noisereduce>
+<audioInputType>MicIn</audioInputType>
+<audioOutputType>Speaker</audioOutputType>
+</TwoWayAudioChannel>"""
+            
+            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_data,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set noise reduction: %s", e)
+            return False
+
     def open_audio_session(self) -> Optional[str]:
         """Open two-way audio session. Returns sessionId."""
         try:
@@ -422,6 +631,26 @@ class HikvisionISAPI:
             if enabled is not None:
                 result["enabled"] = enabled.text.strip().lower() == "true"
             
+            # Get sensitivity from MotionDetectionLayout
+            layout = xml.find(f".//{XML_NS}MotionDetectionLayout")
+            if layout is not None:
+                sensitivity = layout.find(f".//{XML_NS}sensitivityLevel")
+                if sensitivity is not None:
+                    result["sensitivityLevel"] = int(sensitivity.text.strip())
+                
+                target_type = layout.find(f".//{XML_NS}targetType")
+                if target_type is not None:
+                    result["targetType"] = target_type.text.strip()
+            
+            # Get trigger times
+            start_time = xml.find(f".//{XML_NS}startTriggerTime")
+            if start_time is not None:
+                result["startTriggerTime"] = int(start_time.text.strip())
+            
+            end_time = xml.find(f".//{XML_NS}endTriggerTime")
+            if end_time is not None:
+                result["endTriggerTime"] = int(end_time.text.strip())
+            
             return result
         except AuthenticationError:
             raise
@@ -477,6 +706,152 @@ class HikvisionISAPI:
             raise
         except Exception as e:
             _LOGGER.error("Failed to set motion detection: %s", e)
+            return False
+
+    def set_motion_sensitivity(self, sensitivity: int) -> bool:
+        """Set motion detection sensitivity (0-100)."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
+            
+            # Get current settings
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace sensitivityLevel value
+            xml_str = re.sub(
+                r'<sensitivityLevel>.*?</sensitivityLevel>',
+                f'<sensitivityLevel>{sensitivity}</sensitivityLevel>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set motion sensitivity: %s", e)
+            return False
+
+    def set_motion_target_type(self, target_type: str) -> bool:
+        """Set motion detection target type (human, vehicle, human,vehicle)."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
+            
+            # Get current settings
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace targetType value
+            xml_str = re.sub(
+                r'<targetType>.*?</targetType>',
+                f'<targetType>{target_type}</targetType>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set motion target type: %s", e)
+            return False
+
+    def set_motion_trigger_times(self, start_time: int, end_time: int) -> bool:
+        """Set motion detection trigger times (milliseconds)."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
+            
+            # Get current settings
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace trigger time values
+            xml_str = re.sub(
+                r'<startTriggerTime>.*?</startTriggerTime>',
+                f'<startTriggerTime>{start_time}</startTriggerTime>',
+                xml_str
+            )
+            xml_str = re.sub(
+                r'<endTriggerTime>.*?</endTriggerTime>',
+                f'<endTriggerTime>{end_time}</endTriggerTime>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set motion trigger times: %s", e)
             return False
 
     def get_tamper_detection(self) -> dict:
@@ -568,6 +943,73 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to get snapshot: %s", e)
             return None
+
+    def get_streaming_status(self) -> dict:
+        """Get streaming status information."""
+        try:
+            xml = self._get("/ISAPI/Streaming/status")
+            
+            result = {}
+            
+            # Total streaming sessions
+            total = xml.find(f".//{XML_NS}totalStreamingSessions")
+            if total is not None:
+                result["totalStreamingSessions"] = int(total.text.strip())
+            
+            # Client addresses
+            clients = xml.findall(f".//{XML_NS}StreamingSessionStatus")
+            client_ips = []
+            for client in clients:
+                ip_elem = client.find(f".//{XML_NS}ipAddress")
+                if ip_elem is not None:
+                    client_ips.append(ip_elem.text.strip())
+            result["clientAddresses"] = ", ".join(client_ips) if client_ips else "None"
+            result["clientCount"] = len(client_ips)
+            
+            return result
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to get streaming status: %s", e)
+            return {}
+
+    def get_system_status(self) -> dict:
+        """Get system status information."""
+        try:
+            xml = self._get("/ISAPI/System/status")
+            
+            result = {}
+            
+            # CPU
+            cpu_util = xml.find(f".//{XML_NS}cpuUtilization")
+            if cpu_util is not None:
+                result["cpu_utilization"] = int(cpu_util.text.strip())
+            
+            # Memory
+            mem_usage = xml.find(f".//{XML_NS}memoryUsage")
+            if mem_usage is not None:
+                result["memory_usage"] = int(mem_usage.text.strip())
+            
+            mem_avail = xml.find(f".//{XML_NS}memoryAvailable")
+            if mem_avail is not None:
+                result["memory_available"] = int(mem_avail.text.strip())
+            
+            # Uptime
+            uptime = xml.find(f".//{XML_NS}deviceUpTime")
+            if uptime is not None:
+                result["uptime"] = int(uptime.text.strip())
+            
+            # Reboot count
+            reboot_count = xml.find(f".//{XML_NS}totalRebootCount")
+            if reboot_count is not None:
+                result["reboot_count"] = int(reboot_count.text.strip())
+            
+            return result
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to get system status: %s", e)
+            return {}
 
     def restart(self) -> bool:
         """Restart the camera."""
