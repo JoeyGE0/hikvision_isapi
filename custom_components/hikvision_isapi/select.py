@@ -26,6 +26,7 @@ async def async_setup_entry(
     entities = [
         HikvisionLightModeSelect(coordinator, api, entry, host, device_name),
         HikvisionIRModeSelect(coordinator, api, entry, host, device_name),
+        HikvisionMotionTargetTypeSelect(coordinator, api, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -77,8 +78,8 @@ class HikvisionLightModeSelect(SelectEntity):
             return self._optimistic_value
         
         # Otherwise use coordinator data - convert API value to display name
-        if self.coordinator.data and "light_mode" in self.coordinator.data:
-            api_value = self.coordinator.data["light_mode"]
+        if self.coordinator.data and "supplement_light" in self.coordinator.data:
+            api_value = self.coordinator.data["supplement_light"].get("mode")
             display_value = self._display_value_map.get(api_value)
             if display_value in self._attr_options:
                 return display_value
@@ -103,7 +104,7 @@ class HikvisionLightModeSelect(SelectEntity):
             await self.coordinator.async_request_refresh()
             # Only clear optimistic if coordinator confirms the change
             if (self.coordinator.data and 
-                self.coordinator.data.get("light_mode") == api_value):
+                self.coordinator.data.get("supplement_light", {}).get("mode") == api_value):
                 self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
@@ -193,6 +194,72 @@ class HikvisionIRModeSelect(SelectEntity):
                 self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionMotionTargetTypeSelect(SelectEntity):
+    """Select entity for motion detection target type."""
+
+    _attr_unique_id = "hikvision_motion_target_type"
+    _attr_options = ["human", "vehicle", "human,vehicle"]
+    _attr_icon = "mdi:target"
+
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the select entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Motion Target Type"
+        self._attr_unique_id = f"{host}_motion_target_type"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the current selected option."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        if self.coordinator.data and "motion" in self.coordinator.data:
+            target_type = self.coordinator.data["motion"].get("targetType")
+            if target_type and target_type in self._attr_options:
+                return target_type
+        return None
+
+    async def async_select_option(self, option: str):
+        """Change the selected option."""
+        self._optimistic_value = option
+        self.async_write_ha_state()
+        
+        success = await self.hass.async_add_executor_job(
+            self.api.set_motion_target_type, option
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+            if (self.coordinator.data and 
+                self.coordinator.data.get("motion", {}).get("targetType") == option):
+                self._optimistic_value = None
+        else:
             self._optimistic_value = None
 
     async def async_added_to_hass(self) -> None:
