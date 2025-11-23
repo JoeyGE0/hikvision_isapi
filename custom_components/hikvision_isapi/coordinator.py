@@ -42,7 +42,7 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             ircut_data = await self.hass.async_add_executor_job(
                 self.api.get_ircut_filter
             )
-            light_mode = await self.hass.async_add_executor_job(
+            supplement_light = await self.hass.async_add_executor_job(
                 self.api.get_supplement_light
             )
             audio_data = await self.hass.async_add_executor_job(
@@ -57,14 +57,22 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             white_light_time = await self.hass.async_add_executor_job(
                 self.api.get_white_light_time
             )
+            system_status = await self.hass.async_add_executor_job(
+                self.api.get_system_status
+            )
+            streaming_status = await self.hass.async_add_executor_job(
+                self.api.get_streaming_status
+            )
 
             return {
                 "ircut": ircut_data,
-                "light_mode": light_mode,
+                "supplement_light": supplement_light,
                 "audio": audio_data,
                 "motion": motion_data,
                 "tamper": tamper_data,
                 "white_light_time": white_light_time,
+                "system_status": system_status,
+                "streaming_status": streaming_status,
             }
         except AuthenticationError as err:
             raise UpdateFailed(
