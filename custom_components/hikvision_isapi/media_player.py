@@ -161,18 +161,24 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     
     async def _stream_audio(self, media_id: str, media_type: str):
         """Stream audio to camera."""
+        _LOGGER.info("=== STREAM AUDIO START ===")
+        _LOGGER.info("media_id: %s, media_type: %s", media_id, media_type)
         try:
             # Get audio data
+            _LOGGER.info("Step 1: Getting audio data...")
             audio_data = await self._get_audio_data(media_id, media_type)
+            _LOGGER.info("Audio data result: %s bytes", len(audio_data) if audio_data else 0)
             if not audio_data:
                 _LOGGER.error("Failed to get audio data")
                 await self.async_media_stop()
                 return
             
             # Convert to G.711ulaw
+            _LOGGER.info("Step 2: Converting audio to G.711ulaw...")
             ulaw_data = await self.hass.async_add_executor_job(
                 self._convert_to_ulaw, audio_data
             )
+            _LOGGER.info("Ulaw conversion result: %s bytes", len(ulaw_data) if ulaw_data else 0)
             
             if not ulaw_data:
                 _LOGGER.error("Failed to convert audio to G.711ulaw")
@@ -180,19 +186,26 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 return
             
             # Stream to camera
+            _LOGGER.info("Step 3: Sending audio stream to camera...")
             await self.hass.async_add_executor_job(
                 self._send_audio_stream, ulaw_data
             )
+            _LOGGER.info("Audio stream sent")
             
             # Close session after streaming
+            _LOGGER.info("Step 4: Closing session...")
             await self.async_media_stop()
+            _LOGGER.info("=== STREAM AUDIO COMPLETE ===")
             
         except Exception as e:
-            _LOGGER.error("Error streaming audio: %s", e)
+            _LOGGER.error("Error streaming audio: %s", e, exc_info=True)
             await self.async_media_stop()
     
     async def _get_audio_data(self, media_id: str, media_type: str) -> bytes | None:
         """Get audio data from media_id (URL, TTS, or media-source)."""
+        _LOGGER.info("=== GET AUDIO DATA START ===")
+        _LOGGER.info("media_id: %s, media_type: %s", media_id, media_type)
+        
         from homeassistant.components.media_source import (
             async_resolve_media,
             is_media_source_id,
@@ -201,25 +214,32 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         try:
             # Handle media-source IDs first (includes TTS and local media)
             if is_media_source_id(media_id):
+                _LOGGER.info("media_id is a media-source ID, resolving...")
                 try:
                     resolved_media = await async_resolve_media(self.hass, media_id)
+                    _LOGGER.info("Resolved media result: %s", resolved_media)
                     if resolved_media and resolved_media.url:
                         _LOGGER.info("Resolved media source: %s -> %s", media_id, resolved_media.url)
+                        _LOGGER.info("Resolved URL type: %s", type(resolved_media.url))
                         
-                        # Use the resolved URL - for local media, read directly from filesystem
-                        media_url = resolved_media.url
+                        # Keep the full resolved URL (may contain auth tokens in query params)
+                        full_resolved_url = resolved_media.url
+                        _LOGGER.info("Full resolved URL (with query params): %s", full_resolved_url)
                         
-                        # Remove any query parameters
-                        if "?" in media_url:
-                            media_url = media_url.split("?")[0]
+                        # For filesystem access, use URL without query params
+                        media_url = full_resolved_url.split("?")[0] if "?" in full_resolved_url else full_resolved_url
+                        _LOGGER.info("Media URL (for filesystem lookup): %s", media_url)
                         
-                        # For local media files, try filesystem first, then HTTP with auth
+                        # For local media files, try filesystem first, then use resolved URL via HTTP
                         if media_url.startswith("/media/local/"):
+                            _LOGGER.info("Detected /media/local/ path, attempting filesystem access")
                             media_path = media_url.replace("/media/local/", "")
+                            _LOGGER.info("Extracted media path: %s", media_path)
                             
                             import os
                             def read_media_file():
                                 config_dir = self.hass.config.config_dir
+                                _LOGGER.info("Config directory: %s", config_dir)
                                 # Home Assistant stores media files in the media/ directory
                                 # Try multiple possible locations
                                 possible_paths = [
@@ -227,94 +247,123 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                                     os.path.join(config_dir, "www", media_path),     # Legacy location: config/www/filename
                                     os.path.join(config_dir, "media", "local", media_path),  # Alternative: config/media/local/filename
                                 ]
+                                _LOGGER.info("Trying filesystem paths: %s", possible_paths)
                                 
                                 for file_path in possible_paths:
-                                    if os.path.exists(file_path) and os.path.isfile(file_path):
-                                        _LOGGER.info("Reading media file from filesystem: %s", file_path)
-                                        with open(file_path, 'rb') as f:
-                                            return f.read()
+                                    _LOGGER.info("Checking path: %s", file_path)
+                                    _LOGGER.info("  - exists: %s", os.path.exists(file_path))
+                                    if os.path.exists(file_path):
+                                        _LOGGER.info("  - isfile: %s", os.path.isfile(file_path))
+                                        if os.path.isfile(file_path):
+                                            file_size = os.path.getsize(file_path)
+                                            _LOGGER.info("  - size: %d bytes", file_size)
+                                            _LOGGER.info("Reading media file from filesystem: %s", file_path)
+                                            with open(file_path, 'rb') as f:
+                                                data = f.read()
+                                                _LOGGER.info("Read %d bytes from filesystem", len(data))
+                                                return data
                                 
                                 # If not found, log all tried paths for debugging
-                                _LOGGER.debug("Media file not found in filesystem. Tried paths: %s", possible_paths)
+                                _LOGGER.warning("Media file not found in filesystem. Tried paths: %s", possible_paths)
                                 return None
                             
                             file_data = await self.hass.async_add_executor_job(read_media_file)
+                            _LOGGER.info("Filesystem read result: %s bytes", len(file_data) if file_data else 0)
                             if file_data and len(file_data) > 0:
+                                # Validate it's actually audio data
+                                _LOGGER.info("Validating file data (first 100 bytes): %s", file_data[:100])
+                                if file_data[:100].strip().startswith(b'<'):
+                                    _LOGGER.error("File appears to be HTML/text, not audio")
+                                    return None
+                                _LOGGER.info("File data validated, returning %d bytes", len(file_data))
                                 return file_data
+                            else:
+                                _LOGGER.warning("No file data from filesystem, will try HTTP")
                             
-                            # If not found in filesystem, try HTTP download with authentication
-                            _LOGGER.info("File not found in filesystem, trying HTTP download with authentication")
-                            base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
-                            base_url = base_url.rstrip("/")
-                            http_url = f"{base_url}{media_url}"
+                            # File not found in filesystem - use the full resolved URL (with query params) via HTTP
+                            _LOGGER.info("=== FILESYSTEM NOT FOUND, TRYING HTTP ===")
+                            _LOGGER.info("Full resolved URL: %s", full_resolved_url)
                             
-                            # Use Home Assistant's authenticated session (handles auth automatically)
+                            # Use the full resolved URL which may include auth tokens
+                            if full_resolved_url.startswith("http://") or full_resolved_url.startswith("https://"):
+                                # Already a full URL
+                                full_url = full_resolved_url
+                                _LOGGER.info("URL is already full URL")
+                            else:
+                                # Relative URL, prepend base URL
+                                base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
+                                _LOGGER.info("Base URL (internal: %s, external: %s): %s", 
+                                           self.hass.config.internal_url, 
+                                           self.hass.config.external_url,
+                                           base_url)
+                                base_url = base_url.rstrip("/")
+                                full_url = f"{base_url}{full_resolved_url}"
+                            
+                            _LOGGER.info("Final HTTP URL: %s", full_url)
+                            _LOGGER.info("Creating authenticated session...")
+                            
+                            # Use Home Assistant's authenticated session
                             session = async_get_clientsession(self.hass)
+                            _LOGGER.info("Session created, making GET request...")
                             try:
-                                async with session.get(http_url, timeout=30) as response:
+                                async with session.get(full_url, timeout=30, allow_redirects=True) as response:
+                                    _LOGGER.info("HTTP Response status: %s", response.status)
+                                    _LOGGER.info("HTTP Response headers: %s", dict(response.headers))
+                                    
                                     if response.status == 401:
-                                        _LOGGER.error("Authentication failed for media URL: %s", http_url)
+                                        _LOGGER.error("Authentication failed for media URL: %s", full_url)
+                                        response_text = await response.text()
+                                        _LOGGER.error("Response body: %s", response_text[:500])
                                         return None
                                     if response.status == 404:
-                                        _LOGGER.error("Media file not found at URL: %s", http_url)
+                                        _LOGGER.error("Media file not found at URL: %s", full_url)
+                                        response_text = await response.text()
+                                        _LOGGER.error("Response body: %s", response_text[:500])
                                         return None
+                                    
+                                    _LOGGER.info("Response status OK, reading data...")
                                     response.raise_for_status()
                                     
-                                    # Check content type to ensure we got audio, not HTML
-                                    content_type = response.headers.get('Content-Type', '')
-                                    
                                     http_data = await response.read()
+                                    _LOGGER.info("Read %d bytes from HTTP response", len(http_data) if http_data else 0)
+                                    
                                     if http_data and len(http_data) > 100:
-                                        # Validate it's not HTML (error page)
+                                        # Validate it's actually audio, not HTML error page
+                                        _LOGGER.info("Validating HTTP data (first 100 bytes): %s", http_data[:100])
                                         if http_data[:100].strip().startswith(b'<'):
-                                            _LOGGER.error("Downloaded data appears to be HTML error page, not audio")
-                                            _LOGGER.debug("Response preview: %s", http_data[:500].decode('utf-8', errors='ignore'))
+                                            _LOGGER.error("Received HTML error page instead of audio file")
+                                            _LOGGER.error("Response preview: %s", http_data[:500].decode('utf-8', errors='ignore'))
                                             return None
-                                        # Check for common audio file signatures
-                                        is_audio = (
-                                            http_data.startswith(b'ID3') or  # MP3
-                                            http_data.startswith(b'\xff\xfb') or  # MP3
-                                            http_data.startswith(b'RIFF') or  # WAV
-                                            http_data.startswith(b'\x00\x00\x00\x20ftyp') or  # M4A
-                                            http_data.startswith(b'OggS') or  # OGG
-                                            http_data.startswith(b'fLaC')  # FLAC
-                                        )
-                                        if not is_audio and 'audio' not in content_type.lower():
-                                            _LOGGER.warning("Downloaded data doesn't appear to be audio (type: %s, size: %d)", 
-                                                          content_type, len(http_data))
-                                        
-                                        _LOGGER.info("Successfully downloaded media via HTTP: %d bytes (type: %s)", 
-                                                   len(http_data), content_type)
+                                        _LOGGER.info("HTTP data validated, returning %d bytes", len(http_data))
                                         return http_data
                                     else:
-                                        _LOGGER.error("Downloaded media file is empty or too small (%d bytes)", len(http_data) if http_data else 0)
+                                        _LOGGER.error("Downloaded data is empty or too small: %d bytes", len(http_data) if http_data else 0)
                                         return None
                             except Exception as e:
                                 _LOGGER.error("Failed to download media via HTTP: %s", e, exc_info=True)
                                 return None
                         
-                        # For other relative URLs, convert to full URL and download
+                        # For other relative URLs (not /media/local/), download via HTTP
                         if media_url.startswith("/"):
                             base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
                             base_url = base_url.rstrip("/")
-                            media_url = f"{base_url}{media_url}"
-                            _LOGGER.info("Downloading media via HTTP: %s", media_url)
+                            full_url = f"{base_url}{full_resolved_url}"  # Use full URL with query params
+                            _LOGGER.info("Downloading media via HTTP: %s", full_url)
+                            
+                            session = async_get_clientsession(self.hass)
+                            try:
+                                async with session.get(full_url, timeout=30, allow_redirects=True) as response:
+                                    if response.status == 401:
+                                        _LOGGER.error("Authentication failed for media URL")
+                                        return None
+                                    response.raise_for_status()
+                                    return await response.read()
+                            except Exception as e:
+                                _LOGGER.error("Failed to download media: %s", e)
+                                return None
                         
-                        if not media_url.startswith("http://") and not media_url.startswith("https://"):
-                            _LOGGER.error("Invalid URL: %s", media_url)
-                            return None
-                        
-                        # Download via HTTP with authenticated session
-                        session = async_get_clientsession(self.hass)
-                        try:
-                            async with session.get(media_url, timeout=30) as response:
-                                if response.status == 401:
-                                    _LOGGER.error("Authentication failed for media URL")
-                                    return None
-                                response.raise_for_status()
-                                return await response.read()
-                        except Exception as e:
-                            _LOGGER.error("Failed to download media: %s", e)
+                        if not full_resolved_url.startswith("http://") and not full_resolved_url.startswith("https://"):
+                            _LOGGER.error("Invalid URL format: %s", full_resolved_url)
                             return None
                     else:
                         _LOGGER.error("Failed to resolve media source URL")
@@ -397,6 +446,9 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         This method uses ffmpeg via subprocess for reliable conversion,
         avoiding pydub's format detection issues.
         """
+        _LOGGER.info("=== CONVERT TO ULAW START ===")
+        _LOGGER.info("Input audio data size: %d bytes", len(audio_data) if audio_data else 0)
+        
         if not audio_data or len(audio_data) == 0:
             _LOGGER.error("Audio data is empty or None")
             return None
@@ -405,23 +457,54 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Audio data too small (%d bytes), likely invalid", len(audio_data))
             return None
         
-        # Check if data looks like HTML (error page)
+        # Validate it's actually audio data, not HTML/text
+        _LOGGER.info("First 100 bytes (hex): %s", audio_data[:100].hex())
+        _LOGGER.info("First 100 bytes (ascii preview): %s", audio_data[:100].decode('utf-8', errors='replace')[:100])
+        
         if audio_data[:100].strip().startswith(b'<'):
-            _LOGGER.error("Received HTML instead of audio data (likely error page)")
+            _LOGGER.error("Received HTML/text instead of audio data (likely error page)")
+            _LOGGER.error("Data preview: %s", audio_data[:500].decode('utf-8', errors='ignore'))
             return None
+        
+        # Check for valid audio file signatures
+        _LOGGER.info("Checking audio file signatures...")
+        is_valid_audio = (
+            audio_data.startswith(b'ID3') or  # MP3 with ID3 tag
+            audio_data.startswith(b'\xff\xfb') or  # MP3 frame sync
+            audio_data.startswith(b'\xff\xf3') or  # MP3 frame sync
+            audio_data.startswith(b'\xff\xf2') or  # MP3 frame sync
+            audio_data.startswith(b'RIFF') or  # WAV
+            audio_data.startswith(b'\x00\x00\x00\x20ftyp') or  # M4A/MP4
+            audio_data.startswith(b'OggS') or  # OGG
+            audio_data.startswith(b'fLaC') or  # FLAC
+            b'ftyp' in audio_data[:20]  # MP4/M4A (ftyp can be at offset 4)
+        )
+        
+        _LOGGER.info("Valid audio signature detected: %s", is_valid_audio)
+        if not is_valid_audio:
+            _LOGGER.warning("Audio data doesn't have recognized audio file signature, but attempting conversion anyway")
         
         import subprocess
         import tempfile
         import os
         
+        _LOGGER.info("Creating temporary files for ffmpeg conversion...")
         # Write input to temporary file
         input_fd, input_path = tempfile.mkstemp(suffix='.audio')
         output_fd, output_path = tempfile.mkstemp(suffix='.ulaw')
+        _LOGGER.info("Input temp file: %s", input_path)
+        _LOGGER.info("Output temp file: %s", output_path)
         
         try:
             # Write input audio data
+            _LOGGER.info("Writing %d bytes to input temp file...", len(audio_data))
             with os.fdopen(input_fd, 'wb') as f:
                 f.write(audio_data)
+            _LOGGER.info("Input file written successfully")
+            
+            # Verify file was written
+            input_size = os.path.getsize(input_path)
+            _LOGGER.info("Input file size: %d bytes", input_size)
             
             # Use ffmpeg to convert directly to G.711ulaw (mulaw)
             # Command: ffmpeg -i input -ar 8000 -ac 1 -acodec pcm_mulaw output
@@ -436,7 +519,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 output_path
             ]
             
-            _LOGGER.debug("Running ffmpeg conversion: %s", ' '.join(cmd))
+            _LOGGER.info("Running ffmpeg conversion command: %s", ' '.join(cmd))
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -444,24 +527,33 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 timeout=30
             )
             
+            _LOGGER.info("ffmpeg return code: %d", result.returncode)
+            if result.stdout:
+                _LOGGER.info("ffmpeg stdout: %s", result.stdout.decode('utf-8', errors='ignore')[:500])
+            if result.stderr:
+                _LOGGER.info("ffmpeg stderr: %s", result.stderr.decode('utf-8', errors='ignore')[:1000])
+            
             if result.returncode != 0:
                 error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
                 _LOGGER.error("ffmpeg conversion failed (code %d): %s", result.returncode, error_msg)
                 return None
             
             # Read output file
+            _LOGGER.info("Reading output file...")
             with os.fdopen(output_fd, 'rb') as f:
                 ulaw_data = f.read()
+            
+            _LOGGER.info("Output file size: %d bytes", len(ulaw_data) if ulaw_data else 0)
             
             if not ulaw_data or len(ulaw_data) == 0:
                 _LOGGER.error("ffmpeg produced empty output")
                 return None
             
-            _LOGGER.info("Converted %d bytes audio to %d bytes G.711ulaw", len(audio_data), len(ulaw_data))
+            _LOGGER.info("Successfully converted %d bytes audio to %d bytes G.711ulaw", len(audio_data), len(ulaw_data))
             return ulaw_data
             
         except subprocess.TimeoutExpired:
-            _LOGGER.error("ffmpeg conversion timed out")
+            _LOGGER.error("ffmpeg conversion timed out after 30 seconds")
             return None
         except FileNotFoundError:
             _LOGGER.error("ffmpeg not found. Please ensure ffmpeg is installed and in PATH")
@@ -471,13 +563,17 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             return None
         finally:
             # Clean up temporary files
+            _LOGGER.info("Cleaning up temporary files...")
             try:
                 if os.path.exists(input_path):
                     os.unlink(input_path)
+                    _LOGGER.info("Deleted input temp file: %s", input_path)
                 if os.path.exists(output_path):
                     os.unlink(output_path)
-            except Exception:
-                pass
+                    _LOGGER.info("Deleted output temp file: %s", output_path)
+            except Exception as e:
+                _LOGGER.warning("Failed to clean up temp files: %s", e)
+            _LOGGER.info("=== CONVERT TO ULAW END ===")
     
     def _send_audio_stream(self, ulaw_data: bytes):
         """Send audio stream to camera.
