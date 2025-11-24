@@ -613,6 +613,126 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to close audio session: %s", e)
             return False
 
+    def play_test_tone(self) -> bool:
+        """Play a 2-second test tone (for testing purposes)."""
+        import time
+        import math
+        
+        try:
+            # Step 1: Close any existing sessions
+            _LOGGER.info("Closing any existing audio sessions...")
+            self.close_audio_session()
+            time.sleep(0.5)
+            
+            # Step 2: Enable two-way audio
+            _LOGGER.info("Enabling two-way audio...")
+            xml_data = """<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>1</id>
+<enabled>true</enabled>
+<audioCompressionType>G.711ulaw</audioCompressionType>
+<speakerVolume>100</speakerVolume>
+<microphoneVolume>100</microphoneVolume>
+<noisereduce>true</noisereduce>
+<audioInputType>MicIn</audioInputType>
+<audioOutputType>Speaker</audioOutputType>
+</TwoWayAudioChannel>"""
+            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_data,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            time.sleep(0.5)
+            
+            # Step 3: Open session
+            _LOGGER.info("Opening audio session...")
+            session_id = self.open_audio_session()
+            if not session_id:
+                _LOGGER.error("Failed to open audio session")
+                return False
+            
+            # Step 4: Generate 2-second tone
+            _LOGGER.info("Generating 2-second test tone...")
+            sample_rate = 8000
+            duration = 2.0
+            frequency = 440
+            num_samples = int(sample_rate * duration)
+            
+            def linear_to_ulaw(linear):
+                linear = max(-32768, min(32767, linear))
+                sign = 0 if linear >= 0 else 0x80
+                linear = abs(linear)
+                exp = 0
+                if linear >= 256:
+                    if linear >= 1024:
+                        if linear >= 4096:
+                            if linear >= 16384:
+                                exp = 7
+                            else:
+                                exp = 6
+                        else:
+                            exp = 5
+                    else:
+                        exp = 4
+                else:
+                    if linear >= 16:
+                        if linear >= 64:
+                            exp = 3
+                        else:
+                            exp = 2
+                    else:
+                        if linear >= 4:
+                            exp = 1
+                        else:
+                            exp = 0
+                mantissa = (linear >> (exp + 3)) & 0x0F
+                ulaw = sign | (exp << 4) | mantissa
+                return (~ulaw) & 0xFF
+            
+            ulaw_data = bytearray()
+            for i in range(num_samples):
+                t = i / sample_rate
+                sample = math.sin(2 * math.pi * frequency * t)
+                pcm_sample = int(sample * 32767)
+                ulaw_byte = linear_to_ulaw(pcm_sample)
+                ulaw_data.append(ulaw_byte)
+            
+            _LOGGER.info("Generated %d bytes of audio", len(ulaw_data))
+            
+            # Step 5: Send all audio in one request
+            _LOGGER.info("Sending audio to camera...")
+            endpoint = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/audioData"
+            response = requests.put(
+                endpoint,
+                auth=(self.username, self.password),
+                data=bytes(ulaw_data),
+                verify=False,
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                _LOGGER.error("Failed to send audio: %s", response.text[:300])
+                self.close_audio_session()
+                return False
+            
+            _LOGGER.info("Test tone sent successfully!")
+            
+            # Step 6: Close session
+            self.close_audio_session()
+            return True
+            
+        except Exception as e:
+            _LOGGER.error("Failed to play test tone: %s", e, exc_info=True)
+            try:
+                self.close_audio_session()
+            except:
+                pass
+            return False
+
     def get_motion_detection(self) -> dict:
         """Get motion detection settings."""
         try:
