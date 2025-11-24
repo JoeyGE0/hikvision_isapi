@@ -4,7 +4,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
 from .const import DOMAIN
 
@@ -41,6 +41,7 @@ class HikvisionCPUUtilizationSensor(SensorEntity):
     _attr_unique_id = "hikvision_cpu_utilization"
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:cpu-64-bit"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
@@ -84,6 +85,7 @@ class HikvisionMemoryUsageSensor(SensorEntity):
     _attr_unique_id = "hikvision_memory_usage"
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:memory"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
@@ -126,6 +128,7 @@ class HikvisionDeviceUptimeSensor(SensorEntity):
 
     _attr_unique_id = "hikvision_device_uptime"
     _attr_icon = "mdi:clock-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
@@ -181,6 +184,7 @@ class HikvisionStreamingSessionsSensor(SensorEntity):
 
     _attr_unique_id = "hikvision_streaming_sessions"
     _attr_icon = "mdi:play-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
@@ -228,6 +232,7 @@ class HikvisionStreamingClientsSensor(SensorEntity):
 
     _attr_unique_id = "hikvision_streaming_clients"
     _attr_icon = "mdi:account-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
@@ -275,6 +280,7 @@ class HikvisionRebootCountSensor(SensorEntity):
 
     _attr_unique_id = "hikvision_reboot_count"
     _attr_icon = "mdi:restart"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
