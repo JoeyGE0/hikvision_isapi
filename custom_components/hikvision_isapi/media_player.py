@@ -213,7 +213,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         if "?" in media_url:
                             media_url = media_url.split("?")[0]
                         
-                        # For local media files, try filesystem first, then HTTP
+                        # For local media files, read directly from filesystem
                         if media_url.startswith("/media/local/"):
                             media_path = media_url.replace("/media/local/", "")
                             
@@ -221,26 +221,34 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             def read_media_file():
                                 config_dir = self.hass.config.config_dir
                                 # Home Assistant stores media files in the media/ directory
-                                # Try media/ directory first (correct location)
-                                file_path = os.path.join(config_dir, "media", media_path)
-                                if not os.path.exists(file_path):
-                                    # Fallback to www/ for backwards compatibility
-                                    file_path = os.path.join(config_dir, "www", media_path)
+                                # Try multiple possible locations
+                                possible_paths = [
+                                    os.path.join(config_dir, "media", media_path),  # Standard location: config/media/filename
+                                    os.path.join(config_dir, "www", media_path),     # Legacy location: config/www/filename
+                                    os.path.join(config_dir, "media", "local", media_path),  # Alternative: config/media/local/filename
+                                ]
                                 
-                                if os.path.exists(file_path) and os.path.isfile(file_path):
-                                    _LOGGER.info("Reading media file from filesystem: %s", file_path)
-                                    with open(file_path, 'rb') as f:
-                                        return f.read()
+                                for file_path in possible_paths:
+                                    if os.path.exists(file_path) and os.path.isfile(file_path):
+                                        _LOGGER.info("Reading media file from filesystem: %s", file_path)
+                                        with open(file_path, 'rb') as f:
+                                            return f.read()
                                 
-                                _LOGGER.debug("Media file not found locally, will try HTTP: %s", file_path)
+                                # If not found, log all tried paths for debugging
+                                _LOGGER.error("Media file not found in filesystem. Tried paths: %s", possible_paths)
+                                _LOGGER.error("Config directory: %s, Media path: %s", config_dir, media_path)
                                 return None
                             
                             file_data = await self.hass.async_add_executor_job(read_media_file)
                             if file_data:
                                 return file_data
-                            # If not found locally, fall through to HTTP download below
+                            
+                            # Don't try HTTP for local files - if not in filesystem, it won't work via HTTP either
+                            # (HTTP requires auth and the file should be accessible via filesystem)
+                            _LOGGER.error("Local media file not found. Please ensure the file exists in your Home Assistant media directory.")
+                            return None
                         
-                        # For all URLs (including /media/local/ if not found locally), use HTTP
+                        # For other relative URLs, convert to full URL and download
                         if media_url.startswith("/"):
                             base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
                             base_url = base_url.rstrip("/")
@@ -251,10 +259,13 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             _LOGGER.error("Invalid URL: %s", media_url)
                             return None
                         
-                        # Download via HTTP
+                        # Download via HTTP with authenticated session
                         session = async_get_clientsession(self.hass)
                         try:
                             async with session.get(media_url, timeout=30) as response:
+                                if response.status == 401:
+                                    _LOGGER.error("Authentication failed for media URL")
+                                    return None
                                 response.raise_for_status()
                                 return await response.read()
                         except Exception as e:
