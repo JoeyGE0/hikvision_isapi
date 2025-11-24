@@ -32,7 +32,11 @@ class HikvisionISAPI:
 
     def _get(self, endpoint: str) -> ET.Element:
         """Make a GET request to ISAPI endpoint."""
-        url = f"http://{self.host}{endpoint}" if endpoint.startswith("/ISAPI/System") else f"{self.base_url}{endpoint}"
+        # Use full URL for System and Streaming endpoints, otherwise use base_url (Image channels)
+        if endpoint.startswith("/ISAPI/System") or endpoint.startswith("/ISAPI/Streaming"):
+            url = f"http://{self.host}{endpoint}"
+        else:
+            url = f"{self.base_url}{endpoint}"
         try:
             response = requests.get(
                 url,
@@ -960,9 +964,12 @@ class HikvisionISAPI:
             clients = xml.findall(f".//{XML_NS}StreamingSessionStatus")
             client_ips = []
             for client in clients:
-                ip_elem = client.find(f".//{XML_NS}ipAddress")
-                if ip_elem is not None:
-                    client_ips.append(ip_elem.text.strip())
+                # IP address is nested under clientAddress
+                client_addr = client.find(f".//{XML_NS}clientAddress")
+                if client_addr is not None:
+                    ip_elem = client_addr.find(f".//{XML_NS}ipAddress")
+                    if ip_elem is not None:
+                        client_ips.append(ip_elem.text.strip())
             result["clientAddresses"] = ", ".join(client_ips) if client_ips else "None"
             result["clientCount"] = len(client_ips)
             
