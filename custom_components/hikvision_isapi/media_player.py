@@ -213,7 +213,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         if "?" in media_url:
                             media_url = media_url.split("?")[0]
                         
-                        # For local media files, read directly from filesystem
+                        # For local media files, try filesystem first, then HTTP with auth
                         if media_url.startswith("/media/local/"):
                             media_path = media_url.replace("/media/local/", "")
                             
@@ -235,18 +235,63 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                                             return f.read()
                                 
                                 # If not found, log all tried paths for debugging
-                                _LOGGER.error("Media file not found in filesystem. Tried paths: %s", possible_paths)
-                                _LOGGER.error("Config directory: %s, Media path: %s", config_dir, media_path)
+                                _LOGGER.debug("Media file not found in filesystem. Tried paths: %s", possible_paths)
                                 return None
                             
                             file_data = await self.hass.async_add_executor_job(read_media_file)
-                            if file_data:
+                            if file_data and len(file_data) > 0:
                                 return file_data
                             
-                            # Don't try HTTP for local files - if not in filesystem, it won't work via HTTP either
-                            # (HTTP requires auth and the file should be accessible via filesystem)
-                            _LOGGER.error("Local media file not found. Please ensure the file exists in your Home Assistant media directory.")
-                            return None
+                            # If not found in filesystem, try HTTP download with authentication
+                            _LOGGER.info("File not found in filesystem, trying HTTP download with authentication")
+                            base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
+                            base_url = base_url.rstrip("/")
+                            http_url = f"{base_url}{media_url}"
+                            
+                            # Use Home Assistant's authenticated session (handles auth automatically)
+                            session = async_get_clientsession(self.hass)
+                            try:
+                                async with session.get(http_url, timeout=30) as response:
+                                    if response.status == 401:
+                                        _LOGGER.error("Authentication failed for media URL: %s", http_url)
+                                        return None
+                                    if response.status == 404:
+                                        _LOGGER.error("Media file not found at URL: %s", http_url)
+                                        return None
+                                    response.raise_for_status()
+                                    
+                                    # Check content type to ensure we got audio, not HTML
+                                    content_type = response.headers.get('Content-Type', '')
+                                    
+                                    http_data = await response.read()
+                                    if http_data and len(http_data) > 100:
+                                        # Validate it's not HTML (error page)
+                                        if http_data[:100].strip().startswith(b'<'):
+                                            _LOGGER.error("Downloaded data appears to be HTML error page, not audio")
+                                            _LOGGER.debug("Response preview: %s", http_data[:500].decode('utf-8', errors='ignore'))
+                                            return None
+                                        # Check for common audio file signatures
+                                        is_audio = (
+                                            http_data.startswith(b'ID3') or  # MP3
+                                            http_data.startswith(b'\xff\xfb') or  # MP3
+                                            http_data.startswith(b'RIFF') or  # WAV
+                                            http_data.startswith(b'\x00\x00\x00\x20ftyp') or  # M4A
+                                            http_data.startswith(b'OggS') or  # OGG
+                                            http_data.startswith(b'fLaC')  # FLAC
+                                        )
+                                        if not is_audio and 'audio' not in content_type.lower():
+                                            _LOGGER.warning("Downloaded data doesn't appear to be audio (type: %s, size: %d)", 
+                                                          content_type, len(http_data))
+                                        
+                                        _LOGGER.info("Successfully downloaded media via HTTP: %d bytes (type: %s)", 
+                                                   len(http_data), content_type)
+                                        return http_data
+                                    else:
+                                        _LOGGER.error("Downloaded media file is empty or too small (%d bytes)", len(http_data) if http_data else 0)
+                                        return None
+                            except Exception as e:
+                                _LOGGER.error("Failed to download media via HTTP: %s", e, exc_info=True)
+                                return None
                         
                         # For other relative URLs, convert to full URL and download
                         if media_url.startswith("/"):
@@ -347,35 +392,92 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             return None
     
     def _convert_to_ulaw(self, audio_data: bytes) -> bytes | None:
-        """Convert audio to G.711ulaw format."""
-        try:
-            # Load audio
-            audio = AudioSegment.from_file(io.BytesIO(audio_data))
-            
-            # Convert to mono, 8000Hz (G.711 requirements)
-            audio = audio.set_channels(1).set_frame_rate(8000)
-            
-            # Export as raw PCM 16-bit using s16le format (correct for pydub)
-            pcm_data = io.BytesIO()
-            audio.export(pcm_data, format="s16le")
-            pcm_bytes = pcm_data.getvalue()
-            
-            # Convert PCM to G.711ulaw using audioop
-            try:
-                import audioop
-                ulaw_data = audioop.lin2ulaw(pcm_bytes, 2)  # 2 = 16-bit
-                return ulaw_data
-            except ImportError:
-                # audioop not available, use ffmpeg directly via pydub
-                _LOGGER.warning("audioop not available, using ffmpeg to export as ulaw")
-                ulaw_io = io.BytesIO()
-                # Export directly as mulaw (G.711ulaw) using ffmpeg
-                audio.export(ulaw_io, format="mulaw", parameters=["-ar", "8000", "-ac", "1"])
-                return ulaw_io.getvalue()
-            
-        except Exception as e:
-            _LOGGER.error("Failed to convert audio: %s", e, exc_info=True)
+        """Convert audio to G.711ulaw format using ffmpeg directly.
+        
+        This method uses ffmpeg via subprocess for reliable conversion,
+        avoiding pydub's format detection issues.
+        """
+        if not audio_data or len(audio_data) == 0:
+            _LOGGER.error("Audio data is empty or None")
             return None
+        
+        if len(audio_data) < 100:
+            _LOGGER.error("Audio data too small (%d bytes), likely invalid", len(audio_data))
+            return None
+        
+        # Check if data looks like HTML (error page)
+        if audio_data[:100].strip().startswith(b'<'):
+            _LOGGER.error("Received HTML instead of audio data (likely error page)")
+            return None
+        
+        import subprocess
+        import tempfile
+        import os
+        
+        # Write input to temporary file
+        input_fd, input_path = tempfile.mkstemp(suffix='.audio')
+        output_fd, output_path = tempfile.mkstemp(suffix='.ulaw')
+        
+        try:
+            # Write input audio data
+            with os.fdopen(input_fd, 'wb') as f:
+                f.write(audio_data)
+            
+            # Use ffmpeg to convert directly to G.711ulaw (mulaw)
+            # Command: ffmpeg -i input -ar 8000 -ac 1 -acodec pcm_mulaw output
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-ar', '8000',      # Sample rate 8000Hz
+                '-ac', '1',         # Mono channel
+                '-acodec', 'pcm_mulaw',  # G.711ulaw codec
+                '-f', 'mulaw',      # Format: mulaw
+                '-y',               # Overwrite output
+                output_path
+            ]
+            
+            _LOGGER.debug("Running ffmpeg conversion: %s", ' '.join(cmd))
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                check=False,
+                timeout=30
+            )
+            
+            if result.returncode != 0:
+                error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
+                _LOGGER.error("ffmpeg conversion failed (code %d): %s", result.returncode, error_msg)
+                return None
+            
+            # Read output file
+            with os.fdopen(output_fd, 'rb') as f:
+                ulaw_data = f.read()
+            
+            if not ulaw_data or len(ulaw_data) == 0:
+                _LOGGER.error("ffmpeg produced empty output")
+                return None
+            
+            _LOGGER.info("Converted %d bytes audio to %d bytes G.711ulaw", len(audio_data), len(ulaw_data))
+            return ulaw_data
+            
+        except subprocess.TimeoutExpired:
+            _LOGGER.error("ffmpeg conversion timed out")
+            return None
+        except FileNotFoundError:
+            _LOGGER.error("ffmpeg not found. Please ensure ffmpeg is installed and in PATH")
+            return None
+        except Exception as e:
+            _LOGGER.error("Failed to convert audio to G.711ulaw: %s", e, exc_info=True)
+            return None
+        finally:
+            # Clean up temporary files
+            try:
+                if os.path.exists(input_path):
+                    os.unlink(input_path)
+                if os.path.exists(output_path):
+                    os.unlink(output_path)
+            except Exception:
+                pass
     
     def _send_audio_stream(self, ulaw_data: bytes):
         """Send audio stream to camera.
