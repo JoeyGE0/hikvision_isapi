@@ -1,175 +1,238 @@
-# Hikvision ISAPI Controls
+<div align="center">
 
-![Icon](icon.png)
+# 🎥 Hikvision ISAPI Controls
+
+<img src="icon.png" alt="Hikvision ISAPI Controls Icon" width="128" height="128">
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2023.1%2B-blue)](https://www.home-assistant.io/)
 
-Home Assistant integration for Hikvision cameras using ISAPI with comprehensive control options and real-time event detection.
+**Home Assistant integration for Hikvision cameras using ISAPI with comprehensive control options and real-time event detection.**
 
-**⚠️ Early Development**: This integration is in early development. There are likely bugs and it's only been tested on DS-2CD2387G3 (ColorVu G3). Other models haven't been tested.
+[Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Entities](#-entities) • [Troubleshooting](#-troubleshooting)
 
-**⚠️ Disclaimer**: All written by Cursor AI. I have no clue what I'm doing.
+</div>
 
-**Known Issues**:
+---
+
+## ⚠️ Important Notes
+
+> **⚠️ Early Development**: This integration is in early development. There are likely bugs and it's only been tested on DS-2CD2387G3 (ColorVu G3). Other models haven't been tested.
+
+> **⚠️ Disclaimer**: All written by Cursor AI. I have no clue what I'm doing.
+
+### 🐛 Known Issues
 
 - Media player (speaker) functionality doesn't work properly
 
-## Features
+---
 
-### Real-Time Event Detection
+## ✨ Features
 
-- **Motion Detection** - Real-time motion events (not just enabled/disabled state)
-- **Intrusion Detection** - Field detection events
-- **Line Crossing Detection** - Line crossing events
-- **Region Entrance/Exiting** - Region-based detection events
-- **Scene Change Detection** - Scene change events
-- **Video Loss Detection** - Video loss events
-- **Video Tampering Detection** - Tamper detection events
+### 🔔 Real-Time Event Detection
 
-Events are received in real-time via webhook notifications from the camera.
+Real-time event detection via webhook notifications. Binary sensors update instantly when events occur.
 
-### Video/Image Controls
+| Feature                          | Description                                               |
+| -------------------------------- | --------------------------------------------------------- |
+| 🏃 **Motion Detection**          | Real-time motion events (not just enabled/disabled state) |
+| 🚨 **Intrusion Detection**       | Field detection events                                    |
+| 📏 **Line Crossing Detection**   | Line crossing events                                      |
+| 🚪 **Region Entrance/Exiting**   | Region-based detection events                             |
+| 🎬 **Scene Change Detection**    | Scene change events                                       |
+| 📹 **Video Loss Detection**      | Video loss events                                         |
+| 🛡️ **Video Tampering Detection** | Tamper detection events                                   |
 
-- **Day/Night Switch** - Day, Night, or Auto mode
-- **Day/Night Switch Sensitivity** - 0-7
-- **Day/Night Switch Delay** - 5-120 seconds
-- **Supplement Light Mode** - Smart, IR Supplement Light, or Off
-- **White Light Brightness** - 0-100%
-- **IR Light Brightness** - 0-100%
-- **LED On Duration** - 10-300 seconds
+### 🎥 Video/Image Controls
 
-### Motion Detection Settings
+| Control                          | Options/Range                      |
+| -------------------------------- | ---------------------------------- |
+| **Day/Night Switch**             | Day, Night, or Auto mode           |
+| **Day/Night Switch Sensitivity** | 0-7                                |
+| **Day/Night Switch Delay**       | 5-120 seconds                      |
+| **Supplement Light Mode**        | Smart, IR Supplement Light, or Off |
+| **White Light Brightness**       | 0-100%                             |
+| **IR Light Brightness**          | 0-100%                             |
+| **LED On Duration**              | 10-300 seconds                     |
 
-- **Motion Sensitivity** - 0-100%
-- **Motion Target Type** - Human, Vehicle, or Both
-- **Motion Start Trigger Time** - 0-10000ms
-- **Motion End Trigger Time** - 0-10000ms
+### 🎯 Motion Detection Settings
 
-### Audio Controls
+| Setting                       | Options/Range           |
+| ----------------------------- | ----------------------- |
+| **Motion Sensitivity**        | 0-100%                  |
+| **Motion Target Type**        | Human, Vehicle, or Both |
+| **Motion Start Trigger Time** | 0-10000ms               |
+| **Motion End Trigger Time**   | 0-10000ms               |
 
-- **Speaker Volume** - 0-100%
-- **Microphone Volume** - 0-100%
-- **Noise Reduction** - Enable/disable noise reduction
-- **Speaker** - Media player for audio playback (TTS supported) - **NOT WORKING**
+### 🔊 Audio Controls
 
-### System Monitoring (Diagnostic)
+| Control               | Range/Options                                                     |
+| --------------------- | ----------------------------------------------------------------- |
+| **Speaker Volume**    | 0-100%                                                            |
+| **Microphone Volume** | 0-100%                                                            |
+| **Noise Reduction**   | Enable/disable                                                    |
+| **Speaker**           | Media player for audio playback (TTS supported) - **NOT WORKING** |
 
-- **CPU Utilization** - Current CPU usage percentage
-- **Memory Usage** - Current memory usage percentage
-- **Device Uptime** - Device uptime in hours/days
-- **Total Reboots** - Total reboot count
-- **Active Streaming Sessions** - Number of active video streams
-- **Streaming Clients** - List of client IP addresses streaming
+### 📊 System Monitoring (Diagnostic)
 
-### Other
+| Metric                        | Description                           |
+| ----------------------------- | ------------------------------------- |
+| **CPU Utilization**           | Current CPU usage percentage          |
+| **Memory Usage**              | Current memory usage percentage       |
+| **Device Uptime**             | Device uptime in hours/days           |
+| **Total Reboots**             | Total reboot count                    |
+| **Active Streaming Sessions** | Number of active video streams        |
+| **Streaming Clients**         | List of client IP addresses streaming |
 
-- **Snapshot Camera** - Get camera snapshots
-- **Restart Button** - Remote camera restart
-- **Tamper Detection Enabled** - Configuration state (if tamper detection is enabled)
+### 🔧 Other Features
 
-## Installation
+- 📸 **Snapshot Camera** - Get camera snapshots
+- 🔄 **Restart Button** - Remote camera restart
+- 🛡️ **Tamper Detection Enabled** - Configuration state
+
+---
+
+## 📦 Installation
+
+### Method 1: Manual Installation
 
 1. Copy `hikvision_isapi` folder to `config/custom_components/`
 2. Restart Home Assistant
-3. Go to Settings → Devices & Services → Add Integration
-4. Search for "Hikvision ISAPI Controls"
-5. Enter camera IP, username (default: "admin"), password, and update interval (default: 30 seconds)
+3. Go to **Settings → Devices & Services → Add Integration**
+4. Search for **"Hikvision ISAPI Controls"**
+5. Enter camera IP, username (default: `admin`), password, and update interval (default: 30 seconds)
 
-## Configuration
+### Method 2: HACS (Custom Repository)
 
-### Camera Setup
+1. Open HACS → Integrations
+2. Click the three dots (⋮) → Custom repositories
+3. Add repository: `YOUR_GITHUB_USERNAME/hikvision-isapi-integration`
+4. Category: Integration
+5. Install and restart Home Assistant
 
-- ISAPI must be enabled on your camera
-- User needs **Remote: Parameters Settings** permission
-- Update interval: 5-300 seconds (default: 30)
+---
 
-### Event Notifications (Real-Time Events)
+## ⚙️ Configuration
+
+### Camera Setup Requirements
+
+- ✅ ISAPI must be enabled on your camera
+- ✅ User needs **Remote: Parameters Settings** permission
+- ✅ Update interval: 5-300 seconds (default: 30)
+
+### 🔔 Event Notifications Setup (Real-Time Events)
 
 To enable real-time event detection, configure your camera to send events to Home Assistant:
 
+#### Step 1: Configure Notification Host
+
 1. In your camera's web interface, go to **Configuration → Event → Notification**
 2. Add a new HTTP notification host:
-   - **Protocol**: HTTP
+   - **Protocol**: `HTTP`
    - **IP Address**: Your Home Assistant IP address
-   - **Port**: 8123 (or your HA port)
+   - **Port**: `8123` (or your HA port)
    - **URL**: `/api/hikvision_isapi`
-3. For each event type you want (Motion, Intrusion, etc.):
-   - Go to **Event → Linkage Action**
-   - Enable **Notify Surveillance Center**
-   - Select the notification host you created
 
-Once configured, binary sensors will update in real-time when events occur.
+#### Step 2: Enable Event Notifications
 
-## Entities
+For each event type you want (Motion, Intrusion, etc.):
 
-All entities are prefixed with your device name.
+1. Go to **Event → Linkage Action**
+2. Enable **Notify Surveillance Center**
+3. Select the notification host you created
+
+✅ Once configured, binary sensors will update in real-time when events occur.
+
+---
+
+## 📋 Entities
+
+All entities are prefixed with your device name (e.g., `Garage`).
 
 ### Select Entities
 
-- `select.{device_name}_day_night_switch` - Day/Night/Auto mode
-- `select.{device_name}_supplement_light` - Supplement light mode
-- `select.{device_name}_motion_target_type` - Motion detection target type
+| Entity ID                                 | Description                  |
+| ----------------------------------------- | ---------------------------- |
+| `select.{device_name}_day_night_switch`   | Day/Night/Auto mode          |
+| `select.{device_name}_supplement_light`   | Supplement light mode        |
+| `select.{device_name}_motion_target_type` | Motion detection target type |
 
 ### Number Entities
 
-- `number.{device_name}_day_night_switch_sensitivity` - IR sensitivity (0-7)
-- `number.{device_name}_day_night_switch_delay` - IR filter delay (5-120s)
-- `number.{device_name}_speaker_volume` - Speaker volume (0-100%)
-- `number.{device_name}_microphone_volume` - Microphone volume (0-100%)
-- `number.{device_name}_led_on_duration` - LED duration (10-300s)
-- `number.{device_name}_white_light_brightness` - White light brightness (0-100%)
-- `number.{device_name}_ir_light_brightness` - IR light brightness (0-100%)
-- `number.{device_name}_motion_sensitivity` - Motion sensitivity (0-100%)
-- `number.{device_name}_motion_start_trigger_time` - Motion start time (0-10000ms)
-- `number.{device_name}_motion_end_trigger_time` - Motion end time (0-10000ms)
+| Entity ID                                           | Description            | Range     |
+| --------------------------------------------------- | ---------------------- | --------- |
+| `number.{device_name}_day_night_switch_sensitivity` | IR sensitivity         | 0-7       |
+| `number.{device_name}_day_night_switch_delay`       | IR filter delay        | 5-120s    |
+| `number.{device_name}_speaker_volume`               | Speaker volume         | 0-100%    |
+| `number.{device_name}_microphone_volume`            | Microphone volume      | 0-100%    |
+| `number.{device_name}_led_on_duration`              | LED duration           | 10-300s   |
+| `number.{device_name}_white_light_brightness`       | White light brightness | 0-100%    |
+| `number.{device_name}_ir_light_brightness`          | IR light brightness    | 0-100%    |
+| `number.{device_name}_motion_sensitivity`           | Motion sensitivity     | 0-100%    |
+| `number.{device_name}_motion_start_trigger_time`    | Motion start time      | 0-10000ms |
+| `number.{device_name}_motion_end_trigger_time`      | Motion end time        | 0-10000ms |
 
 ### Switch Entities
 
-- `switch.{device_name}_noise_reduction` - Noise reduction on/off
+| Entity ID                              | Description            |
+| -------------------------------------- | ---------------------- |
+| `switch.{device_name}_noise_reduction` | Noise reduction on/off |
 
 ### Binary Sensor Entities (Real-Time Events)
 
-- `binary_sensor.{device_name}_motion` - Motion detection events
-- `binary_sensor.{device_name}_intrusion` - Intrusion detection events
-- `binary_sensor.{device_name}_line_crossing` - Line crossing events
-- `binary_sensor.{device_name}_region_entrance` - Region entrance events
-- `binary_sensor.{device_name}_region_exiting` - Region exiting events
-- `binary_sensor.{device_name}_scene_change` - Scene change events
-- `binary_sensor.{device_name}_video_loss` - Video loss events
-- `binary_sensor.{device_name}_video_tampering` - Video tampering events
-- `binary_sensor.{device_name}_tamper_detection_enabled` - Tamper detection enabled state
+| Entity ID                                              | Description                    | Device Class |
+| ------------------------------------------------------ | ------------------------------ | ------------ |
+| `binary_sensor.{device_name}_motion`                   | Motion detection events        | `motion`     |
+| `binary_sensor.{device_name}_intrusion`                | Intrusion detection events     | `motion`     |
+| `binary_sensor.{device_name}_line_crossing`            | Line crossing events           | `motion`     |
+| `binary_sensor.{device_name}_region_entrance`          | Region entrance events         | `motion`     |
+| `binary_sensor.{device_name}_region_exiting`           | Region exiting events          | `motion`     |
+| `binary_sensor.{device_name}_scene_change`             | Scene change events            | `tamper`     |
+| `binary_sensor.{device_name}_video_loss`               | Video loss events              | `problem`    |
+| `binary_sensor.{device_name}_video_tampering`          | Video tampering events         | `tamper`     |
+| `binary_sensor.{device_name}_tamper_detection_enabled` | Tamper detection enabled state | `tamper`     |
 
 ### Sensor Entities (Diagnostic)
 
-- `sensor.{device_name}_cpu_utilization` - CPU usage (%)
-- `sensor.{device_name}_memory_usage` - Memory usage (%)
-- `sensor.{device_name}_device_uptime` - Device uptime
-- `sensor.{device_name}_total_reboots` - Total reboot count
-- `sensor.{device_name}_active_streaming_sessions` - Active stream count
-- `sensor.{device_name}_streaming_clients` - Streaming client IPs
+| Entity ID                                        | Description          | Unit         |
+| ------------------------------------------------ | -------------------- | ------------ |
+| `sensor.{device_name}_cpu_utilization`           | CPU usage            | %            |
+| `sensor.{device_name}_memory_usage`              | Memory usage         | %            |
+| `sensor.{device_name}_device_uptime`             | Device uptime        | hours/days   |
+| `sensor.{device_name}_total_reboots`             | Total reboot count   | count        |
+| `sensor.{device_name}_active_streaming_sessions` | Active stream count  | count        |
+| `sensor.{device_name}_streaming_clients`         | Streaming client IPs | IP addresses |
 
 ### Other Entities
 
-- `camera.{device_name}_snapshot` - Camera snapshot
-- `button.{device_name}_restart` - Restart camera
-- `media_player.{device_name}_speaker` - Audio playback (**NOT WORKING**)
+| Entity ID                            | Description     | Status         |
+| ------------------------------------ | --------------- | -------------- |
+| `camera.{device_name}_snapshot`      | Camera snapshot | ✅ Working     |
+| `button.{device_name}_restart`       | Restart camera  | ✅ Working     |
+| `media_player.{device_name}_speaker` | Audio playback  | ❌ Not Working |
 
-## Home Assistant Events
+---
+
+## 🎯 Home Assistant Events
 
 When camera events occur, the integration fires `hikvision_isapi_event` events with the following data:
 
-- `device`: Camera host/IP
-- `channel_id`: Camera channel ID
-- `camera_name`: Camera name
-- `event_id`: Event type (motiondetection, intrusion, etc.)
-- `detection_target`: Detection target (if applicable)
-- `region_id`: Region ID (if applicable)
+| Field              | Type    | Description                                   |
+| ------------------ | ------- | --------------------------------------------- |
+| `device`           | string  | Camera host/IP                                |
+| `channel_id`       | integer | Camera channel ID                             |
+| `camera_name`      | string  | Camera name                                   |
+| `event_id`         | string  | Event type (motiondetection, intrusion, etc.) |
+| `detection_target` | string  | Detection target (if applicable)              |
+| `region_id`        | integer | Region ID (if applicable)                     |
 
-You can create automations based on these events:
+### Example Automation
 
 ```yaml
 automation:
   - alias: "Motion Detected"
+    description: "Notify when motion is detected"
     trigger:
       platform: event
       event_type: hikvision_isapi_event
@@ -178,55 +241,115 @@ automation:
     action:
       - service: notify.mobile_app
         data:
+          title: "Motion Detected"
           message: "Motion detected on {{ trigger.event.data.camera_name }}"
+          data:
+            actions:
+              - action: "view_camera"
+                title: "View Camera"
 ```
 
-## Requirements
+---
 
-- Home Assistant 2023.1+
-- Hikvision camera with ISAPI enabled
-- `requests` library
-- `pydub>=0.25.1` (for audio - optional)
+## 📋 Requirements
 
-## Supported Models
+| Requirement      | Version                        |
+| ---------------- | ------------------------------ |
+| Home Assistant   | 2023.1+                        |
+| Python           | 3.10+                          |
+| Hikvision Camera | ISAPI enabled                  |
+| `requests`       | Latest                         |
+| `pydub`          | >=0.25.1 (optional, for audio) |
 
-- **DS-2CD2387G3 (ColorVu G3)** - Tested and working
+---
 
-Other models haven't been tested. May or may not work depending on ISAPI compatibility.
+## ✅ Supported Models
 
-## Troubleshooting
+| Model                         | Status      | Notes                                     |
+| ----------------------------- | ----------- | ----------------------------------------- |
+| **DS-2CD2387G3 (ColorVu G3)** | ✅ Tested   | Fully working                             |
+| Other Hikvision models        | ⚠️ Untested | May work depending on ISAPI compatibility |
 
-**Entities not showing**:
+---
 
-- Check ISAPI is enabled on your camera
-- Verify credentials are correct (username is case-sensitive, default is "admin")
-- Check Home Assistant logs for errors
+## 🔧 Troubleshooting
 
-**Event binary sensors always off**:
+### Entities Not Showing
 
-- Configure event notifications on your camera (see Event Notifications section above)
-- Ensure "Notify Surveillance Center" is enabled in Linkage Action for each event type
-- Check that the webhook URL is correct: `http://YOUR_HA_IP:8123/api/hikvision_isapi`
+**Possible causes:**
 
-**Audio not working**:
+- ❌ ISAPI not enabled on camera
+- ❌ Incorrect credentials (username is case-sensitive, default is `admin`)
+- ❌ User doesn't have "Remote: Parameters Settings" permission
+- ❌ Network connectivity issues
 
-- Media player functionality is currently not working properly
-- Use speaker volume control instead
+**Solution:**
 
-**Streaming status shows "Unknown"**:
+1. Check ISAPI is enabled in camera settings
+2. Verify credentials (try `admin` in lowercase)
+3. Check Home Assistant logs for errors
+4. Enable debug logging:
+   ```yaml
+   logger:
+     logs:
+       custom_components.hikvision_isapi: debug
+   ```
 
-- This should be fixed in the latest version
-- If still showing, check camera logs
+### Event Binary Sensors Always Off
 
-## Reporting Issues
+**Possible causes:**
 
-Include:
+- ❌ Event notifications not configured on camera
+- ❌ "Notify Surveillance Center" not enabled in Linkage Action
+- ❌ Incorrect webhook URL
 
-- Camera model and firmware version
-- Home Assistant version
-- Logs (enable debug: `logger: logs: custom_components.hikvision_isapi: debug`)
-- Steps to reproduce the issue
+**Solution:**
 
-## License
+1. Configure event notifications (see [Event Notifications Setup](#-event-notifications-setup-real-time-events))
+2. Ensure webhook URL is correct: `http://YOUR_HA_IP:8123/api/hikvision_isapi`
+3. Verify "Notify Surveillance Center" is enabled for each event type
+4. Check camera logs for notification errors
 
-MIT
+### Audio Not Working
+
+**Status:** Media player functionality is currently not working properly.
+
+**Workaround:** Use speaker volume control instead.
+
+### Streaming Status Shows "Unknown"
+
+**Status:** This should be fixed in the latest version.
+
+**If still showing:**
+
+- Check camera logs
+- Verify camera supports streaming status endpoint
+- Try restarting Home Assistant
+
+---
+
+## 📝 Reporting Issues
+
+When reporting issues, please include:
+
+- 📷 **Camera model and firmware version**
+- 🏠 **Home Assistant version**
+- 📋 **Logs** (enable debug: `logger: logs: custom_components.hikvision_isapi: debug`)
+- 🔄 **Steps to reproduce the issue**
+- 📸 **Screenshots** (if applicable)
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License**.
+
+---
+
+<div align="center">
+
+**Made with ❤️ using Cursor AI**
+
+[⬆ Back to Top](#-hikvision-isapi-controls)
+
+</div>
