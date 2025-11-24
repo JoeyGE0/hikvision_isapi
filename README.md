@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎥 Hikvision ISAPI Controls
+# Hikvision ISAPI Controls
 
 <img src="icon.png" alt="Hikvision ISAPI Controls Icon" width="128" height="128">
 
@@ -10,41 +10,41 @@
 
 **Home Assistant integration for Hikvision cameras using ISAPI with comprehensive control options and real-time event detection.**
 
-[Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Entities](#-entities) • [Troubleshooting](#-troubleshooting)
+[Features](#features) • [Installation](#installation) • [Configuration](#configuration) • [Entities](#entities) • [Troubleshooting](#troubleshooting)
 
 </div>
 
 ---
 
-## ⚠️ Important Notes
+## Important Notes
 
-> **⚠️ Early Development**: This integration is in early development. There are likely bugs and it's only been tested on DS-2CD2387G3 (ColorVu G3). Other models haven't been tested.
+> **Early Development**: This integration is in early development. There are likely bugs and it's only been tested on DS-2CD2387G3 (ColorVu G3). Other models haven't been tested.
 
-> **⚠️ Disclaimer**: All written by Cursor AI. I have no clue what I'm doing.
+> **Disclaimer**: All written by Cursor AI. I have no clue what I'm doing.
 
-### 🐛 Known Issues
+### Known Issues
 
-- Media player (speaker) functionality doesn't work properly
+- Media player (speaker) functionality doesn't work properly (I assume its possible as i played a tone though the camera via terminal.
 
 ---
 
-## ✨ Features
+## Features
 
-### 🔔 Real-Time Event Detection
+### Real-Time Event Detection
 
 Real-time event detection via webhook notifications. Binary sensors update instantly when events occur.
 
-| Feature                          | Description                                               |
-| -------------------------------- | --------------------------------------------------------- |
-| 🏃 **Motion Detection**          | Real-time motion events (not just enabled/disabled state) |
-| 🚨 **Intrusion Detection**       | Field detection events                                    |
-| 📏 **Line Crossing Detection**   | Line crossing events                                      |
-| 🚪 **Region Entrance/Exiting**   | Region-based detection events                             |
-| 🎬 **Scene Change Detection**    | Scene change events                                       |
-| 📹 **Video Loss Detection**      | Video loss events                                         |
-| 🛡️ **Video Tampering Detection** | Tamper detection events                                   |
+| Feature                       | Description                                               |
+| ----------------------------- | --------------------------------------------------------- |
+| **Motion Detection**          | Real-time motion events (not just enabled/disabled state) |
+| **Intrusion Detection**       | Field detection events                                    |
+| **Line Crossing Detection**   | Line crossing events                                      |
+| **Region Entrance/Exiting**   | Region-based detection events                             |
+| **Scene Change Detection**    | Scene change events                                       |
+| **Video Loss Detection**      | Video loss events                                         |
+| **Video Tampering Detection** | Tamper detection events                                   |
 
-### 🎥 Video/Image Controls
+### Video/Image Controls
 
 | Control                          | Options/Range                      |
 | -------------------------------- | ---------------------------------- |
@@ -56,7 +56,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **IR Light Brightness**          | 0-100%                             |
 | **LED On Duration**              | 10-300 seconds                     |
 
-### 🎯 Motion Detection Settings
+### Motion Detection Settings
 
 | Setting                       | Options/Range           |
 | ----------------------------- | ----------------------- |
@@ -65,7 +65,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Motion Start Trigger Time** | 0-10000ms               |
 | **Motion End Trigger Time**   | 0-10000ms               |
 
-### 🔊 Audio Controls
+### Audio Controls
 
 | Control               | Range/Options                                                     |
 | --------------------- | ----------------------------------------------------------------- |
@@ -74,7 +74,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Noise Reduction**   | Enable/disable                                                    |
 | **Speaker**           | Media player for audio playback (TTS supported) - **NOT WORKING** |
 
-### 📊 System Monitoring (Diagnostic)
+### System Monitoring (Diagnostic)
 
 | Metric                        | Description                           |
 | ----------------------------- | ------------------------------------- |
@@ -85,15 +85,15 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Active Streaming Sessions** | Number of active video streams        |
 | **Streaming Clients**         | List of client IP addresses streaming |
 
-### 🔧 Other Features
+### Other Features
 
-- 📸 **Snapshot Camera** - Get camera snapshots
-- 🔄 **Restart Button** - Remote camera restart
-- 🛡️ **Tamper Detection Enabled** - Configuration state
+- **Snapshot Camera** - Get camera snapshots
+- **Restart Button** - Remote camera restart
+- **Tamper Detection Enabled** - Configuration state
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Method 1: Manual Installation
 
@@ -113,15 +113,15 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Camera Setup Requirements
 
-- ✅ ISAPI must be enabled on your camera
-- ✅ User needs **Remote: Parameters Settings** permission
-- ✅ Update interval: 5-300 seconds (default: 30)
+- ISAPI must be enabled on your camera
+- User needs **Remote: Parameters Settings** permission
+- Update interval: 5-300 seconds (default: 30)
 
-### 🔔 Event Notifications Setup (Real-Time Events)
+### Event Notifications Setup (Real-Time Events)
 
 To enable real-time event detection, configure your camera to send events to Home Assistant:
 
@@ -142,11 +142,11 @@ For each event type you want (Motion, Intrusion, etc.):
 2. Enable **Notify Surveillance Center**
 3. Select the notification host you created
 
-✅ Once configured, binary sensors will update in real-time when events occur.
+Once configured, binary sensors will update in real-time when events occur.
 
 ---
 
-## 📋 Entities
+## Entities
 
 All entities are prefixed with your device name (e.g., `Garage`).
 
@@ -206,15 +206,15 @@ All entities are prefixed with your device name (e.g., `Garage`).
 
 ### Other Entities
 
-| Entity ID                            | Description     | Status         |
-| ------------------------------------ | --------------- | -------------- |
-| `camera.{device_name}_snapshot`      | Camera snapshot | ✅ Working     |
-| `button.{device_name}_restart`       | Restart camera  | ✅ Working     |
-| `media_player.{device_name}_speaker` | Audio playback  | ❌ Not Working |
+| Entity ID                            | Description     | Status      |
+| ------------------------------------ | --------------- | ----------- |
+| `camera.{device_name}_snapshot`      | Camera snapshot | Working     |
+| `button.{device_name}_restart`       | Restart camera  | Working     |
+| `media_player.{device_name}_speaker` | Audio playback  | Not Working |
 
 ---
 
-## 🎯 Home Assistant Events
+## Home Assistant Events
 
 When camera events occur, the integration fires `hikvision_isapi_event` events with the following data:
 
@@ -251,7 +251,7 @@ automation:
 
 ---
 
-## 📋 Requirements
+## Requirements
 
 | Requirement      | Version                        |
 | ---------------- | ------------------------------ |
@@ -263,25 +263,25 @@ automation:
 
 ---
 
-## ✅ Supported Models
+## Supported Models
 
-| Model                         | Status      | Notes                                     |
-| ----------------------------- | ----------- | ----------------------------------------- |
-| **DS-2CD2387G3 (ColorVu G3)** | ✅ Tested   | Fully working                             |
-| Other Hikvision models        | ⚠️ Untested | May work depending on ISAPI compatibility |
+| Model                         | Status   | Notes                                     |
+| ----------------------------- | -------- | ----------------------------------------- |
+| **DS-2CD2387G3 (ColorVu G3)** | Tested   | Fully working                             |
+| Other Hikvision models        | Untested | May work depending on ISAPI compatibility |
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Entities Not Showing
 
 **Possible causes:**
 
-- ❌ ISAPI not enabled on camera
-- ❌ Incorrect credentials (username is case-sensitive, default is `admin`)
-- ❌ User doesn't have "Remote: Parameters Settings" permission
-- ❌ Network connectivity issues
+- ISAPI not enabled on camera
+- Incorrect credentials (username is case-sensitive, default is `admin`)
+- User doesn't have "Remote: Parameters Settings" permission
+- Network connectivity issues
 
 **Solution:**
 
@@ -299,9 +299,9 @@ automation:
 
 **Possible causes:**
 
-- ❌ Event notifications not configured on camera
-- ❌ "Notify Surveillance Center" not enabled in Linkage Action
-- ❌ Incorrect webhook URL
+- Event notifications not configured on camera
+- "Notify Surveillance Center" not enabled in Linkage Action
+- Incorrect webhook URL
 
 **Solution:**
 
@@ -328,19 +328,19 @@ automation:
 
 ---
 
-## 📝 Reporting Issues
+## Reporting Issues
 
 When reporting issues, please include:
 
-- 📷 **Camera model and firmware version**
-- 🏠 **Home Assistant version**
-- 📋 **Logs** (enable debug: `logger: logs: custom_components.hikvision_isapi: debug`)
-- 🔄 **Steps to reproduce the issue**
-- 📸 **Screenshots** (if applicable)
+- **Camera model and firmware version**
+- **Home Assistant version**
+- **Logs** (enable debug: `logger: logs: custom_components.hikvision_isapi: debug`)
+- **Steps to reproduce the issue**
+- **Screenshots** (if applicable)
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the **MIT License**.
 
@@ -348,8 +348,8 @@ This project is licensed under the **MIT License**.
 
 <div align="center">
 
-**Made with ❤️ using Cursor AI**
+**Made with Cursor AI**
 
-[⬆ Back to Top](#-hikvision-isapi-controls)
+[Back to Top](#hikvision-isapi-controls)
 
 </div>
