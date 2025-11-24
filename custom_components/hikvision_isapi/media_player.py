@@ -169,51 +169,15 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 await self.async_media_stop()
                 return
             
-            # Check if file is WAV with G.711ulaw encoding (from converter)
-            # or raw ulaw file
-            is_ulaw_wav = media_id.lower().endswith(('_ulaw.wav', '.ulaw.wav'))
-            is_ulaw_file = media_id.lower().endswith(('.ulaw', '.mulaw', '.g711'))
+            # Convert to G.711ulaw
+            ulaw_data = await self.hass.async_add_executor_job(
+                self._convert_to_ulaw, audio_data
+            )
             
-            if is_ulaw_wav or is_ulaw_file:
-                # Extract ulaw data from WAV file if needed
-                if is_ulaw_wav:
-                    _LOGGER.info("Detected G.711ulaw WAV file, extracting ulaw data")
-                    ulaw_data = self._extract_ulaw_from_wav(audio_data)
-                    if not ulaw_data:
-                        _LOGGER.error("Failed to extract ulaw data from WAV file")
-                        await self.async_media_stop()
-                        return
-                else:
-                    _LOGGER.info("File appears to be raw G.711ulaw format, using directly")
-                    ulaw_data = audio_data
-            else:
-                # CONVERSION DISABLED FOR TESTING
-                # Try to detect if it's a ulaw WAV by checking the header
-                if audio_data[:4] == b'RIFF' and b'WAVE' in audio_data[:12]:
-                    _LOGGER.info("Detected WAV file, checking for ulaw encoding")
-                    ulaw_data = self._extract_ulaw_from_wav(audio_data)
-                    if ulaw_data:
-                        _LOGGER.info("Successfully extracted ulaw data from WAV")
-                    else:
-                        _LOGGER.warning("WAV file is not ulaw-encoded. Conversion disabled.")
-                        _LOGGER.warning("Please use the converter to create a _ulaw.wav file.")
-                        await self.async_media_stop()
-                        return
-                else:
-                    _LOGGER.warning("Conversion disabled. File must be G.711ulaw format.")
-                    _LOGGER.warning("Please use the converter to create a _ulaw.wav file.")
-                    await self.async_media_stop()
-                    return
-            
-            # # Convert to G.711ulaw (COMMENTED OUT FOR TESTING)
-            # ulaw_data = await self.hass.async_add_executor_job(
-            #     self._convert_to_ulaw, audio_data
-            # )
-            # 
-            # if not ulaw_data:
-            #     _LOGGER.error("Failed to convert audio to G.711ulaw")
-            #     await self.async_media_stop()
-            #     return
+            if not ulaw_data:
+                _LOGGER.error("Failed to convert audio to G.711ulaw")
+                await self.async_media_stop()
+                return
             
             # Stream to camera
             await self.hass.async_add_executor_job(
@@ -364,86 +328,36 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Failed to get audio data: %s", e)
             return None
     
-    def _extract_ulaw_from_wav(self, wav_data: bytes) -> bytes | None:
-        """Extract G.711ulaw data from WAV file."""
-        try:
-            # Check RIFF header
-            if wav_data[:4] != b'RIFF' or wav_data[8:12] != b'WAVE':
-                _LOGGER.error("Not a valid WAV file")
-                return None
-            
-            # Find fmt chunk
-            offset = 12
-            found_fmt = False
-            while offset < len(wav_data) - 8:
-                chunk_id = wav_data[offset:offset+4]
-                chunk_size = int.from_bytes(wav_data[offset+4:offset+8], byteorder='little', signed=False)
-                
-                if chunk_id == b'fmt ':
-                    # Check audio format (7 = G.711ulaw)
-                    audio_format = int.from_bytes(wav_data[offset+8:offset+10], byteorder='little', signed=False)
-                    if audio_format != 7:
-                        _LOGGER.error("WAV file is not G.711ulaw encoded (format: %d)", audio_format)
-                        return None
-                    found_fmt = True
-                    offset += 8 + chunk_size
-                elif chunk_id == b'data':
-                    if not found_fmt:
-                        _LOGGER.error("Found data chunk before fmt chunk")
-                        return None
-                    # Extract ulaw data
-                    data_size = int.from_bytes(wav_data[offset+4:offset+8], byteorder='little', signed=False)
-                    ulaw_data = wav_data[offset+8:offset+8+data_size]
-                    _LOGGER.info("Extracted %d bytes of ulaw data from WAV", len(ulaw_data))
-                    return ulaw_data
-                else:
-                    offset += 8 + chunk_size
-            
-            _LOGGER.error("No data chunk found in WAV file")
-            return None
-        except Exception as e:
-            _LOGGER.error("Failed to extract ulaw from WAV: %s", e, exc_info=True)
-            return None
-    
-    # CONVERSION CODE COMMENTED OUT FOR TESTING
-    # Use G.711ulaw files directly (rename to .ulaw extension for auto-detection)
     def _convert_to_ulaw(self, audio_data: bytes) -> bytes | None:
-        """Convert audio to G.711ulaw format.
-        
-        DISABLED FOR TESTING - Use G.711ulaw files directly instead.
-        """
-        _LOGGER.warning("Audio conversion is disabled. Please use G.711ulaw files directly.")
-        return None
-        
-        # COMMENTED OUT - Conversion code disabled for testing
-        # try:
-        #     # Load audio
-        #     audio = AudioSegment.from_file(io.BytesIO(audio_data))
-        #     
-        #     # Convert to mono, 8000Hz (G.711 requirements)
-        #     audio = audio.set_channels(1).set_frame_rate(8000)
-        #     
-        #     # Export as raw PCM 16-bit
-        #     pcm_data = io.BytesIO()
-        #     audio.export(pcm_data, format="raw", parameters=["-acodec", "pcm_s16le"])
-        #     pcm_bytes = pcm_data.getvalue()
-        #     
-        #     # Convert PCM to G.711ulaw using audioop
-        #     try:
-        #         import audioop
-        #         ulaw_data = audioop.lin2ulaw(pcm_bytes, 2)  # 2 = 16-bit
-        #         return ulaw_data
-        #     except ImportError:
-        #         # audioop not available, try alternative
-        #         _LOGGER.warning("audioop not available, using pydub export")
-        #         # Export directly as ulaw using ffmpeg (if available via pydub)
-        #         ulaw_io = io.BytesIO()
-        #         audio.export(ulaw_io, format="ulaw")
-        #         return ulaw_io.getvalue()
-        #     
-        # except Exception as e:
-        #     _LOGGER.error("Failed to convert audio: %s", e)
-        #     return None
+        """Convert audio to G.711ulaw format."""
+        try:
+            # Load audio
+            audio = AudioSegment.from_file(io.BytesIO(audio_data))
+            
+            # Convert to mono, 8000Hz (G.711 requirements)
+            audio = audio.set_channels(1).set_frame_rate(8000)
+            
+            # Export as raw PCM 16-bit
+            pcm_data = io.BytesIO()
+            audio.export(pcm_data, format="raw", parameters=["-acodec", "pcm_s16le"])
+            pcm_bytes = pcm_data.getvalue()
+            
+            # Convert PCM to G.711ulaw using audioop
+            try:
+                import audioop
+                ulaw_data = audioop.lin2ulaw(pcm_bytes, 2)  # 2 = 16-bit
+                return ulaw_data
+            except ImportError:
+                # audioop not available, try alternative
+                _LOGGER.warning("audioop not available, using pydub export")
+                # Export directly as ulaw using ffmpeg (if available via pydub)
+                ulaw_io = io.BytesIO()
+                audio.export(ulaw_io, format="ulaw")
+                return ulaw_io.getvalue()
+            
+        except Exception as e:
+            _LOGGER.error("Failed to convert audio: %s", e)
+            return None
     
     def _send_audio_stream(self, ulaw_data: bytes):
         """Send audio stream to camera.
