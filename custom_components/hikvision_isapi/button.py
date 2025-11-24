@@ -25,6 +25,7 @@ async def async_setup_entry(
 
     entities = [
         HikvisionRestartButton(api, entry, host, device_name),
+        HikvisionTestToneButton(api, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -59,4 +60,35 @@ class HikvisionRestartButton(ButtonEntity):
             _LOGGER.info("Camera restart command sent successfully")
         else:
             _LOGGER.error("Failed to send restart command")
+
+
+class HikvisionTestToneButton(ButtonEntity):
+    """Button entity for playing test tone (testing purposes)."""
+
+    _attr_unique_id = "hikvision_test_tone_button"
+    _attr_icon = "mdi:music-note"
+
+    def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the button."""
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Test Tone"
+        self._attr_unique_id = f"{host}_test_tone_button"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    async def async_press(self) -> None:
+        """Handle the button press."""
+        _LOGGER.info("Test tone button pressed for %s", self._host)
+        success = await self.hass.async_add_executor_job(self.api.play_test_tone)
+        if success:
+            _LOGGER.info("Test tone played successfully")
+        else:
+            _LOGGER.error("Failed to play test tone")
 
