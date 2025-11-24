@@ -213,32 +213,39 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         if "?" in media_url:
                             media_url = media_url.split("?")[0]
                         
-                        # For local media files, read directly from filesystem (no auth needed)
+                        # For local media files, try filesystem first, then HTTP
                         if media_url.startswith("/media/local/"):
                             media_path = media_url.replace("/media/local/", "")
                             
                             import os
                             def read_media_file():
                                 config_dir = self.hass.config.config_dir
-                                # Home Assistant serves /media/local/ from www/ directory
-                                file_path = os.path.join(config_dir, "www", media_path)
+                                # Home Assistant stores media files in the media/ directory
+                                # Try media/ directory first (correct location)
+                                file_path = os.path.join(config_dir, "media", media_path)
+                                if not os.path.exists(file_path):
+                                    # Fallback to www/ for backwards compatibility
+                                    file_path = os.path.join(config_dir, "www", media_path)
+                                
                                 if os.path.exists(file_path) and os.path.isfile(file_path):
-                                    _LOGGER.info("Reading media file: %s", file_path)
+                                    _LOGGER.info("Reading media file from filesystem: %s", file_path)
                                     with open(file_path, 'rb') as f:
                                         return f.read()
-                                _LOGGER.error("Media file not found at: %s", file_path)
+                                
+                                _LOGGER.debug("Media file not found locally, will try HTTP: %s", file_path)
                                 return None
                             
                             file_data = await self.hass.async_add_executor_job(read_media_file)
                             if file_data:
                                 return file_data
-                            return None
+                            # If not found locally, fall through to HTTP download below
                         
-                        # For other URLs (TTS, external, etc), use HTTP
+                        # For all URLs (including /media/local/ if not found locally), use HTTP
                         if media_url.startswith("/"):
                             base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
                             base_url = base_url.rstrip("/")
                             media_url = f"{base_url}{media_url}"
+                            _LOGGER.info("Downloading media via HTTP: %s", media_url)
                         
                         if not media_url.startswith("http://") and not media_url.startswith("https://"):
                             _LOGGER.error("Invalid URL: %s", media_url)
@@ -337,9 +344,9 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             # Convert to mono, 8000Hz (G.711 requirements)
             audio = audio.set_channels(1).set_frame_rate(8000)
             
-            # Export as raw PCM 16-bit
+            # Export as raw PCM 16-bit using s16le format (correct for pydub)
             pcm_data = io.BytesIO()
-            audio.export(pcm_data, format="raw", parameters=["-acodec", "pcm_s16le"])
+            audio.export(pcm_data, format="s16le")
             pcm_bytes = pcm_data.getvalue()
             
             # Convert PCM to G.711ulaw using audioop
@@ -348,15 +355,15 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 ulaw_data = audioop.lin2ulaw(pcm_bytes, 2)  # 2 = 16-bit
                 return ulaw_data
             except ImportError:
-                # audioop not available, try alternative
-                _LOGGER.warning("audioop not available, using pydub export")
-                # Export directly as ulaw using ffmpeg (if available via pydub)
+                # audioop not available, use ffmpeg directly via pydub
+                _LOGGER.warning("audioop not available, using ffmpeg to export as ulaw")
                 ulaw_io = io.BytesIO()
-                audio.export(ulaw_io, format="ulaw")
+                # Export directly as mulaw (G.711ulaw) using ffmpeg
+                audio.export(ulaw_io, format="mulaw", parameters=["-ar", "8000", "-ac", "1"])
                 return ulaw_io.getvalue()
             
         except Exception as e:
-            _LOGGER.error("Failed to convert audio: %s", e)
+            _LOGGER.error("Failed to convert audio: %s", e, exc_info=True)
             return None
     
     def _send_audio_stream(self, ulaw_data: bytes):
