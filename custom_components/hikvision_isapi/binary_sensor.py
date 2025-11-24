@@ -1,18 +1,13 @@
-"""Platform for binary sensor integration - following hikvision_next patterns."""
+"""Binary sensor platform for Hikvision ISAPI."""
 from __future__ import annotations
 
 import logging
-from homeassistant.components.binary_sensor import (
-    ENTITY_ID_FORMAT,
-    BinarySensorEntity,
-    BinarySensorDeviceClass,
-)
+from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import slugify
 
 from .const import DOMAIN, EVENTS
 from .api import HikvisionISAPI
@@ -21,30 +16,60 @@ from .models import EventInfo
 
 _LOGGER = logging.getLogger(__name__)
 
+# Event name mappings (matching your integration style)
+EVENT_NAME_MAP = {
+    "motiondetection": "Motion",
+    "tamperdetection": "Video Tampering",
+    "videoloss": "Video Loss",
+    "scenechangedetection": "Scene Change",
+    "fielddetection": "Intrusion",
+    "linedetection": "Line Crossing",
+    "regionentrance": "Region Entrance",
+    "regionexiting": "Region Exiting",
+}
+
+# Event icon mappings (matching your integration style)
+EVENT_ICON_MAP = {
+    "motiondetection": "mdi:motion-sensor",
+    "tamperdetection": "mdi:shield-alert",
+    "videoloss": "mdi:video-off",
+    "scenechangedetection": "mdi:image-edit",
+    "fielddetection": "mdi:account-alert",
+    "linedetection": "mdi:vector-line",
+    "regionentrance": "mdi:sign-direction",
+    "regionexiting": "mdi:exit-run",
+}
+
+# Event unique ID suffix mappings (matching your integration style)
+EVENT_UNIQUE_ID_MAP = {
+    "motiondetection": "motion",
+    "tamperdetection": "video_tampering",
+    "videoloss": "video_loss",
+    "scenechangedetection": "scene_change",
+    "fielddetection": "intrusion",
+    "linedetection": "line_crossing",
+    "regionentrance": "region_entrance",
+    "regionexiting": "region_exiting",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Add binary sensors for hikvision events states - following hikvision_next pattern."""
+    """Set up binary sensor entities for the entry."""
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
     device_info = data["device_info"]
     device_name = device_info.get("deviceName", host)
-    serial_no = device_info.get("serialNumber", "").lower()
-    if not serial_no:
-        serial_no = slugify(device_name)
 
     entities = []
 
-    # Create binary sensors for all supported events (channel 0 = main device)
+    # Create binary sensors for all supported events (matching your naming style)
     for event_id, event_config in EVENTS.items():
-        device_id_param = ""  # Channel 0 for main device
-        unique_id = f"{slugify(serial_no)}{device_id_param}_{event_id}"
-        
         entities.append(
             EventBinarySensor(
                 coordinator,
@@ -55,7 +80,6 @@ async def async_setup_entry(
                 EventInfo(
                     id=event_id,
                     channel_id=0,
-                    unique_id=unique_id,
                 ),
             )
         )
@@ -69,9 +93,8 @@ async def async_setup_entry(
 
 
 class EventBinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """Event detection sensor - following hikvision_next pattern."""
+    """Event detection sensor - matching your integration style."""
 
-    _attr_has_entity_name = True
     _attr_is_on = False
 
     def __init__(
@@ -91,24 +114,30 @@ class EventBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._entry = entry
         self.event = event
         
-        # Set entity ID and unique ID following hikvision_next pattern
-        self.entity_id = ENTITY_ID_FORMAT.format(event.unique_id)
-        self._attr_unique_id = event.unique_id
+        # Set name matching your integration style: "{device_name} {Event Name}"
+        event_name = EVENT_NAME_MAP.get(event.id, event.id.title())
+        self._attr_name = f"{device_name} {event_name}"
         
-        # Set name from event config
+        # Set unique ID matching your integration style: "{host}_{event_name}"
+        unique_id_suffix = EVENT_UNIQUE_ID_MAP.get(event.id, event.id)
+        self._attr_unique_id = f"{host}_{unique_id_suffix}"
+        
+        # Set icon matching your integration style
+        self._attr_icon = EVENT_ICON_MAP.get(event.id, "mdi:alert")
+        
+        # Set device class from event config
         event_config = EVENTS.get(event.id, {})
-        self._attr_name = event_config.get("label", event.id)
-        
-        # Set device class
         self._attr_device_class = event_config.get("device_class")
-        
-        # Device info
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
         
         # Entity is disabled by default if event notifications aren't configured
         self._attr_entity_registry_enabled_default = not event.disabled
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
 
     @property
     def available(self) -> bool:
