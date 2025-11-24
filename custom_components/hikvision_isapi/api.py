@@ -655,12 +655,17 @@ class HikvisionISAPI:
                 _LOGGER.error("Failed to open audio session")
                 return False
             
-            # Step 4: Generate 2-second tone
-            _LOGGER.info("Generating 2-second test tone...")
+            # Step 4: Generate 2-second siren sound
+            _LOGGER.info("Generating 2-second siren sound...")
             sample_rate = 8000
-            duration = 2.0
-            frequency = 440
+            duration = 4.0
             num_samples = int(sample_rate * duration)
+            
+            # Siren parameters: alternate between low and high frequencies
+            low_freq = 600   # Lower siren frequency (Hz)
+            high_freq = 1200  # Higher siren frequency (Hz)
+            cycle_duration = 0.3  # How long each "wee" or "woo" lasts (seconds)
+            cycles_per_second = 1.0 / cycle_duration  # How many cycles per second
             
             def linear_to_ulaw(linear):
                 linear = max(-32768, min(32767, linear))
@@ -696,7 +701,22 @@ class HikvisionISAPI:
             ulaw_data = bytearray()
             for i in range(num_samples):
                 t = i / sample_rate
-                sample = math.sin(2 * math.pi * frequency * t)
+                
+                # Calculate which part of the cycle we're in (0-1)
+                cycle_position = (t * cycles_per_second) % 1.0
+                
+                # Alternate between low and high frequency
+                # First half of cycle: low to high (wee)
+                # Second half of cycle: high to low (woo)
+                if cycle_position < 0.5:
+                    # Rising: low to high
+                    freq = low_freq + (high_freq - low_freq) * (cycle_position * 2)
+                else:
+                    # Falling: high to low
+                    freq = high_freq - (high_freq - low_freq) * ((cycle_position - 0.5) * 2)
+                
+                # Generate sine wave at current frequency
+                sample = math.sin(2 * math.pi * freq * t)
                 pcm_sample = int(sample * 32767)
                 ulaw_byte = linear_to_ulaw(pcm_sample)
                 ulaw_data.append(ulaw_byte)
