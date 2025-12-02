@@ -277,6 +277,7 @@ class HikvisionRebootCountSensor(SensorEntity):
     _attr_unique_id = "hikvision_reboot_count"
     _attr_icon = "mdi:restart"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
