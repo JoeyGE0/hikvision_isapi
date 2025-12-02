@@ -5,11 +5,11 @@
   "documentation": "https://github.com/JoeyGE0/hikvision_isapi",
   "requirements": ["requests", "pydub>=0.25.1"],
   "config_flow": true,
-  "iot_class": "local_polling",
+  "iot_class": "local_push",
   "codeowners": ["@JoeyGE0"],
   "dependencies": [],
   "after_dependencies": [],
-  "quality_scale": "internal",
+  "quality_scale": "gold",
   "domains": [],
   "platforms": ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"]
 }
