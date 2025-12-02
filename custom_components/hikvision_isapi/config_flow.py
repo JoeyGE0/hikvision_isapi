@@ -38,24 +38,52 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_dhcp(self, discovery_info):
         """Handle DHCP discovery."""
-        host = discovery_info.ip
-        macaddress = discovery_info.macaddress
+        _LOGGER.debug("DHCP discovery triggered: %s", discovery_info)
+        
+        # Get IP address - try both 'ip' and 'hostname' attributes
+        host = getattr(discovery_info, "ip", None) or getattr(discovery_info, "hostname", None)
+        macaddress = getattr(discovery_info, "macaddress", None)
+        
+        if not host:
+            _LOGGER.warning("DHCP discovery: No IP or hostname found in discovery_info")
+            return self.async_abort(reason="no_ip_address")
+        
+        if not macaddress:
+            _LOGGER.warning("DHCP discovery: No MAC address found in discovery_info")
+            return self.async_abort(reason="no_mac_address")
+        
+        _LOGGER.debug("DHCP discovery: IP=%s, MAC=%s", host, macaddress)
         
         # Normalize MAC address (remove colons/dashes, convert to uppercase)
         mac_normalized = macaddress.replace(":", "").replace("-", "").upper()
         
         # Extract first 6 characters (OUI prefix) and format as XX:XX:XX
         if len(mac_normalized) < 6:
+            _LOGGER.warning("DHCP discovery: MAC address too short: %s", macaddress)
             return self.async_abort(reason="invalid_mac_address")
         
         mac_prefix = ":".join([mac_normalized[i:i+2] for i in range(0, 6, 2)])
+        _LOGGER.debug("DHCP discovery: Extracted MAC prefix: %s", mac_prefix)
         
         # Check if MAC prefix matches Hikvision (prefixes are already uppercase in const)
         if mac_prefix not in HIKVISION_MAC_PREFIXES:
+            _LOGGER.debug("DHCP discovery: MAC prefix %s not in Hikvision list (device not a Hikvision camera)", mac_prefix)
             return self.async_abort(reason="not_hikvision_device")
+        
+        _LOGGER.info("DHCP discovery: Found Hikvision device at %s (MAC: %s)", host, macaddress)
         
         # Use MAC address as unique_id for better device tracking
         await self.async_set_unique_id(mac_normalized)
+        
+        # Check if already configured (this will abort silently if already exists)
+        # But we log it first so we can see in logs
+        existing_entries = [
+            entry for entry in self._async_current_entries()
+            if entry.unique_id == mac_normalized
+        ]
+        if existing_entries:
+            _LOGGER.debug("DHCP discovery: Device %s (MAC: %s) already configured, skipping", host, macaddress)
+        
         self._abort_if_unique_id_configured()
         
         # Pre-fill the form with discovered IP
