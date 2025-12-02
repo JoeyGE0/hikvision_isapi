@@ -6,6 +6,7 @@ import voluptuous as vol
 import requests
 
 from homeassistant import config_entries
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,16 +37,17 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_dhcp(self, discovery_info):
+    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> config_entries.ConfigFlowResult:
         """Handle DHCP discovery."""
-        _LOGGER.debug("DHCP discovery triggered: %s", discovery_info)
+        _LOGGER.debug("DHCP discovery triggered: IP=%s, MAC=%s, Hostname=%s", 
+                     discovery_info.ip, discovery_info.macaddress, discovery_info.hostname)
         
-        # Get IP address - try both 'ip' and 'hostname' attributes
-        host = getattr(discovery_info, "ip", None) or getattr(discovery_info, "hostname", None)
-        macaddress = getattr(discovery_info, "macaddress", None)
+        # Get IP address - use ip attribute directly (DhcpServiceInfo always has ip)
+        host = discovery_info.ip
+        macaddress = discovery_info.macaddress
         
         if not host:
-            _LOGGER.warning("DHCP discovery: No IP or hostname found in discovery_info")
+            _LOGGER.warning("DHCP discovery: No IP address found in discovery_info")
             return self.async_abort(reason="no_ip_address")
         
         if not macaddress:
@@ -100,6 +102,11 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
         errors = {}
+        
+        # If coming from DHCP discovery, use discovered host as default
+        discovered_host = self.context.get("discovered_host")
+        default_host = discovered_host if discovered_host else ""
+        
         if user_input is not None:
             # Validate credentials by attempting to connect
             host = user_input[CONF_HOST]
@@ -142,8 +149,22 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during setup: %s", e)
                 errors["base"] = "unknown"
 
+        # Use discovered host as default if available, otherwise use empty schema
+        schema = DATA_SCHEMA
+        if discovered_host:
+            schema = vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=discovered_host): str,
+                    vol.Required(CONF_USERNAME, default="admin"): str,
+                    vol.Required(CONF_PASSWORD): str,
+                    vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
+                        vol.Coerce(int), vol.Range(min=5, max=300)
+                    ),
+                }
+            )
+        
         return self.async_show_form(
-            step_id="user", data_schema=DATA_SCHEMA, errors=errors
+            step_id="user", data_schema=schema, errors=errors
         )
 
     async def async_step_reconfigure(self, user_input=None):
