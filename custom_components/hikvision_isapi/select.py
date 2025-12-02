@@ -36,12 +36,13 @@ class HikvisionLightModeSelect(SelectEntity):
     """Select entity for supplement light mode."""
 
     _attr_unique_id = "hikvision_light_mode"
-    _attr_options = ["Smart", "IR Supplement Light", "Off"]
+    _attr_options = ["Smart", "White Supplement Light", "IR Supplement Light", "Off"]
     _attr_icon = "mdi:lightbulb"
     
     # Map display names to API values
     _api_value_map = {
         "Smart": "eventIntelligence",
+        "White Supplement Light": "colorVuWhiteLight",
         "IR Supplement Light": "irLight",
         "Off": "close"
     }
