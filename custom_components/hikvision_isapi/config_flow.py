@@ -6,7 +6,6 @@ import voluptuous as vol
 import requests
 
 from homeassistant import config_entries
-from homeassistant.components import dhcp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,7 +16,6 @@ from .const import (
     CONF_USERNAME,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
-    HIKVISION_MAC_PREFIXES,
 )
 
 DATA_SCHEMA = vol.Schema(
@@ -36,10 +34,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hikvision ISAPI."""
 
     VERSION = 1
-
-    def __init__(self) -> None:
-        """Initialize the config flow."""
-        self._discovered_host: str | None = None
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
@@ -84,44 +78,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during setup: %s", e)
                 errors["base"] = "unknown"
 
-        # Prefill host if we came from DHCP discovery
-        if self._discovered_host is not None and user_input is None:
-            data_schema = vol.Schema(
-                {
-                    vol.Required(CONF_HOST, default=self._discovered_host): str,
-                    vol.Required(CONF_USERNAME, default="admin"): str,
-                    vol.Required(CONF_PASSWORD): str,
-                    vol.Optional(
-                        CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL
-                    ): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
-                }
-            )
-        else:
-            data_schema = DATA_SCHEMA
-
         return self.async_show_form(
-            step_id="user", data_schema=data_schema, errors=errors
+            step_id="user", data_schema=DATA_SCHEMA, errors=errors
         )
-
-    async def async_step_dhcp(self, discovery_info: dhcp.DhcpServiceInfo):
-        """Handle DHCP discovery."""
-        mac = (discovery_info.macaddress or "").upper()
-        ip = discovery_info.ip
-
-        if not mac:
-            return self.async_abort(reason="no_mac")
-
-        if not any(mac.startswith(prefix) for prefix in HIKVISION_MAC_PREFIXES):
-            return self.async_abort(reason="not_hikvision_device")
-
-        _LOGGER.debug(
-            "Discovered potential Hikvision device via DHCP: ip=%s mac=%s", ip, mac
-        )
-
-        self._discovered_host = ip
-
-        # Use host as unique ID to avoid duplicate entries for same camera
-        await self.async_set_unique_id(ip)
-        self._abort_if_unique_id_configured()
-
-        return await self.async_step_user()
