@@ -7,6 +7,7 @@ import requests
 
 from homeassistant import config_entries
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+from homeassistant.helpers.device_registry import format_mac
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,7 +18,6 @@ from .const import (
     CONF_USERNAME,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
-    HIKVISION_MAC_PREFIXES,
 )
 
 DATA_SCHEMA = vol.Schema(
@@ -39,52 +39,26 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> config_entries.ConfigFlowResult:
         """Handle DHCP discovery."""
-        _LOGGER.info("DHCP discovery triggered for Hikvision ISAPI: IP=%s, MAC=%s, Hostname=%s", 
+        _LOGGER.info("DHCP discovery triggered: IP=%s, MAC=%s, Hostname=%s", 
                      discovery_info.ip, discovery_info.macaddress, discovery_info.hostname)
         
-        # Get IP address - use ip attribute directly (DhcpServiceInfo always has ip)
         host = discovery_info.ip
         macaddress = discovery_info.macaddress
         
-        if not host:
-            _LOGGER.warning("DHCP discovery: No IP address found in discovery_info")
-            return self.async_abort(reason="no_ip_address")
+        if not host or not macaddress:
+            return self.async_abort(reason="invalid_discovery_info")
         
-        if not macaddress:
-            _LOGGER.warning("DHCP discovery: No MAC address found in discovery_info")
-            return self.async_abort(reason="no_mac_address")
+        # Format MAC address using Home Assistant's helper (normalizes to uppercase without separators)
+        mac_address = format_mac(macaddress)
         
-        _LOGGER.debug("DHCP discovery: IP=%s, MAC=%s", host, macaddress)
-        
-        # Normalize MAC address (remove colons/dashes, convert to uppercase)
-        mac_normalized = macaddress.replace(":", "").replace("-", "").upper()
-        
-        # Extract first 6 characters (OUI prefix) and format as XX:XX:XX
-        if len(mac_normalized) < 6:
-            _LOGGER.warning("DHCP discovery: MAC address too short: %s", macaddress)
-            return self.async_abort(reason="invalid_mac_address")
-        
-        mac_prefix = ":".join([mac_normalized[i:i+2] for i in range(0, 6, 2)])
-        _LOGGER.debug("DHCP discovery: Extracted MAC prefix: %s", mac_prefix)
-        
-        # Check if MAC prefix matches Hikvision (prefixes are already uppercase in const)
-        if mac_prefix not in HIKVISION_MAC_PREFIXES:
-            _LOGGER.debug("DHCP discovery: MAC prefix %s not in Hikvision list (device not a Hikvision camera)", mac_prefix)
-            return self.async_abort(reason="not_hikvision_device")
-        
-        _LOGGER.info("DHCP discovery: Found Hikvision device at %s (MAC: %s)", host, macaddress)
-        
-        # Use MAC address as unique_id for better device tracking
-        await self.async_set_unique_id(mac_normalized)
-        
-        # Abort if already configured
+        # Use MAC address as unique_id
+        await self.async_set_unique_id(mac_address)
         self._abort_if_unique_id_configured()
         
         # Store discovered host in context for use in user step
         self.context.update({"discovered_host": host})
         
-        # Return form - this will show up in "Discovered" section
-        # When user clicks "Configure", it will call async_step_user with the pre-filled values
+        # Show form with pre-filled values
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
