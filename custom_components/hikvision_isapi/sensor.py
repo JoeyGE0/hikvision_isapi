@@ -1,5 +1,8 @@
 """Sensor platform for Hikvision ISAPI."""
+from __future__ import annotations
+
 import logging
+from datetime import datetime, timedelta, timezone
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -152,20 +155,20 @@ class HikvisionDeviceUptimeSensor(SensorEntity):
 
     @property
     def native_value(self):
-        """Return the current device uptime in minutes."""
+        """Return the device start time (current time minus uptime) as a datetime."""
         if self.coordinator.data and "system_status" in self.coordinator.data:
             uptime_seconds = self.coordinator.data["system_status"].get("uptime")
             if uptime_seconds is not None:
-                # Convert seconds from camera into whole minutes
-                minutes = int(uptime_seconds / 60)
-                return minutes
+                # Calculate when the device started (now - uptime)
+                start_time = datetime.now(timezone.utc) - timedelta(seconds=uptime_seconds)
+                return start_time
             return None
         return None
 
     @property
-    def native_unit_of_measurement(self):
-        """Return the unit of measurement."""
-        return "min"
+    def device_class(self):
+        """Return timestamp device class so HA formats it as 'X hours ago'."""
+        return "timestamp"
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
