@@ -25,6 +25,7 @@ async def async_setup_entry(
 
     entities = [
         HikvisionLightModeSelect(coordinator, api, entry, host, device_name),
+        HikvisionBrightnessControlSelect(coordinator, api, entry, host, device_name),
         HikvisionIRModeSelect(coordinator, api, entry, host, device_name),
         HikvisionMotionTargetTypeSelect(coordinator, api, entry, host, device_name),
     ]
@@ -38,13 +39,13 @@ class HikvisionLightModeSelect(SelectEntity):
     _attr_unique_id = "hikvision_light_mode"
     _attr_options = ["Smart", "White Supplement Light", "IR Supplement Light", "Off"]
     _attr_icon = "mdi:lightbulb"
-    
+
     # Map display names to API values
     _api_value_map = {
         "Smart": "eventIntelligence",
         "White Supplement Light": "colorVuWhiteLight",
         "IR Supplement Light": "irLight",
-        "Off": "close"
+        "Off": "close",
     }
     # Reverse map for reading
     _display_value_map = {v: k for k, v in _api_value_map.items()}
@@ -77,7 +78,7 @@ class HikvisionLightModeSelect(SelectEntity):
         # Use optimistic value if set (immediate feedback)
         if self._optimistic_value is not None:
             return self._optimistic_value
-        
+
         # Otherwise use coordinator data - convert API value to display name
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             api_value = self.coordinator.data["supplement_light"].get("mode")
@@ -90,25 +91,109 @@ class HikvisionLightModeSelect(SelectEntity):
         """Change the selected option."""
         # Convert display name to API value
         api_value = self._api_value_map.get(option, option)
-        
+
         # Optimistic update - show immediately
         self._optimistic_value = option
         self.async_write_ha_state()
-        
+
         # Send to device (using API value)
         success = await self.hass.async_add_executor_job(
             self.api.set_supplement_light, api_value
         )
-        
+
         if success:
             # Refresh coordinator to sync with device
             await self.coordinator.async_request_refresh()
             # Only clear optimistic if coordinator confirms the change
-            if (self.coordinator.data and 
-                self.coordinator.data.get("supplement_light", {}).get("mode") == api_value):
+            if (
+                self.coordinator.data
+                and self.coordinator.data.get("supplement_light", {}).get("mode") == api_value
+            ):
                 self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionBrightnessControlSelect(SelectEntity):
+    """Select entity for light brightness control mode."""
+
+    _attr_unique_id = "hikvision_brightness_control_mode"
+    _attr_options = ["Auto", "Manual"]
+    _attr_icon = "mdi:brightness-auto"
+
+    _api_value_map = {
+        "Auto": "auto",
+        "Manual": "manual",
+    }
+    _display_value_map = {v: k for k, v in _api_value_map.items()}
+
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the select entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Light Brightness Control"
+        self._attr_unique_id = f"{host}_brightness_control_mode"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the current selected option."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+
+        if self.coordinator.data and "supplement_light" in self.coordinator.data:
+            data = self.coordinator.data["supplement_light"]
+            api_value = data.get("brightnessRegulatMode") or data.get(
+                "mixedLightBrightnessRegulatMode"
+            )
+            display_value = self._display_value_map.get(api_value)
+            if display_value in self._attr_options:
+                return display_value
+        return None
+
+    async def async_select_option(self, option: str):
+        """Change the selected option."""
+        api_value = self._api_value_map.get(option, option)
+
+        self._optimistic_value = option
+        self.async_write_ha_state()
+
+        success = await self.hass.async_add_executor_job(
+            self.api.set_brightness_control_mode, api_value
+        )
+
+        if success:
+            await self.coordinator.async_request_refresh()
+            if self.coordinator.data and "supplement_light" in self.coordinator.data:
+                data = self.coordinator.data["supplement_light"]
+                api_value_now = data.get("brightnessRegulatMode") or data.get(
+                    "mixedLightBrightnessRegulatMode"
+                )
+                if api_value_now == api_value:
+                    self._optimistic_value = None
+        else:
             self._optimistic_value = None
 
     async def async_added_to_hass(self) -> None:
