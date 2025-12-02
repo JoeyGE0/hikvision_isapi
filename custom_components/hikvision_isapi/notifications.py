@@ -1,4 +1,4 @@
-"""Events listener - following hikvision_next patterns."""
+"""Events listener for Hikvision ISAPI event notifications."""
 from __future__ import annotations
 
 from http import HTTPStatus
@@ -32,7 +32,7 @@ CONTENT_TYPE_IMAGE = "image/jpeg"
 
 
 class EventNotificationsView(HomeAssistantView):
-    """Event notifications listener - following hikvision_next pattern."""
+    """Event notifications listener for Hikvision cameras."""
 
     def __init__(self, hass: HomeAssistant):
         """Initialize."""
@@ -136,7 +136,7 @@ class EventNotificationsView(HomeAssistantView):
         return xml
 
     def parse_event_notification(self, xml: str) -> AlertInfo:
-        """Parse incoming EventNotificationAlert XML message - following hikvision_next pattern."""
+        """Parse incoming EventNotificationAlert XML message."""
         import xml.etree.ElementTree as ET
         
         # Fix for some cameras sending non html encoded data
@@ -245,7 +245,7 @@ class EventNotificationsView(HomeAssistantView):
             _LOGGER.warning("Entity not found in registry: %s", unique_id)
 
     def fire_hass_event(self, entry, alert: AlertInfo):
-        """Fire HASS event - following hikvision_next pattern."""
+        """Fire HASS event for Hikvision camera events."""
         device_info = self.hass.data[DOMAIN][entry.entry_id].get("device_info", {})
         camera_name = device_info.get("deviceName", "")
 
