@@ -1568,6 +1568,117 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set region exiting: %s", e)
             return False
 
+    def get_alarm_input(self, port_id: int = 1) -> dict:
+        """Get alarm input port settings."""
+        try:
+            xml = self._get(f"/ISAPI/System/IO/inputs/{port_id}")
+            result = {}
+            port = xml.find(f".//{XML_NS}IOInputPort")
+            if port is not None:
+                enabled = port.find(f".//{XML_NS}enabled")
+                if enabled is not None:
+                    result["enabled"] = enabled.text.strip().lower() == "true"
+                triggering = port.find(f".//{XML_NS}triggering")
+                if triggering is not None:
+                    result["triggering"] = triggering.text.strip()
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get alarm input: %s", e)
+            return {}
+
+    def set_alarm_input(self, port_id: int = 1, enabled: bool = True) -> bool:
+        """Enable/disable alarm input port."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/IO/inputs/{port_id}"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set alarm input: %s", e)
+            return False
+
+    def get_alarm_output(self, port_id: int = 1) -> dict:
+        """Get alarm output port settings."""
+        try:
+            xml = self._get(f"/ISAPI/System/IO/outputs/{port_id}")
+            result = {}
+            port = xml.find(f".//{XML_NS}IOOutputPort")
+            if port is not None:
+                normal_status = port.find(f".//{XML_NS}normalStatus")
+                if normal_status is not None:
+                    # "open" means off, "closed" means on
+                    result["enabled"] = normal_status.text.strip().lower() == "closed"
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get alarm output: %s", e)
+            return {}
+
+    def set_alarm_output(self, port_id: int = 1, enabled: bool = True) -> bool:
+        """Enable/disable alarm output port."""
+        try:
+            url = f"http://{self.host}/ISAPI/System/IO/outputs/{port_id}"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            # "open" means off, "closed" means on
+            status_str = "closed" if enabled else "open"
+            xml_str = re.sub(r'<normalStatus>.*?</normalStatus>', f'<normalStatus>{status_str}</normalStatus>', xml_str)
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set alarm output: %s", e)
+            return False
+
     def restart(self) -> bool:
         """Restart the camera."""
         try:
