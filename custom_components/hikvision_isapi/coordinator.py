@@ -54,6 +54,21 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             tamper_data = await self.hass.async_add_executor_job(
                 self.api.get_tamper_detection
             )
+            field_detection = await self.hass.async_add_executor_job(
+                self.api.get_field_detection
+            )
+            line_detection = await self.hass.async_add_executor_job(
+                self.api.get_line_detection
+            )
+            scene_change = await self.hass.async_add_executor_job(
+                self.api.get_scene_change_detection
+            )
+            region_entrance = await self.hass.async_add_executor_job(
+                self.api.get_region_entrance
+            )
+            region_exiting = await self.hass.async_add_executor_job(
+                self.api.get_region_exiting
+            )
             white_light_time = await self.hass.async_add_executor_job(
                 self.api.get_white_light_time
             )
@@ -70,6 +85,11 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "audio": audio_data,
                 "motion": motion_data,
                 "tamper": tamper_data,
+                "field_detection": field_detection,
+                "line_detection": line_detection,
+                "scene_change": scene_change,
+                "region_entrance": region_entrance,
+                "region_exiting": region_exiting,
                 "white_light_time": white_light_time,
                 "system_status": system_status,
                 "streaming_status": streaming_status,
