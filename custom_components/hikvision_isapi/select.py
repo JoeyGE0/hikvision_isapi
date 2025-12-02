@@ -128,6 +128,7 @@ class HikvisionBrightnessControlSelect(SelectEntity):
     _attr_unique_id = "hikvision_brightness_control_mode"
     _attr_options = ["Auto", "Manual"]
     _attr_icon = "mdi:brightness-auto"
+    _attr_entity_registry_enabled_default = False
 
     _api_value_map = {
         "Auto": "auto",
