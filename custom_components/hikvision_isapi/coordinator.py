@@ -78,6 +78,12 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             streaming_status = await self.hass.async_add_executor_job(
                 self.api.get_streaming_status
             )
+            alarm_input = await self.hass.async_add_executor_job(
+                self.api.get_alarm_input, 1
+            )
+            alarm_output = await self.hass.async_add_executor_job(
+                self.api.get_alarm_output, 1
+            )
 
             return {
                 "ircut": ircut_data,
@@ -93,6 +99,8 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "white_light_time": white_light_time,
                 "system_status": system_status,
                 "streaming_status": streaming_status,
+                "alarm_input": alarm_input,
+                "alarm_output": alarm_output,
             }
         except AuthenticationError as err:
             raise UpdateFailed(
