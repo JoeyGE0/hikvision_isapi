@@ -140,6 +140,8 @@ class HikvisionDeviceUptimeSensor(SensorEntity):
         self._entry = entry
         self._attr_name = f"{device_name} Device Uptime"
         self._attr_unique_id = f"{host}_device_uptime"
+        self._start_time = None
+        self._last_uptime = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -159,9 +161,18 @@ class HikvisionDeviceUptimeSensor(SensorEntity):
         if self.coordinator.data and "system_status" in self.coordinator.data:
             uptime_seconds = self.coordinator.data["system_status"].get("uptime")
             if uptime_seconds is not None:
-                # Calculate when the device started (now - uptime)
-                start_time = datetime.now(timezone.utc) - timedelta(seconds=uptime_seconds)
-                return start_time
+                # Check if device rebooted (uptime decreased significantly)
+                if self._last_uptime is not None and uptime_seconds < self._last_uptime - 10:
+                    # Device rebooted - recalculate start time
+                    self._start_time = None
+                
+                # Only recalculate if we don't have a stored start time
+                if self._start_time is None:
+                    # Calculate when the device started (now - uptime)
+                    self._start_time = datetime.now(timezone.utc) - timedelta(seconds=uptime_seconds)
+                
+                self._last_uptime = uptime_seconds
+                return self._start_time
             return None
         return None
 
