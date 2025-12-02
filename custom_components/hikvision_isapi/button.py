@@ -4,7 +4,7 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
 from .const import DOMAIN
 from .api import HikvisionISAPI
@@ -36,6 +36,7 @@ class HikvisionRestartButton(ButtonEntity):
 
     _attr_unique_id = "hikvision_restart_button"
     _attr_icon = "mdi:restart"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the button."""
@@ -67,6 +68,8 @@ class HikvisionTestToneButton(ButtonEntity):
 
     _attr_unique_id = "hikvision_test_tone_button"
     _attr_icon = "mdi:music-note"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the button."""
