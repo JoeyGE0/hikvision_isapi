@@ -18,7 +18,7 @@ ALARM_SERVER_PATH: Final = "/api/hikvision_isapi"
 # Home Assistant event fired when camera events occur
 HIKVISION_EVENT: Final = f"{DOMAIN}_event"
 
-# Event type mappings (matching hikvision_next patterns)
+# Event type mappings
 EVENT_BASIC: Final = "basic"
 EVENT_SMART: Final = "smart"
 
