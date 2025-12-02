@@ -88,11 +88,6 @@ async def async_setup_entry(
             )
         )
 
-    # Also add tamper detection enabled sensor (configuration state)
-    entities.append(
-        HikvisionTamperDetectionBinarySensor(coordinator, api, entry, host, device_name)
-    )
-
     async_add_entities(entities)
 
 
@@ -183,47 +178,3 @@ class EventBinarySensor(BinarySensorEntity):
         self.async_on_remove(
             self.hass.bus.async_listen(HIKVISION_EVENT, hikvision_event_listener)
         )
-
-
-class HikvisionTamperDetectionBinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """Binary sensor for tamper detection enabled state (configuration)."""
-
-    _attr_unique_id = "hikvision_tamper_detection"
-    _attr_icon = "mdi:shield-alert"
-    _attr_device_class = BinarySensorDeviceClass.TAMPER
-
-    def __init__(
-        self,
-        coordinator: HikvisionDataUpdateCoordinator,
-        api: HikvisionISAPI,
-        entry: ConfigEntry,
-        host: str,
-        device_name: str,
-    ):
-        """Initialize the binary sensor."""
-        super().__init__(coordinator)
-        self.coordinator = coordinator
-        self.api = api
-        self._host = host
-        self._entry = entry
-        self._attr_name = f"{device_name} Tamper Detection Enabled"
-        self._attr_unique_id = f"{host}_tamper_detection_enabled"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    @property
-    def is_on(self) -> bool:
-        """Return if tamper detection is enabled."""
-        if self.coordinator.data and "tamper" in self.coordinator.data:
-            return self.coordinator.data["tamper"].get("enabled", False)
-        return False
