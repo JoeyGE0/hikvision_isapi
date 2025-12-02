@@ -17,7 +17,7 @@ from .models import EventInfo
 
 _LOGGER = logging.getLogger(__name__)
 
-# Auto-clear timeout for event sensors (5 seconds default, like hikvision_next)
+# Auto-clear timeout for event sensors (5 seconds default)
 EVENT_CLEAR_TIMEOUT = timedelta(seconds=5)
 
 # Event name mappings (matching your integration style)
@@ -97,7 +97,7 @@ async def async_setup_entry(
 
 
 class EventBinarySensor(BinarySensorEntity):
-    """Event detection sensor - reads from state set by webhook handler (like hikvision_next)."""
+    """Event detection sensor - reads from state set by webhook handler."""
 
     def __init__(
         self,
@@ -167,7 +167,7 @@ class EventBinarySensor(BinarySensorEntity):
                 self._state = True
                 self.async_write_ha_state()
                 
-                # Auto-clear after timeout (like hikvision_next)
+                # Auto-clear after timeout
                 if self._clear_timer:
                     self._clear_timer()
                 
@@ -244,7 +244,7 @@ class HikvisionAlarmInputBinarySensor(BinarySensorEntity):
                     self._state = True
                     self.async_write_ha_state()
                     
-                    # Auto-clear after timeout (like hikvision_next)
+                    # Auto-clear after timeout
                     if self._clear_timer:
                         self._clear_timer()
                     
