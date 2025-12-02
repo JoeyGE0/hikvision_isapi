@@ -416,6 +416,7 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
     _attr_native_step = 1
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:brightness-6"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the number entity."""
@@ -485,6 +486,7 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
     _attr_native_step = 1
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:brightness-6"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the number entity."""
@@ -554,6 +556,7 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
     _attr_native_step = 1
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:brightness-percent"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the number entity."""
@@ -625,6 +628,7 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
     _attr_native_step = 1
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:brightness-percent"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the number entity."""
@@ -838,6 +842,7 @@ class HikvisionMotionEndTriggerTimeNumber(NumberEntity):
     _attr_native_step = 100
     _attr_native_unit_of_measurement = "ms"
     _attr_icon = "mdi:timer-outline"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the number entity."""
