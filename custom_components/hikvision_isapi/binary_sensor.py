@@ -2,19 +2,23 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, EVENTS
+from .const import DOMAIN, EVENTS, HIKVISION_EVENT
 from .api import HikvisionISAPI
 from .coordinator import HikvisionDataUpdateCoordinator
 from .models import EventInfo
 
 _LOGGER = logging.getLogger(__name__)
+
+# Auto-clear timeout for event sensors (5 seconds default, like hikvision_next)
+EVENT_CLEAR_TIMEOUT = timedelta(seconds=5)
 
 # Event name mappings (matching your integration style)
 EVENT_NAME_MAP = {
@@ -92,10 +96,8 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class EventBinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """Event detection sensor - matching your integration style."""
-
-    _attr_is_on = False
+class EventBinarySensor(BinarySensorEntity):
+    """Event detection sensor - reads from state set by webhook handler (like hikvision_next)."""
 
     def __init__(
         self,
@@ -107,12 +109,14 @@ class EventBinarySensor(CoordinatorEntity, BinarySensorEntity):
         event: EventInfo,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator)
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
         self.event = event
+        self._hass = None
+        self._clear_timer = None
+        self._state = False
         
         # Set name matching your integration style: "{device_name} {Event Name}"
         event_name = EVENT_NAME_MAP.get(event.id, event.id.title())
@@ -143,6 +147,42 @@ class EventBinarySensor(CoordinatorEntity, BinarySensorEntity):
     def available(self) -> bool:
         """Return if entity is available."""
         return self.coordinator.last_update_success
+
+    @property
+    def is_on(self) -> bool:
+        """Return if the sensor is on (event detected)."""
+        return self._state
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self._hass = self.hass
+        
+        # Listen to Hikvision events (fired by webhook handler)
+        @callback
+        def hikvision_event_listener(event: Event) -> None:
+            """Handle Hikvision events from webhook."""
+            event_id = event.data.get("event_id", "")
+            # Match event ID (handle both exact match and alternate names)
+            if event_id == self.event.id or event_id.lower() == self.event.id.lower():
+                self._state = True
+                self.async_write_ha_state()
+                
+                # Auto-clear after timeout (like hikvision_next)
+                if self._clear_timer:
+                    self._clear_timer()
+                
+                def clear_state(_now):
+                    self._state = False
+                    self.async_write_ha_state()
+                
+                self._clear_timer = self.hass.loop.call_later(
+                    EVENT_CLEAR_TIMEOUT.total_seconds(),
+                    clear_state
+                )
+        
+        self.async_on_remove(
+            self.hass.bus.async_listen(HIKVISION_EVENT, hikvision_event_listener)
+        )
 
 
 class HikvisionTamperDetectionBinarySensor(CoordinatorEntity, BinarySensorEntity):
