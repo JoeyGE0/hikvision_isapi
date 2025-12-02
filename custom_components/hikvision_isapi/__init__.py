@@ -78,7 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     coordinator = HikvisionDataUpdateCoordinator(hass, entry, api, update_interval)
     await coordinator.async_config_entry_first_refresh()
     
-    # Register webhook endpoint for event notifications (only once, following hikvision_next pattern)
+    # Register webhook endpoint for event notifications (only once per integration instance)
     if get_first_instance_unique_id(hass) == entry.unique_id:
         hass.http.register_view(EventNotificationsView(hass))
         _LOGGER.info("Registered webhook endpoint: %s", ALARM_SERVER_PATH)
@@ -108,7 +108,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 
 def get_first_instance_unique_id(hass: HomeAssistant) -> str:
-    """Get entry unique_id for first instance of integration - following hikvision_next pattern."""
+    """Get entry unique_id for first instance of integration."""
     entries = [entry for entry in hass.config_entries.async_entries(DOMAIN) if not entry.disabled_by]
     if entries:
         return entries[0].unique_id
