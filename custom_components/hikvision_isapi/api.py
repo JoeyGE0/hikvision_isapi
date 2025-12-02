@@ -273,6 +273,151 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set IR light brightness: %s", e)
             return False
 
+    def set_brightness_control_mode(self, mode: str) -> bool:
+        """Set light brightness control mode (auto/manual)."""
+        try:
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError("Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+
+            # Update both mixed and event-intelligence brightness control modes if present
+            xml_str, count1 = re.subn(
+                r"<brightnessRegulatMode>.*?</brightnessRegulatMode>",
+                f"<brightnessRegulatMode>{mode}</brightnessRegulatMode>",
+                xml_str,
+            )
+            xml_str, count2 = re.subn(
+                r"<mixedLightBrightnessRegulatMode>.*?</mixedLightBrightnessRegulatMode>",
+                f"<mixedLightBrightnessRegulatMode>{mode}</mixedLightBrightnessRegulatMode>",
+                xml_str,
+            )
+
+            if count1 == 0 and count2 == 0:
+                _LOGGER.error("Brightness control fields not found in supplementLight XML")
+                return False
+
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError("Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set brightness control mode: %s", e)
+            return False
+
+    def set_white_light_brightness_limit(self, limit: int) -> bool:
+        """Set white light brightness limit (0-100)."""
+        try:
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError("Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+
+            xml_str, count = re.subn(
+                r"<whiteLightbrightLimit>.*?</whiteLightbrightLimit>",
+                f"<whiteLightbrightLimit>{limit}</whiteLightbrightLimit>",
+                xml_str,
+            )
+            if count == 0:
+                _LOGGER.error("whiteLightbrightLimit field not found in supplementLight XML")
+                return False
+
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError("Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set white light brightness limit: %s", e)
+            return False
+
+    def set_ir_light_brightness_limit(self, limit: int) -> bool:
+        """Set IR light brightness limit (0-100)."""
+        try:
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError("Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+
+            xml_str, count = re.subn(
+                r"<irLightbrightLimit>.*?</irLightbrightLimit>",
+                f"<irLightbrightLimit>{limit}</irLightbrightLimit>",
+                xml_str,
+            )
+            if count == 0:
+                _LOGGER.error("irLightbrightLimit field not found in supplementLight XML")
+                return False
+
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError("Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set IR light brightness limit: %s", e)
+            return False
+
     def get_white_light_time(self) -> Optional[int]:
         """Get white light duration (10-300 seconds)."""
         try:
@@ -658,7 +803,7 @@ class HikvisionISAPI:
             # Step 4: Generate 2-second siren sound
             _LOGGER.info("Generating 2-second siren sound...")
             sample_rate = 8000
-            duration = 4.0
+            duration = 2.0
             num_samples = int(sample_rate * duration)
             
             # Siren parameters: alternate between low and high frequencies
