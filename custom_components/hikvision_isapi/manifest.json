@@ -13,242 +13,84 @@
   "domains": [],
   "platforms": ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button"],
   "dhcp": [
-    {
-      "macaddress": "00:BC:99*"
-    },
-    {
-      "macaddress": "04:03:12*"
-    },
-    {
-      "macaddress": "04:EE:CD*"
-    },
-    {
-      "macaddress": "08:3B:C1*"
-    },
-    {
-      "macaddress": "08:54:11*"
-    },
-    {
-      "macaddress": "08:A1:89*"
-    },
-    {
-      "macaddress": "08:CC:81*"
-    },
-    {
-      "macaddress": "0C:75:D2*"
-    },
-    {
-      "macaddress": "10:12:FB*"
-    },
-    {
-      "macaddress": "18:68:CB*"
-    },
-    {
-      "macaddress": "18:80:25*"
-    },
-    {
-      "macaddress": "24:0F:9B*"
-    },
-    {
-      "macaddress": "24:28:FD*"
-    },
-    {
-      "macaddress": "24:32:AE*"
-    },
-    {
-      "macaddress": "24:48:45*"
-    },
-    {
-      "macaddress": "28:57:BE*"
-    },
-    {
-      "macaddress": "2C:A5:9C*"
-    },
-    {
-      "macaddress": "34:09:62*"
-    },
-    {
-      "macaddress": "3C:1B:F8*"
-    },
-    {
-      "macaddress": "40:AC:BF*"
-    },
-    {
-      "macaddress": "44:19:B6*"
-    },
-    {
-      "macaddress": "44:47:CC*"
-    },
-    {
-      "macaddress": "44:A6:42*"
-    },
-    {
-      "macaddress": "4C:1F:86*"
-    },
-    {
-      "macaddress": "4C:62:DF*"
-    },
-    {
-      "macaddress": "4C:BD:8F*"
-    },
-    {
-      "macaddress": "4C:F5:DC*"
-    },
-    {
-      "macaddress": "50:E5:38*"
-    },
-    {
-      "macaddress": "54:8C:81*"
-    },
-    {
-      "macaddress": "54:C4:15*"
-    },
-    {
-      "macaddress": "58:03:FB*"
-    },
-    {
-      "macaddress": "58:50:ED*"
-    },
-    {
-      "macaddress": "5C:34:5B*"
-    },
-    {
-      "macaddress": "64:DB:8B*"
-    },
-    {
-      "macaddress": "68:6D:BC*"
-    },
-    {
-      "macaddress": "74:3F:C2*"
-    },
-    {
-      "macaddress": "80:48:9F*"
-    },
-    {
-      "macaddress": "80:7C:62*"
-    },
-    {
-      "macaddress": "80:BE:AF*"
-    },
-    {
-      "macaddress": "80:F5:AE*"
-    },
-    {
-      "macaddress": "84:94:59*"
-    },
-    {
-      "macaddress": "84:9A:40*"
-    },
-    {
-      "macaddress": "88:DE:39*"
-    },
-    {
-      "macaddress": "8C:E7:48*"
-    },
-    {
-      "macaddress": "94:E1:AC*"
-    },
-    {
-      "macaddress": "98:8B:0A*"
-    },
-    {
-      "macaddress": "98:9D:E5*"
-    },
-    {
-      "macaddress": "98:DF:82*"
-    },
-    {
-      "macaddress": "98:F1:12*"
-    },
-    {
-      "macaddress": "A0:FF:0C*"
-    },
-    {
-      "macaddress": "A4:14:37*"
-    },
-    {
-      "macaddress": "A4:29:02*"
-    },
-    {
-      "macaddress": "A4:4B:D9*"
-    },
-    {
-      "macaddress": "A4:A4:59*"
-    },
-    {
-      "macaddress": "A4:D5:C2*"
-    },
-    {
-      "macaddress": "AC:B9:2F*"
-    },
-    {
-      "macaddress": "AC:CB:51*"
-    },
-    {
-      "macaddress": "B4:A3:82*"
-    },
-    {
-      "macaddress": "BC:5E:33*"
-    },
-    {
-      "macaddress": "BC:9B:5E*"
-    },
-    {
-      "macaddress": "BC:AD:28*"
-    },
-    {
-      "macaddress": "BC:BA:C2*"
-    },
-    {
-      "macaddress": "C0:51:7E*"
-    },
-    {
-      "macaddress": "C0:56:E3*"
-    },
-    {
-      "macaddress": "C0:6D:ED*"
-    },
-    {
-      "macaddress": "C4:2F:90*"
-    },
-    {
-      "macaddress": "C8:A7:02*"
-    },
-    {
-      "macaddress": "D4:E8:53*"
-    },
-    {
-      "macaddress": "DC:07:F8*"
-    },
-    {
-      "macaddress": "DC:D2:6A*"
-    },
-    {
-      "macaddress": "E0:BA:AD*"
-    },
-    {
-      "macaddress": "E0:CA:3C*"
-    },
-    {
-      "macaddress": "E0:DF:13*"
-    },
-    {
-      "macaddress": "E4:D5:8B*"
-    },
-    {
-      "macaddress": "E8:A0:ED*"
-    },
-    {
-      "macaddress": "EC:A9:71*"
-    },
-    {
-      "macaddress": "EC:C8:9C*"
-    },
-    {
-      "macaddress": "F8:4D:FC*"
-    },
-    {
-      "macaddress": "FC:9F:FD*"
-    }
+    {"macaddress": "00:bc:99*"},
+    {"macaddress": "04:03:12*"},
+    {"macaddress": "04:ee:cd*"},
+    {"macaddress": "08:3b:c1*"},
+    {"macaddress": "08:54:11*"},
+    {"macaddress": "08:a1:89*"},
+    {"macaddress": "08:cc:81*"},
+    {"macaddress": "0c:75:d2*"},
+    {"macaddress": "10:12:fb*"},
+    {"macaddress": "18:68:cb*"},
+    {"macaddress": "18:80:25*"},
+    {"macaddress": "24:0f:9b*"},
+    {"macaddress": "24:28:fd*"},
+    {"macaddress": "24:32:ae*"},
+    {"macaddress": "24:48:45*"},
+    {"macaddress": "28:57:be*"},
+    {"macaddress": "2c:a5:9c*"},
+    {"macaddress": "34:09:62*"},
+    {"macaddress": "3c:1b:f8*"},
+    {"macaddress": "40:ac:bf*"},
+    {"macaddress": "44:19:b6*"},
+    {"macaddress": "44:47:cc*"},
+    {"macaddress": "44:a6:42*"},
+    {"macaddress": "4c:1f:86*"},
+    {"macaddress": "4c:62:df*"},
+    {"macaddress": "4c:bd:8f*"},
+    {"macaddress": "4c:f5:dc*"},
+    {"macaddress": "50:e5:38*"},
+    {"macaddress": "54:8c:81*"},
+    {"macaddress": "54:c4:15*"},
+    {"macaddress": "58:03:fb*"},
+    {"macaddress": "58:50:ed*"},
+    {"macaddress": "5c:34:5b*"},
+    {"macaddress": "64:db:8b*"},
+    {"macaddress": "68:6d:bc*"},
+    {"macaddress": "74:3f:c2*"},
+    {"macaddress": "80:48:9f*"},
+    {"macaddress": "80:7c:62*"},
+    {"macaddress": "80:be:af*"},
+    {"macaddress": "80:f5:ae*"},
+    {"macaddress": "84:94:59*"},
+    {"macaddress": "84:9a:40*"},
+    {"macaddress": "88:de:39*"},
+    {"macaddress": "8c:e7:48*"},
+    {"macaddress": "94:e1:ac*"},
+    {"macaddress": "98:8b:0a*"},
+    {"macaddress": "98:9d:e5*"},
+    {"macaddress": "98:df:82*"},
+    {"macaddress": "98:f1:12*"},
+    {"macaddress": "a0:ff:0c*"},
+    {"macaddress": "a4:14:37*"},
+    {"macaddress": "a4:29:02*"},
+    {"macaddress": "a4:4b:d9*"},
+    {"macaddress": "a4:a4:59*"},
+    {"macaddress": "a4:d5:c2*"},
+    {"macaddress": "ac:b9:2f*"},
+    {"macaddress": "ac:cb:51*"},
+    {"macaddress": "b4:a3:82*"},
+    {"macaddress": "bc:5e:33*"},
+    {"macaddress": "bc:9b:5e*"},
+    {"macaddress": "bc:ad:28*"},
+    {"macaddress": "bc:ba:c2*"},
+    {"macaddress": "c0:51:7e*"},
+    {"macaddress": "c0:56:e3*"},
+    {"macaddress": "c0:6d:ed*"},
+    {"macaddress": "c4:2f:90*"},
+    {"macaddress": "c8:a7:02*"},
+    {"macaddress": "d4:e8:53*"},
+    {"macaddress": "dc:07:f8*"},
+    {"macaddress": "dc:d2:6a*"},
+    {"macaddress": "e0:ba:ad*"},
+    {"macaddress": "e0:ca:3c*"},
+    {"macaddress": "e0:df:13*"},
+    {"macaddress": "e4:d5:8b*"},
+    {"macaddress": "e8:a0:ed*"},
+    {"macaddress": "ec:a9:71*"},
+    {"macaddress": "ec:c8:9c*"},
+    {"macaddress": "f8:4d:fc*"},
+    {"macaddress": "fc:9f:fd*"}
   ]
 }
