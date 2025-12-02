@@ -39,7 +39,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> config_entries.ConfigFlowResult:
         """Handle DHCP discovery."""
-        _LOGGER.debug("DHCP discovery triggered: IP=%s, MAC=%s, Hostname=%s", 
+        _LOGGER.info("DHCP discovery triggered for Hikvision ISAPI: IP=%s, MAC=%s, Hostname=%s", 
                      discovery_info.ip, discovery_info.macaddress, discovery_info.hostname)
         
         # Get IP address - use ip attribute directly (DhcpServiceInfo always has ip)
@@ -105,7 +105,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # If coming from DHCP discovery, use discovered host as default
         discovered_host = self.context.get("discovered_host")
-        default_host = discovered_host if discovered_host else ""
         
         if user_input is not None:
             # Validate credentials by attempting to connect
