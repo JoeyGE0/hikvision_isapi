@@ -1303,6 +1303,271 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to get system status: %s", e)
             return {}
 
+    def get_field_detection(self) -> dict:
+        """Get field detection (intrusion) settings."""
+        try:
+            xml = self._get("/ISAPI/Smart/FieldDetection")
+            result = {}
+            field = xml.find(f".//{XML_NS}FieldDetection")
+            if field is not None:
+                enabled = field.find(f".//{XML_NS}enabled")
+                if enabled is not None:
+                    result["enabled"] = enabled.text.strip().lower() == "true"
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get field detection: %s", e)
+            return {}
+
+    def set_field_detection(self, enabled: bool) -> bool:
+        """Enable/disable field detection (intrusion)."""
+        try:
+            url = f"http://{self.host}/ISAPI/Smart/FieldDetection"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set field detection: %s", e)
+            return False
+
+    def get_line_detection(self) -> dict:
+        """Get line detection settings."""
+        try:
+            xml = self._get("/ISAPI/Smart/LineDetection")
+            result = {}
+            line = xml.find(f".//{XML_NS}LineDetection")
+            if line is not None:
+                enabled = line.find(f".//{XML_NS}enabled")
+                if enabled is not None:
+                    result["enabled"] = enabled.text.strip().lower() == "true"
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get line detection: %s", e)
+            return {}
+
+    def set_line_detection(self, enabled: bool) -> bool:
+        """Enable/disable line detection."""
+        try:
+            url = f"http://{self.host}/ISAPI/Smart/LineDetection"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set line detection: %s", e)
+            return False
+
+    def get_scene_change_detection(self) -> dict:
+        """Get scene change detection settings."""
+        try:
+            xml = self._get("/ISAPI/Smart/SceneChangeDetection")
+            result = {}
+            scene = xml.find(f".//{XML_NS}SceneChangeDetection")
+            if scene is not None:
+                enabled = scene.find(f".//{XML_NS}enabled")
+                if enabled is not None:
+                    result["enabled"] = enabled.text.strip().lower() == "true"
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get scene change detection: %s", e)
+            return {}
+
+    def set_scene_change_detection(self, enabled: bool) -> bool:
+        """Enable/disable scene change detection."""
+        try:
+            url = f"http://{self.host}/ISAPI/Smart/SceneChangeDetection"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set scene change detection: %s", e)
+            return False
+
+    def get_region_entrance(self) -> dict:
+        """Get region entrance detection settings."""
+        try:
+            xml = self._get("/ISAPI/Smart/regionEntrance")
+            result = {}
+            region = xml.find(f".//{XML_NS}RegionEntrance")
+            if region is not None:
+                enabled = region.find(f".//{XML_NS}enabled")
+                if enabled is not None:
+                    result["enabled"] = enabled.text.strip().lower() == "true"
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get region entrance: %s", e)
+            return {}
+
+    def set_region_entrance(self, enabled: bool) -> bool:
+        """Enable/disable region entrance detection."""
+        try:
+            url = f"http://{self.host}/ISAPI/Smart/regionEntrance"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set region entrance: %s", e)
+            return False
+
+    def get_region_exiting(self) -> dict:
+        """Get region exiting detection settings."""
+        try:
+            xml = self._get("/ISAPI/Smart/regionExiting")
+            result = {}
+            region = xml.find(f".//{XML_NS}RegionExiting")
+            if region is not None:
+                enabled = region.find(f".//{XML_NS}enabled")
+                if enabled is not None:
+                    result["enabled"] = enabled.text.strip().lower() == "true"
+            return result
+        except Exception as e:
+            _LOGGER.error("Failed to get region exiting: %s", e)
+            return {}
+
+    def set_region_exiting(self, enabled: bool) -> bool:
+        """Enable/disable region exiting detection."""
+        try:
+            url = f"http://{self.host}/ISAPI/Smart/regionExiting"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set region exiting: %s", e)
+            return False
+
     def restart(self) -> bool:
         """Restart the camera."""
         try:
