@@ -75,25 +75,26 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Use MAC address as unique_id for better device tracking
         await self.async_set_unique_id(mac_normalized)
         
-        # Check if already configured (this will abort silently if already exists)
-        # But we log it first so we can see in logs
-        existing_entries = [
-            entry for entry in self._async_current_entries()
-            if entry.unique_id == mac_normalized
-        ]
-        if existing_entries:
-            _LOGGER.debug("DHCP discovery: Device %s (MAC: %s) already configured, skipping", host, macaddress)
-        
+        # Abort if already configured
         self._abort_if_unique_id_configured()
         
-        # Pre-fill the form with discovered IP
-        return await self.async_step_user(
-            {
-                CONF_HOST: host,
-                CONF_USERNAME: "admin",
-                CONF_PASSWORD: "",
-                CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL,
-            }
+        # Store discovered host in context for use in user step
+        self.context.update({"discovered_host": host})
+        
+        # Return form - this will show up in "Discovered" section
+        # When user clicks "Configure", it will call async_step_user with the pre-filled values
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=host): str,
+                    vol.Required(CONF_USERNAME, default="admin"): str,
+                    vol.Required(CONF_PASSWORD): str,
+                    vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
+                        vol.Coerce(int), vol.Range(min=5, max=300)
+                    ),
+                }
+            ),
         )
 
     async def async_step_user(self, user_input=None):
