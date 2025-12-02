@@ -34,6 +34,8 @@ async def async_setup_entry(
         HikvisionWhiteLightTimeNumber(coordinator, api, entry, host, device_name),
         HikvisionWhiteLightBrightnessNumber(coordinator, api, entry, host, device_name),
         HikvisionIRLightBrightnessNumber(coordinator, api, entry, host, device_name),
+        HikvisionWhiteLightBrightnessLimitNumber(coordinator, api, entry, host, device_name),
+        HikvisionIRLightBrightnessLimitNumber(coordinator, api, entry, host, device_name),
         HikvisionMotionSensitivityNumber(coordinator, api, entry, host, device_name),
         HikvisionMotionStartTriggerTimeNumber(coordinator, api, entry, host, device_name),
         HikvisionMotionEndTriggerTimeNumber(coordinator, api, entry, host, device_name),
@@ -531,6 +533,148 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
             await self.coordinator.async_request_refresh()
             if (self.coordinator.data and 
                 self.coordinator.data.get("supplement_light", {}).get("irLightBrightness") == int(value)):
+                self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
+    """Number entity for white light brightness limit."""
+
+    _attr_unique_id = "hikvision_white_light_brightness_limit"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:brightness-percent"
+
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the number entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} White Light Brightness Limit"
+        self._attr_unique_id = f"{host}_white_light_brightness_limit"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+
+        if self.coordinator.data and "supplement_light" in self.coordinator.data:
+            limit = self.coordinator.data["supplement_light"].get("whiteLightbrightLimit")
+            if limit is not None:
+                return float(limit)
+        return None
+
+    async def async_set_native_value(self, value: float):
+        """Set the value."""
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+
+        success = await self.hass.async_add_executor_job(
+            self.api.set_white_light_brightness_limit, int(value)
+        )
+
+        if success:
+            await self.coordinator.async_request_refresh()
+            if (
+                self.coordinator.data
+                and self.coordinator.data.get("supplement_light", {}).get("whiteLightbrightLimit") == int(value)
+            ):
+                self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
+    """Number entity for IR light brightness limit."""
+
+    _attr_unique_id = "hikvision_ir_light_brightness_limit"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:brightness-percent"
+
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the number entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} IR Light Brightness Limit"
+        self._attr_unique_id = f"{host}_ir_light_brightness_limit"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+
+        if self.coordinator.data and "supplement_light" in self.coordinator.data:
+            limit = self.coordinator.data["supplement_light"].get("irLightbrightLimit")
+            if limit is not None:
+                return float(limit)
+        return None
+
+    async def async_set_native_value(self, value: float):
+        """Set the value."""
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+
+        success = await self.hass.async_add_executor_job(
+            self.api.set_ir_light_brightness_limit, int(value)
+        )
+
+        if success:
+            await self.coordinator.async_request_refresh()
+            if (
+                self.coordinator.data
+                and self.coordinator.data.get("supplement_light", {}).get("irLightbrightLimit") == int(value)
+            ):
                 self._optimistic_value = None
         else:
             self._optimistic_value = None
