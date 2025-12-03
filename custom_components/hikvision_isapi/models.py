@@ -13,6 +13,7 @@ class AlertInfo:
     mac: str = ""
     region_id: int = 0
     detection_target: str = None
+    io_port_id: int = 0
 
 
 @dataclass
@@ -24,4 +25,5 @@ class EventInfo:
     unique_id: str = None
     url: str = None  # URL to fetch the event status (enabled/disabled)
     disabled: bool = False
+    io_port_id: int = 0
 
