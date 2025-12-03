@@ -16,7 +16,6 @@ from .const import (
     CONF_PASSWORD,
     CONF_UPDATE_INTERVAL,
     CONF_USERNAME,
-    CONF_HA_IP,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
 )
@@ -29,7 +28,6 @@ DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
             vol.Coerce(int), vol.Range(min=5, max=300)
         ),
-        vol.Optional(CONF_HA_IP): str,
     }
 )
 
@@ -61,15 +59,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.context.update({"discovered_host": host})
         
         # Show form with pre-filled values
-        # Auto-detect Home Assistant IP for DHCP discovery
-        ha_ip = None
-        if self.hass.config.internal_url:
-            from urllib.parse import urlparse
-            ha_ip = urlparse(self.hass.config.internal_url).hostname
-        elif self.hass.config.external_url:
-            from urllib.parse import urlparse
-            ha_ip = urlparse(self.hass.config.external_url).hostname
-        
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -80,7 +69,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
                         vol.Coerce(int), vol.Range(min=5, max=300)
                     ),
-                    vol.Optional(CONF_HA_IP, default=ha_ip or ""): str,
                 }
             ),
         )
@@ -91,15 +79,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # If coming from DHCP discovery, use discovered host as default
         discovered_host = self.context.get("discovered_host")
-        
-        # Auto-detect Home Assistant IP
-        ha_ip = None
-        if self.hass.config.internal_url:
-            from urllib.parse import urlparse
-            ha_ip = urlparse(self.hass.config.internal_url).hostname
-        elif self.hass.config.external_url:
-            from urllib.parse import urlparse
-            ha_ip = urlparse(self.hass.config.external_url).hostname
         
         if user_input is not None:
             # Validate credentials by attempting to connect
@@ -145,16 +124,15 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Use discovered host as default if available, otherwise use empty schema
         schema = DATA_SCHEMA
-        if discovered_host or ha_ip:
+        if discovered_host:
             schema = vol.Schema(
                 {
-                    vol.Required(CONF_HOST, default=discovered_host or ""): str,
+                    vol.Required(CONF_HOST, default=discovered_host): str,
                     vol.Required(CONF_USERNAME, default="admin"): str,
                     vol.Required(CONF_PASSWORD): str,
                     vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
                         vol.Coerce(int), vol.Range(min=5, max=300)
                     ),
-                    vol.Optional(CONF_HA_IP, default=ha_ip or ""): str,
                 }
             )
         
@@ -200,24 +178,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         data={**entry.data, **user_input},
                         title=host,
                     )
-                    # Reconfigure event notifications if HA IP changed
-                    ha_ip = user_input.get(CONF_HA_IP)
-                    if ha_ip:
-                        try:
-                            from .api import HikvisionISAPI
-                            api = HikvisionISAPI(host, username, password)
-                            ha_port = 8123
-                            if self.hass.config.internal_url:
-                                from urllib.parse import urlparse
-                                parsed = urlparse(self.hass.config.internal_url)
-                                if parsed.port:
-                                    ha_port = parsed.port
-                            await self.hass.async_add_executor_job(
-                                api.configure_event_notification, ha_ip, ha_port
-                            )
-                        except Exception as e:
-                            _LOGGER.warning("Failed to reconfigure event notifications: %s", e)
-                    
                     await self.hass.config_entries.async_reload(entry.entry_id)
                     return self.async_abort(reason="reconfigure_successful")
                     
@@ -229,15 +189,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during reconfiguration: %s", e)
                 errors["base"] = "unknown"
 
-        # Auto-detect Home Assistant IP for reconfigure
-        ha_ip_default = None
-        if self.hass.config.internal_url:
-            from urllib.parse import urlparse
-            ha_ip_default = urlparse(self.hass.config.internal_url).hostname
-        elif self.hass.config.external_url:
-            from urllib.parse import urlparse
-            ha_ip_default = urlparse(self.hass.config.external_url).hostname
-        
         # Pre-fill form with existing values
         reconfigure_schema = vol.Schema(
             {
@@ -248,7 +199,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_UPDATE_INTERVAL,
                     default=entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
                 ): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
-                vol.Optional(CONF_HA_IP, default=entry.data.get(CONF_HA_IP, ha_ip_default or "")): str,
             }
         )
 
