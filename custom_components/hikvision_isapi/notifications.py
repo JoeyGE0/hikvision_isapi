@@ -11,7 +11,7 @@ from aiohttp import web
 from requests_toolbelt.multipart import MultipartDecoder
 
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN, STATE_ON, Platform
+from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_registry import async_get
 from homeassistant.util import slugify
@@ -210,39 +210,9 @@ class EventNotificationsView(HomeAssistantView):
             raise
 
     def trigger_sensor(self, entry, alert: AlertInfo) -> None:
-        """Determine entity and set binary sensor state - matching your integration style."""
+        """Fire bus event for binary sensors to handle."""
         _LOGGER.debug("Alert: %s", alert)
-
-        host = self.hass.data[DOMAIN][entry.entry_id].get("host", "")
-        
-        # Map event_id to unique_id suffix matching your integration style
-        event_unique_id_map = {
-            "motiondetection": "motion",
-            "tamperdetection": "video_tampering",
-            "videoloss": "video_loss",
-            "scenechangedetection": "scene_change",
-            "fielddetection": "intrusion",
-            "linedetection": "line_crossing",
-            "regionentrance": "region_entrance",
-            "regionexiting": "region_exiting",
-        }
-        
-        unique_id_suffix = event_unique_id_map.get(alert.event_id, alert.event_id)
-        unique_id = f"{host}_{unique_id_suffix}"
-
-        _LOGGER.debug("UNIQUE_ID: %s", unique_id)
-
-        entity_registry = async_get(self.hass)
-        entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, unique_id)
-        if entity_id:
-            entity = self.hass.states.get(entity_id)
-            if entity:
-                self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
-                self.fire_hass_event(entry, alert)
-            else:
-                _LOGGER.warning("Entity state not found for %s", entity_id)
-        else:
-            _LOGGER.warning("Entity not found in registry: %s", unique_id)
+        self.fire_hass_event(entry, alert)
 
     def fire_hass_event(self, entry, alert: AlertInfo):
         """Fire HASS event for Hikvision camera events."""
@@ -258,6 +228,7 @@ class EventNotificationsView(HomeAssistantView):
             message["detection_target"] = alert.detection_target
             message["region_id"] = alert.region_id
 
+        _LOGGER.info("Firing HIKVISION_EVENT: event_id=%s, channel_id=%s", alert.event_id, alert.channel_id)
         self.hass.bus.fire(
             HIKVISION_EVENT,
             message,
