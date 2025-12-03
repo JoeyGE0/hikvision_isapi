@@ -162,8 +162,11 @@ class EventBinarySensor(BinarySensorEntity):
         def hikvision_event_listener(event: Event) -> None:
             """Handle Hikvision events from webhook."""
             event_id = event.data.get("event_id", "")
-            # Match event ID (handle both exact match and alternate names)
-            if event_id == self.event.id or event_id.lower() == self.event.id.lower():
+            _LOGGER.debug("Event received for %s: event_id=%s, listening for=%s", self._attr_name, event_id, self.event.id)
+            
+            # Match event ID (both are already lowercase)
+            if event_id == self.event.id:
+                _LOGGER.info("Event matched! Setting %s to ON", self._attr_name)
                 self._state = True
                 self.async_write_ha_state()
                 
