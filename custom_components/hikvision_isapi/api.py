@@ -32,8 +32,8 @@ class HikvisionISAPI:
 
     def _get(self, endpoint: str) -> ET.Element:
         """Make a GET request to ISAPI endpoint."""
-        # Use full URL for System and Streaming endpoints, otherwise use base_url (Image channels)
-        if endpoint.startswith("/ISAPI/System") or endpoint.startswith("/ISAPI/Streaming"):
+        # Use full URL for System, Streaming, and Smart endpoints, otherwise use base_url (Image channels)
+        if endpoint.startswith("/ISAPI/System") or endpoint.startswith("/ISAPI/Streaming") or endpoint.startswith("/ISAPI/Smart"):
             url = f"http://{self.host}{endpoint}"
         else:
             url = f"{self.base_url}{endpoint}"
@@ -64,7 +64,11 @@ class HikvisionISAPI:
 
     def _put(self, endpoint: str, xml_data: str) -> ET.Element:
         """Make a PUT request to ISAPI endpoint."""
-        url = f"http://{self.host}{endpoint}" if endpoint.startswith("/ISAPI/System") else f"{self.base_url}{endpoint}"
+        # Use full URL for System, Streaming, and Smart endpoints, otherwise use base_url (Image channels)
+        if endpoint.startswith("/ISAPI/System") or endpoint.startswith("/ISAPI/Streaming") or endpoint.startswith("/ISAPI/Smart"):
+            url = f"http://{self.host}{endpoint}"
+        else:
+            url = f"{self.base_url}{endpoint}"
         try:
             response = requests.put(
                 url,
