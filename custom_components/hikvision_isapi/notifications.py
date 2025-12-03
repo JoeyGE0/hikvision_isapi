@@ -11,7 +11,7 @@ from aiohttp import web
 from requests_toolbelt.multipart import MultipartDecoder
 
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN
+from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN, STATE_ON, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_registry import async_get
 from homeassistant.util import slugify
@@ -210,9 +210,31 @@ class EventNotificationsView(HomeAssistantView):
             raise
 
     def trigger_sensor(self, entry, alert: AlertInfo) -> None:
-        """Fire bus event for binary sensors to handle."""
+        """Determine entity and set binary sensor state."""
         _LOGGER.debug("Alert: %s", alert)
-        self.fire_hass_event(entry, alert)
+
+        host = self.hass.data[DOMAIN][entry.entry_id].get("host", "")
+        device_info = self.hass.data[DOMAIN][entry.entry_id].get("device_info", {})
+        serial_no = device_info.get("serialNumber", host).lower()
+        
+        # Construct unique_id matching binary_sensor.py format
+        device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != "io" else ""
+        io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
+        unique_id = f"binary_sensor.{slugify(serial_no)}{device_id_param}{io_port_id_param}_{alert.event_id}"
+
+        _LOGGER.debug("UNIQUE_ID: %s", unique_id)
+
+        entity_registry = async_get(self.hass)
+        entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, unique_id)
+        if entity_id:
+            entity = self.hass.states.get(entity_id)
+            if entity:
+                self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                self.fire_hass_event(entry, alert)
+            else:
+                _LOGGER.warning("Entity state not found for %s", entity_id)
+        else:
+            _LOGGER.warning("Entity not found in registry: %s", unique_id)
 
     def fire_hass_event(self, entry, alert: AlertInfo):
         """Fire HASS event for Hikvision camera events."""
