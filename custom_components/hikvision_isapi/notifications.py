@@ -210,17 +210,25 @@ class EventNotificationsView(HomeAssistantView):
             raise
 
     def trigger_sensor(self, entry, alert: AlertInfo) -> None:
-        """Determine entity and set binary sensor state."""
+        """Determine entity and set binary sensor state - matching your integration style."""
         _LOGGER.debug("Alert: %s", alert)
 
         host = self.hass.data[DOMAIN][entry.entry_id].get("host", "")
-        device_info = self.hass.data[DOMAIN][entry.entry_id].get("device_info", {})
-        serial_no = device_info.get("serialNumber", host).lower()
         
-        # Construct unique_id matching binary_sensor.py format
-        device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != "io" else ""
-        io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
-        unique_id = f"binary_sensor.{slugify(serial_no)}{device_id_param}{io_port_id_param}_{alert.event_id}"
+        # Map event_id to unique_id suffix matching your integration style
+        event_unique_id_map = {
+            "motiondetection": "motion",
+            "tamperdetection": "video_tampering",
+            "videoloss": "video_loss",
+            "scenechangedetection": "scene_change",
+            "fielddetection": "intrusion",
+            "linedetection": "line_crossing",
+            "regionentrance": "region_entrance",
+            "regionexiting": "region_exiting",
+        }
+        
+        unique_id_suffix = event_unique_id_map.get(alert.event_id, alert.event_id)
+        unique_id = f"{host}_{unique_id_suffix}"
 
         _LOGGER.debug("UNIQUE_ID: %s", unique_id)
 
@@ -250,7 +258,6 @@ class EventNotificationsView(HomeAssistantView):
             message["detection_target"] = alert.detection_target
             message["region_id"] = alert.region_id
 
-        _LOGGER.info("Firing HIKVISION_EVENT: event_id=%s, channel_id=%s", alert.event_id, alert.channel_id)
         self.hass.bus.fire(
             HIKVISION_EVENT,
             message,
