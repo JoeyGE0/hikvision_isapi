@@ -1694,3 +1694,78 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to restart camera: %s", e)
             return False
+
+    def configure_event_notification(self, ha_ip: str, ha_port: int = 8123) -> bool:
+        """Configure camera to send events to Home Assistant webhook."""
+        try:
+            url = f"http://{self.host}/ISAPI/Event/notification/httpHosts"
+            
+            # Get current config
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            
+            xml_str = response.text
+            
+            # Parse and find or create HTTP host entry
+            root = ET.fromstring(xml_str)
+            XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+            
+            http_hosts = root.find(f".//{XML_NS}HttpHostList")
+            if http_hosts is None:
+                http_hosts = ET.SubElement(root, f"{XML_NS}HttpHostList")
+            
+            # Check if Home Assistant host already exists
+            webhook_url = f"http://{ha_ip}:{ha_port}/api/hikvision_isapi"
+            existing_host = None
+            for host in http_hosts.findall(f".//{XML_NS}HttpHost"):
+                url_elem = host.find(f".//{XML_NS}url")
+                if url_elem is not None and url_elem.text and "/api/hikvision_isapi" in url_elem.text:
+                    existing_host = host
+                    break
+            
+            if existing_host is None:
+                # Create new HTTP host entry
+                new_host = ET.SubElement(http_hosts, f"{XML_NS}HttpHost")
+                ET.SubElement(new_host, f"{XML_NS}id").text = "1"
+                ET.SubElement(new_host, f"{XML_NS}url").text = webhook_url
+                ET.SubElement(new_host, f"{XML_NS}protocolType").text = "HTTP"
+            else:
+                # Update existing entry
+                url_elem = existing_host.find(f".//{XML_NS}url")
+                if url_elem is not None:
+                    url_elem.text = webhook_url
+            
+            # Convert back to XML string
+            xml_str = ET.tostring(root, encoding="unicode")
+            
+            # Update camera configuration
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            
+            _LOGGER.info("Configured camera to send events to %s", webhook_url)
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to configure event notification: %s", e)
+            return False
