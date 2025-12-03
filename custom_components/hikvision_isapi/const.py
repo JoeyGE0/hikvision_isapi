@@ -9,7 +9,6 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_UPDATE_INTERVAL = "update_interval"
-CONF_HA_IP = "ha_ip"
 
 DEFAULT_UPDATE_INTERVAL = 30
 
