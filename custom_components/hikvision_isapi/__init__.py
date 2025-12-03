@@ -4,7 +4,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry as dr
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_HA_IP
+from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
 from .notifications import EventNotificationsView
@@ -87,29 +87,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     if get_first_instance_unique_id(hass) == entry.unique_id:
         hass.http.register_view(EventNotificationsView(hass))
         _LOGGER.info("Registered webhook endpoint: %s", ALARM_SERVER_PATH)
-    
-    # Configure camera to send events to webhook if HA IP is provided
-    ha_ip = entry.data.get(CONF_HA_IP)
-    if ha_ip:
-        try:
-            ha_port = 8123
-            if hass.config.internal_url:
-                from urllib.parse import urlparse
-                parsed = urlparse(hass.config.internal_url)
-                if parsed.port:
-                    ha_port = parsed.port
-            elif hass.config.external_url:
-                from urllib.parse import urlparse
-                parsed = urlparse(hass.config.external_url)
-                if parsed.port:
-                    ha_port = parsed.port
-            
-            await hass.async_add_executor_job(
-                api.configure_event_notification, ha_ip, ha_port
-            )
-            _LOGGER.info("Configured camera to send events to %s:%d", ha_ip, ha_port)
-        except Exception as e:
-            _LOGGER.warning("Failed to auto-configure event notifications: %s", e)
     
     # Store coordinator, API and device info
     hass.data[DOMAIN][entry.entry_id] = {
