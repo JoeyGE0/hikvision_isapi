@@ -1737,9 +1737,13 @@ class HikvisionISAPI:
                     break
             
             if existing_host is None:
+                # Find next available ID
+                existing_ids = [int(h.find(f".//{XML_NS}id").text) for h in http_hosts.findall(f".//{XML_NS}HttpHost") if h.find(f".//{XML_NS}id") is not None and h.find(f".//{XML_NS}id").text.isdigit()]
+                next_id = str(max(existing_ids) + 1 if existing_ids else 1)
+                
                 # Create new HTTP host entry
                 new_host = ET.SubElement(http_hosts, f"{XML_NS}HttpHost")
-                ET.SubElement(new_host, f"{XML_NS}id").text = "1"
+                ET.SubElement(new_host, f"{XML_NS}id").text = next_id
                 ET.SubElement(new_host, f"{XML_NS}url").text = webhook_url
                 ET.SubElement(new_host, f"{XML_NS}protocolType").text = "HTTP"
             else:
@@ -1764,6 +1768,10 @@ class HikvisionISAPI:
                 raise AuthenticationError(f"Authentication failed - check username and password (401)")
             elif response.status_code == 403:
                 raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            elif response.status_code == 400:
+                _LOGGER.error("Bad Request (400). Response: %s", response.text)
+                _LOGGER.error("XML being sent: %s", xml_str)
+                raise Exception(f"Bad Request: {response.text}")
             response.raise_for_status()
             
             _LOGGER.info("Configured camera to send events to %s", webhook_url)
