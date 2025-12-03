@@ -229,6 +229,15 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during reconfiguration: %s", e)
                 errors["base"] = "unknown"
 
+        # Auto-detect Home Assistant IP for reconfigure
+        ha_ip_default = None
+        if self.hass.config.internal_url:
+            from urllib.parse import urlparse
+            ha_ip_default = urlparse(self.hass.config.internal_url).hostname
+        elif self.hass.config.external_url:
+            from urllib.parse import urlparse
+            ha_ip_default = urlparse(self.hass.config.external_url).hostname
+        
         # Pre-fill form with existing values
         reconfigure_schema = vol.Schema(
             {
@@ -239,6 +248,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_UPDATE_INTERVAL,
                     default=entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
                 ): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
+                vol.Optional(CONF_HA_IP, default=entry.data.get(CONF_HA_IP, ha_ip_default or "")): str,
             }
         )
 
