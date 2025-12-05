@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -45,6 +45,7 @@ class HikvisionCPUUtilizationSensor(SensorEntity):
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:cpu-64-bit"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
@@ -71,8 +72,8 @@ class HikvisionCPUUtilizationSensor(SensorEntity):
         """Return the current CPU utilization."""
         if self.coordinator.data and "system_status" in self.coordinator.data:
             cpu = self.coordinator.data["system_status"].get("cpu_utilization")
-            return cpu if cpu is not None else "unknown"
-        return "unknown"
+            return cpu if cpu is not None else None
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -89,6 +90,7 @@ class HikvisionMemoryUsageSensor(SensorEntity):
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:memory"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the sensor."""
@@ -115,8 +117,8 @@ class HikvisionMemoryUsageSensor(SensorEntity):
         """Return the current memory usage."""
         if self.coordinator.data and "system_status" in self.coordinator.data:
             memory = self.coordinator.data["system_status"].get("memory_usage")
-            return memory if memory is not None else "unknown"
-        return "unknown"
+            return memory if memory is not None else None
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
