@@ -24,11 +24,16 @@
 
 ### Known Issues
 
-- Media player (speaker) functionality doesn't work properly (I assume its possible as i played a tone though the camera via terminal.
+- **Binary Sensors (Motion, Intrusion, etc.)**: Event detection binary sensors are currently not working properly. They may not update when events occur.
+- **Media Player (Speaker)**: Media player functionality doesn't work properly (audio playback via TTS/MP3 is not functional).
 
 ---
 
 ## Features
+
+### Automatic Discovery
+
+- **DHCP Discovery**: Cameras are automatically discovered on your network via DHCP. Look for them in **Settings → Devices & Services → Discovered**.
 
 ### Real-Time Event Detection
 
@@ -78,8 +83,8 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 
 | Metric                        | Description                           |
 | ----------------------------- | ------------------------------------- |
-| **CPU Utilization**           | Current CPU usage percentage          |
-| **Memory Usage**              | Current memory usage percentage       |
+| **CPU Utilization**           | Current CPU usage percentage (with aggregated graph) |
+| **Memory Usage**              | Current memory usage percentage (with aggregated graph) |
 | **Device Uptime**             | Device uptime in hours/days           |
 | **Total Reboots**             | Total reboot count                    |
 | **Active Streaming Sessions** | Number of active video streams        |
@@ -102,6 +107,10 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 3. Go to **Settings → Devices & Services → Add Integration**
 4. Search for **"Hikvision ISAPI Controls"**
 5. Enter camera IP, username (default: `admin`), password, and update interval (default: 30 seconds)
+
+**OR** if your camera is discovered via DHCP:
+- Look in **Settings → Devices & Services → Discovered** for your Hikvision camera
+- Click **Configure** and enter your credentials
 
 ### Method 2: HACS (Custom Repository)
 
@@ -144,6 +153,8 @@ For each event type you want (Motion, Intrusion, etc.):
 
 Once configured, binary sensors will update in real-time when events occur.
 
+**Note**: Binary sensors are currently experiencing issues and may not update properly even when configured correctly.
+
 ---
 
 ## Entities
@@ -181,6 +192,8 @@ All entities are prefixed with your device name (e.g., `Garage`).
 
 ### Binary Sensor Entities (Real-Time Events)
 
+**⚠️ Currently Not Working**: These sensors are experiencing issues and may not update when events occur.
+
 | Entity ID                                              | Description                    | Device Class |
 | ------------------------------------------------------ | ------------------------------ | ------------ |
 | `binary_sensor.{device_name}_motion`                   | Motion detection events        | `motion`     |
@@ -203,6 +216,8 @@ All entities are prefixed with your device name (e.g., `Garage`).
 | `sensor.{device_name}_total_reboots`             | Total reboot count   | count        |
 | `sensor.{device_name}_active_streaming_sessions` | Active stream count  | count        |
 | `sensor.{device_name}_streaming_clients`         | Streaming client IPs | IP addresses |
+
+**Note**: CPU and Memory sensors display aggregated graphs with smoothed data visualization (similar to Home Assistant's system monitor).
 
 ### Other Entities
 
@@ -267,7 +282,7 @@ automation:
 
 | Model                         | Status   | Notes                                     |
 | ----------------------------- | -------- | ----------------------------------------- |
-| **DS-2CD2387G3 (ColorVu G3)** | Tested   | Fully working                             |
+| **DS-2CD2387G3 (ColorVu G3)** | Tested   | Fully working (except binary sensors)    |
 | Other Hikvision models        | Untested | May work depending on ISAPI compatibility |
 
 ---
@@ -295,13 +310,31 @@ automation:
        custom_components.hikvision_isapi: debug
    ```
 
+### DHCP Discovery Not Working
+
+**Possible causes:**
+
+- Camera not on same network
+- Camera already configured
+- MAC address not in discovery list
+
+**Solution:**
+
+1. Ensure camera is on the same network as Home Assistant
+2. Restart the camera to trigger a new DHCP request
+3. Check **Settings → Devices & Services → Discovered** for the camera
+4. If camera is already configured, it won't appear in discovered devices
+
 ### Event Binary Sensors Always Off
+
+**Status**: Binary sensors are currently experiencing issues and may not update even when properly configured.
 
 **Possible causes:**
 
 - Event notifications not configured on camera
 - "Notify Surveillance Center" not enabled in Linkage Action
 - Incorrect webhook URL
+- Known bug in binary sensor implementation
 
 **Solution:**
 
@@ -309,6 +342,7 @@ automation:
 2. Ensure webhook URL is correct: `http://YOUR_HA_IP:8123/api/hikvision_isapi`
 3. Verify "Notify Surveillance Center" is enabled for each event type
 4. Check camera logs for notification errors
+5. Check Home Assistant logs for webhook errors
 
 ### Audio Not Working
 
