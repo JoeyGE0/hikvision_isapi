@@ -81,6 +81,9 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             alarm_input = await self.hass.async_add_executor_job(
                 self.api.get_alarm_input, 1
             )
+            alarm_server = await self.hass.async_add_executor_job(
+                self.api.get_alarm_server
+            )
             from homeassistant.components.switch import ENTITY_ID_FORMAT
             from homeassistant.util import slugify
             
@@ -99,6 +102,7 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "system_status": system_status,
                 "streaming_status": streaming_status,
                 "alarm_input": alarm_input,
+                "alarm_server": alarm_server,
             }
             
             # Store alarm output status using unique_id as key

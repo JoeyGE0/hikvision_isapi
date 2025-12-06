@@ -33,6 +33,11 @@ async def async_setup_entry(
         HikvisionRebootCountSensor(coordinator, entry, host, device_name),
         HikvisionStreamingSessionsSensor(coordinator, entry, host, device_name),
         HikvisionStreamingClientsSensor(coordinator, entry, host, device_name),
+        # Notification host sensors
+        HikvisionNotificationHostSensor(coordinator, entry, host, device_name),
+        HikvisionNotificationHostPathSensor(coordinator, entry, host, device_name),
+        HikvisionNotificationHostPortSensor(coordinator, entry, host, device_name),
+        HikvisionNotificationHostProtocolSensor(coordinator, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -83,6 +88,178 @@ class HikvisionCPUUtilizationSensor(SensorEntity):
         )
 
 
+class HikvisionNotificationHostSensor(SensorEntity):
+    """Sensor for notification host address."""
+
+    _attr_unique_id = "hikvision_notification_host"
+    _attr_icon = "mdi:server-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_unique_id = f"{host}_notification_host"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host address."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            host = self.coordinator.data["alarm_server"].get("host")
+            return host if host else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPathSensor(SensorEntity):
+    """Sensor for notification host path."""
+
+    _attr_unique_id = "hikvision_notification_host_path"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_unique_id = f"{host}_notification_host_path"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host path."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            path = self.coordinator.data["alarm_server"].get("path")
+            return path if path else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPortSensor(SensorEntity):
+    """Sensor for notification host port."""
+
+    _attr_unique_id = "hikvision_notification_host_port"
+    _attr_icon = "mdi:network-port"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_unique_id = f"{host}_notification_host_port"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host port."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            port = self.coordinator.data["alarm_server"].get("port")
+            return port if port is not None else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostProtocolSensor(SensorEntity):
+    """Sensor for notification host protocol."""
+
+    _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_icon = "mdi:protocol"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_unique_id = f"{host}_notification_host_protocol"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host protocol."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            protocol = self.coordinator.data["alarm_server"].get("protocol")
+            return protocol if protocol else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
 class HikvisionMemoryUsageSensor(SensorEntity):
     """Sensor for memory usage."""
 
@@ -119,6 +296,178 @@ class HikvisionMemoryUsageSensor(SensorEntity):
             memory = self.coordinator.data["system_status"].get("memory_usage")
             return memory if memory is not None else None
         return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostSensor(SensorEntity):
+    """Sensor for notification host address."""
+
+    _attr_unique_id = "hikvision_notification_host"
+    _attr_icon = "mdi:server-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_unique_id = f"{host}_notification_host"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host address."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            host = self.coordinator.data["alarm_server"].get("host")
+            return host if host else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPathSensor(SensorEntity):
+    """Sensor for notification host path."""
+
+    _attr_unique_id = "hikvision_notification_host_path"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_unique_id = f"{host}_notification_host_path"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host path."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            path = self.coordinator.data["alarm_server"].get("path")
+            return path if path else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPortSensor(SensorEntity):
+    """Sensor for notification host port."""
+
+    _attr_unique_id = "hikvision_notification_host_port"
+    _attr_icon = "mdi:network-port"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_unique_id = f"{host}_notification_host_port"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host port."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            port = self.coordinator.data["alarm_server"].get("port")
+            return port if port is not None else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostProtocolSensor(SensorEntity):
+    """Sensor for notification host protocol."""
+
+    _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_icon = "mdi:protocol"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_unique_id = f"{host}_notification_host_protocol"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host protocol."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            protocol = self.coordinator.data["alarm_server"].get("protocol")
+            return protocol if protocol else "Not configured"
+        return "Unknown"
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -191,6 +540,178 @@ class HikvisionDeviceUptimeSensor(SensorEntity):
         )
 
 
+class HikvisionNotificationHostSensor(SensorEntity):
+    """Sensor for notification host address."""
+
+    _attr_unique_id = "hikvision_notification_host"
+    _attr_icon = "mdi:server-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_unique_id = f"{host}_notification_host"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host address."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            host = self.coordinator.data["alarm_server"].get("host")
+            return host if host else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPathSensor(SensorEntity):
+    """Sensor for notification host path."""
+
+    _attr_unique_id = "hikvision_notification_host_path"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_unique_id = f"{host}_notification_host_path"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host path."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            path = self.coordinator.data["alarm_server"].get("path")
+            return path if path else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPortSensor(SensorEntity):
+    """Sensor for notification host port."""
+
+    _attr_unique_id = "hikvision_notification_host_port"
+    _attr_icon = "mdi:network-port"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_unique_id = f"{host}_notification_host_port"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host port."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            port = self.coordinator.data["alarm_server"].get("port")
+            return port if port is not None else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostProtocolSensor(SensorEntity):
+    """Sensor for notification host protocol."""
+
+    _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_icon = "mdi:protocol"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_unique_id = f"{host}_notification_host_protocol"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host protocol."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            protocol = self.coordinator.data["alarm_server"].get("protocol")
+            return protocol if protocol else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
 class HikvisionStreamingSessionsSensor(SensorEntity):
     """Sensor for total streaming sessions."""
 
@@ -230,6 +751,178 @@ class HikvisionStreamingSessionsSensor(SensorEntity):
     def native_unit_of_measurement(self):
         """Return the unit of measurement."""
         return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostSensor(SensorEntity):
+    """Sensor for notification host address."""
+
+    _attr_unique_id = "hikvision_notification_host"
+    _attr_icon = "mdi:server-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_unique_id = f"{host}_notification_host"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host address."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            host = self.coordinator.data["alarm_server"].get("host")
+            return host if host else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPathSensor(SensorEntity):
+    """Sensor for notification host path."""
+
+    _attr_unique_id = "hikvision_notification_host_path"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_unique_id = f"{host}_notification_host_path"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host path."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            path = self.coordinator.data["alarm_server"].get("path")
+            return path if path else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPortSensor(SensorEntity):
+    """Sensor for notification host port."""
+
+    _attr_unique_id = "hikvision_notification_host_port"
+    _attr_icon = "mdi:network-port"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_unique_id = f"{host}_notification_host_port"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host port."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            port = self.coordinator.data["alarm_server"].get("port")
+            return port if port is not None else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostProtocolSensor(SensorEntity):
+    """Sensor for notification host protocol."""
+
+    _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_icon = "mdi:protocol"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_unique_id = f"{host}_notification_host_protocol"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host protocol."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            protocol = self.coordinator.data["alarm_server"].get("protocol")
+            return protocol if protocol else "Not configured"
+        return "Unknown"
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -287,6 +980,178 @@ class HikvisionStreamingClientsSensor(SensorEntity):
         )
 
 
+class HikvisionNotificationHostSensor(SensorEntity):
+    """Sensor for notification host address."""
+
+    _attr_unique_id = "hikvision_notification_host"
+    _attr_icon = "mdi:server-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_unique_id = f"{host}_notification_host"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host address."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            host = self.coordinator.data["alarm_server"].get("host")
+            return host if host else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPathSensor(SensorEntity):
+    """Sensor for notification host path."""
+
+    _attr_unique_id = "hikvision_notification_host_path"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_unique_id = f"{host}_notification_host_path"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host path."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            path = self.coordinator.data["alarm_server"].get("path")
+            return path if path else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPortSensor(SensorEntity):
+    """Sensor for notification host port."""
+
+    _attr_unique_id = "hikvision_notification_host_port"
+    _attr_icon = "mdi:network-port"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_unique_id = f"{host}_notification_host_port"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host port."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            port = self.coordinator.data["alarm_server"].get("port")
+            return port if port is not None else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostProtocolSensor(SensorEntity):
+    """Sensor for notification host protocol."""
+
+    _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_icon = "mdi:protocol"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_unique_id = f"{host}_notification_host_protocol"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host protocol."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            protocol = self.coordinator.data["alarm_server"].get("protocol")
+            return protocol if protocol else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
 class HikvisionRebootCountSensor(SensorEntity):
     """Sensor for total reboot count."""
 
@@ -327,6 +1192,178 @@ class HikvisionRebootCountSensor(SensorEntity):
     def native_unit_of_measurement(self):
         """Return the unit of measurement."""
         return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostSensor(SensorEntity):
+    """Sensor for notification host address."""
+
+    _attr_unique_id = "hikvision_notification_host"
+    _attr_icon = "mdi:server-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_unique_id = f"{host}_notification_host"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host address."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            host = self.coordinator.data["alarm_server"].get("host")
+            return host if host else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPathSensor(SensorEntity):
+    """Sensor for notification host path."""
+
+    _attr_unique_id = "hikvision_notification_host_path"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_unique_id = f"{host}_notification_host_path"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host path."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            path = self.coordinator.data["alarm_server"].get("path")
+            return path if path else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostPortSensor(SensorEntity):
+    """Sensor for notification host port."""
+
+    _attr_unique_id = "hikvision_notification_host_port"
+    _attr_icon = "mdi:network-port"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_unique_id = f"{host}_notification_host_port"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host port."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            port = self.coordinator.data["alarm_server"].get("port")
+            return port if port is not None else "Not configured"
+        return "Unknown"
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionNotificationHostProtocolSensor(SensorEntity):
+    """Sensor for notification host protocol."""
+
+    _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_icon = "mdi:protocol"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the sensor."""
+        self.coordinator = coordinator
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_unique_id = f"{host}_notification_host_protocol"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self):
+        """Return the notification host protocol."""
+        if self.coordinator.data and "alarm_server" in self.coordinator.data:
+            protocol = self.coordinator.data["alarm_server"].get("protocol")
+            return protocol if protocol else "Not configured"
+        return "Unknown"
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

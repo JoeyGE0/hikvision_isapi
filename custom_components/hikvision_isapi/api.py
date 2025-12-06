@@ -2036,3 +2036,65 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to set alarm server: %s", e)
             return ""
+
+    def get_alarm_server(self) -> dict:
+        """Get current notification host configuration."""
+        try:
+            url = f"http://{self.host}/ISAPI/Event/notification/httpHosts"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            
+            xml_root = ET.fromstring(response.text)
+            host = self._get_event_notification_host(xml_root)
+            
+            if host is None:
+                return {
+                    "host": None,
+                    "path": None,
+                    "port": None,
+                    "protocol": None
+                }
+            
+            # Get protocol
+            protocol_elem = host.find(f"{XML_NS}protocolType")
+            protocol = protocol_elem.text if protocol_elem is not None and protocol_elem.text else None
+            
+            # Get URL path
+            url_elem = host.find(f"{XML_NS}url")
+            path = url_elem.text if url_elem is not None and url_elem.text else None
+            
+            # Get port
+            port_elem = host.find(f"{XML_NS}portNo")
+            port = port_elem.text if port_elem is not None and port_elem.text else None
+            
+            # Get host (IP or hostname)
+            addressing_type = host.find(f"{XML_NS}addressingFormatType")
+            host_address = None
+            if addressing_type is not None and addressing_type.text == "ipaddress":
+                ip_elem = host.find(f"{XML_NS}ipAddress")
+                if ip_elem is not None and ip_elem.text:
+                    host_address = ip_elem.text
+            else:
+                hostname_elem = host.find(f"{XML_NS}hostName")
+                if hostname_elem is not None and hostname_elem.text:
+                    host_address = hostname_elem.text
+            
+            return {
+                "host": host_address,
+                "path": path,
+                "port": int(port) if port else None,
+                "protocol": protocol
+            }
+        except Exception as e:
+            _LOGGER.error("Failed to get alarm server: %s", e)
+            return {
+                "host": None,
+                "path": None,
+                "port": None,
+                "protocol": None
+            }
