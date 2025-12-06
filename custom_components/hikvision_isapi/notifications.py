@@ -279,7 +279,18 @@ class EventNotificationsView(HomeAssistantView):
                 self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                 self.fire_hass_event(entry, alert)
                 return
-        _LOGGER.error("Entity not found for unique_id: %s (searched in domain: %s)", unique_id, DOMAIN)
+        
+        # Debug: List all available binary sensor entities for this device
+        _LOGGER.warning("Entity not found for unique_id: %s", unique_id)
+        matching_entities = []
+        for entity_id, entity_entry in entity_registry.entities.items():
+            if (entity_entry.platform == DOMAIN and 
+                entity_entry.config_entry_id == entry.entry_id and
+                entity_entry.entity_category is None):  # Only binary sensors, not diagnostic
+                matching_entities.append((entity_id, entity_entry.unique_id))
+        _LOGGER.debug("Available binary sensor entities for this device: %s", matching_entities)
+        _LOGGER.error("Entity not found for unique_id: %s (searched in domain: %s). Available entities: %s", 
+                     unique_id, DOMAIN, [uid for _, uid in matching_entities])
         raise ValueError(f"Entity not found {unique_id}")
 
     def fire_hass_event(self, entry, alert: AlertInfo):
