@@ -3,8 +3,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry as dr
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.components.network import async_get_source_ip
 
-from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH
+from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
 from .notifications import EventNotificationsView
@@ -34,6 +35,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             raise ConfigEntryNotReady(
                 f"Failed to connect to {host}. Please check your credentials and network connection."
             )
+        
+        # Store device info in API instance
+        api.device_info = device_info
+        
+        # Get capabilities and discover cameras
+        capabilities = await hass.async_add_executor_job(api.get_capabilities)
+        api.capabilities = capabilities
+        cameras = await hass.async_add_executor_job(api.get_cameras)
+        api.cameras = cameras
+        
+        _LOGGER.info("Discovered %d camera(s) on %s (NVR: %s)", len(cameras), host, capabilities.get("is_nvr", False))
     except AuthenticationError as err:
         _LOGGER.error("Authentication failed for %s: %s", host, err)
         raise ConfigEntryNotReady(
@@ -83,16 +95,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     coordinator = HikvisionDataUpdateCoordinator(hass, entry, api, update_interval)
     await coordinator.async_config_entry_first_refresh()
     
-    # Register webhook endpoint for event notifications (only once per integration instance)
-    if get_first_instance_unique_id(hass) == entry.unique_id:
-        hass.http.register_view(EventNotificationsView(hass))
-        _LOGGER.info("Registered webhook endpoint: %s", ALARM_SERVER_PATH)
-    
     # Store coordinator, API and device info
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
         "api": api,
         "device_info": device_info,
+        "capabilities": capabilities,
+        "cameras": cameras,
         "host": host,
         **entry.data
     }
@@ -101,10 +110,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
     )
 
+    # Only register notification view once if multiple instances
+    if get_first_instance_unique_id(hass) == entry.unique_id:
+        hass.http.register_view(EventNotificationsView(hass))
+
+    # Set alarm server if enabled
+    if entry.data.get(CONF_SET_ALARM_SERVER, True):
+        alarm_server_host = entry.data.get(CONF_ALARM_SERVER_HOST)
+        if not alarm_server_host:
+            local_ip = await async_get_source_ip(hass)
+            alarm_server_host = f"http://{local_ip}:8123"
+        try:
+            success = await hass.async_add_executor_job(
+                api.set_alarm_server, alarm_server_host, ALARM_SERVER_PATH
+            )
+            if success:
+                _LOGGER.info("Successfully configured notification host on camera")
+            else:
+                _LOGGER.warning("Failed to configure notification host on camera")
+        except Exception as e:
+            _LOGGER.error("Error configuring notification host: %s", e)
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+    # Reset alarm server if it was set
+    if entry.data.get(CONF_SET_ALARM_SERVER, True):
+        api = hass.data[DOMAIN][entry.entry_id].get("api")
+        if api:
+            try:
+                await hass.async_add_executor_job(
+                    api.set_alarm_server, "http://0.0.0.0:80", "/"
+                )
+            except Exception:
+                pass  # Ignore errors on unload
+    
     await hass.config_entries.async_unload_platforms(
         entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
     )

@@ -28,46 +28,62 @@ async def async_setup_entry(
     api = data["api"]
     host = data["host"]
     device_info = data["device_info"]
+    cameras = data.get("cameras", [])
+    capabilities = data.get("capabilities", {})
     device_name = device_info.get("deviceName", host)
+    is_nvr = capabilities.get("is_nvr", False)
 
     entities = []
-
-    # Create binary sensors for all supported events
-    # Use channel 1 as default (matching API channel)
-    channel_id = api.channel
+    host_lower = host.lower()
     
-    # Map event_id to unique_id suffix (matching your original naming convention)
-    event_unique_id_map = {
-        "motiondetection": "motion",
-        "tamperdetection": "video_tampering",
-        "videoloss": "video_loss",
-        "scenechangedetection": "scene_change",
-        "fielddetection": "intrusion",
-        "linedetection": "line_crossing",
-        "regionentrance": "region_entrance",
-        "regionexiting": "region_exiting",
-    }
-    
-    for event_id, event_config in EVENTS.items():
-        # Build unique_id using host (matching your original format)
-        unique_id_suffix = event_unique_id_map.get(event_id, event_id)
-        unique_id = f"{host}_{unique_id_suffix}"
+    # Create binary sensors for each camera/channel
+    for camera in cameras:
+        camera_id = camera["id"]
+        camera_name = camera["name"]
         
-        entities.append(
-            EventBinarySensor(
-                coordinator,
-                api,
-                entry,
-                host,
-                device_name,
-                EventInfo(
-                    id=event_id,
-                    channel_id=channel_id,
-                    io_port_id=0,
-                    unique_id=unique_id,
-                ),
+        for event_id, event_config in EVENTS.items():
+            # Build unique_id using host and camera_id
+            device_id_param = f"_{camera_id}" if camera_id != 0 and event_id != EVENT_IO else ""
+            io_port_id_param = f"_{0}" if 0 != 0 else ""
+            unique_id = f"{slugify(host_lower)}{device_id_param}{io_port_id_param}_{event_id}"
+            
+            entities.append(
+                EventBinarySensor(
+                    coordinator,
+                    api,
+                    entry,
+                    host,
+                    camera_name if is_nvr or len(cameras) > 1 else device_name,
+                    EventInfo(
+                        id=event_id,
+                        channel_id=camera_id,
+                        io_port_id=0,
+                        unique_id=unique_id,
+                    ),
+                )
             )
-        )
+    
+    # Also create general events (channel 0) for NVR-level events
+    if is_nvr:
+        for event_id, event_config in EVENTS.items():
+            if event_id == EVENT_IO:  # I/O events are per-port, not general
+                continue
+            unique_id = f"{slugify(host_lower)}_{event_id}"
+            entities.append(
+                EventBinarySensor(
+                    coordinator,
+                    api,
+                    entry,
+                    host,
+                    device_name,
+                    EventInfo(
+                        id=event_id,
+                        channel_id=0,
+                        io_port_id=0,
+                        unique_id=unique_id,
+                    ),
+                )
+            )
 
     async_add_entities(entities)
 
@@ -75,6 +91,7 @@ async def async_setup_entry(
 class EventBinarySensor(BinarySensorEntity):
     """Event detection sensor."""
 
+    _attr_has_entity_name = True
     _attr_is_on = False
 
     def __init__(
@@ -93,22 +110,12 @@ class EventBinarySensor(BinarySensorEntity):
         self._entry = entry
         self.event = event
         
-        # Set unique_id (entity_id will be auto-generated from name)
-        self._attr_unique_id = event.unique_id
-        
-        # Set name for auto-generated entity_id (matching your naming convention)
-        event_name_map = {
-            "motiondetection": "Motion",
-            "tamperdetection": "Video Tampering",
-            "videoloss": "Video Loss",
-            "scenechangedetection": "Scene Change",
-            "fielddetection": "Intrusion",
-            "linedetection": "Line Crossing",
-            "regionentrance": "Region Entrance",
-            "regionexiting": "Region Exiting",
-        }
-        event_name = event_name_map.get(event.id, event.id.title())
-        self._attr_name = f"{device_name} {event_name}"
+        # Set entity_id and unique_id
+        self.entity_id = ENTITY_ID_FORMAT.format(event.unique_id)
+        self._attr_unique_id = self.entity_id
+        self._attr_translation_key = event.id
+        if event.id == EVENT_IO:
+            self._attr_translation_placeholders = {"io_port_id": event.io_port_id}
         
         # Set device class from event config
         event_config = EVENTS.get(event.id, {})

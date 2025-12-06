@@ -9,6 +9,8 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_UPDATE_INTERVAL = "update_interval"
+CONF_SET_ALARM_SERVER: Final = "set_alarm_server"
+CONF_ALARM_SERVER_HOST: Final = "alarm_server"
 
 DEFAULT_UPDATE_INTERVAL = 30
 

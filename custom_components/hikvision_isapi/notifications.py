@@ -171,9 +171,9 @@ class EventNotificationsView(HomeAssistantView):
                 channel_id_elem = alert.find(f".//{XML_NS}dynChannelID")
             channel_id = int(channel_id_elem.text.strip()) if channel_id_elem is not None else 0
             
-            # Get IO port ID
+            # Get IO port ID (check both inputIOPortID and dynInputIOPortID)
             io_port_id_elem = alert.find(f".//{XML_NS}inputIOPortID")
-            if io_port_id_elem is None:
+            if io_port_id_elem is None or not io_port_id_elem.text:
                 io_port_id_elem = alert.find(f".//{XML_NS}dynInputIOPortID")
             io_port_id = int(io_port_id_elem.text.strip()) if io_port_id_elem is not None and io_port_id_elem.text else 0
             
@@ -203,6 +203,11 @@ class EventNotificationsView(HomeAssistantView):
                 if region_id_elem is not None:
                     region_id = int(region_id_elem.text.strip()) if region_id_elem.text else 0
             
+            # Check if event is supported
+            from .const import EVENTS
+            if not EVENTS.get(event_id):
+                raise ValueError(f"Unsupported event {event_id}")
+            
             return AlertInfo(
                 channel_id=channel_id,
                 io_port_id=io_port_id,
@@ -220,22 +225,12 @@ class EventNotificationsView(HomeAssistantView):
         """Determine entity and set binary sensor state."""
         _LOGGER.debug("Alert: %s", alert)
 
-        host = self.hass.data[DOMAIN][entry.entry_id].get("host", "")
+        host = self.hass.data[DOMAIN][entry.entry_id].get("host", "").lower()
         
-        # Map event_id to unique_id suffix (matching your original naming convention)
-        event_unique_id_map = {
-            "motiondetection": "motion",
-            "tamperdetection": "video_tampering",
-            "videoloss": "video_loss",
-            "scenechangedetection": "scene_change",
-            "fielddetection": "intrusion",
-            "linedetection": "line_crossing",
-            "regionentrance": "region_entrance",
-            "regionexiting": "region_exiting",
-        }
-        
-        unique_id_suffix = event_unique_id_map.get(alert.event_id, alert.event_id)
-        unique_id = f"{host}_{unique_id_suffix}"
+        # Build unique_id matching binary sensor format (using host instead of serial_no)
+        device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
+        io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
+        unique_id = f"binary_sensor.{slugify(host)}{device_id_param}{io_port_id_param}_{alert.event_id}"
 
         _LOGGER.debug("UNIQUE_ID: %s", unique_id)
 
@@ -246,10 +241,8 @@ class EventNotificationsView(HomeAssistantView):
             if entity:
                 self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                 self.fire_hass_event(entry, alert)
-            else:
-                _LOGGER.warning("Entity state not found for %s", entity_id)
-        else:
-            _LOGGER.warning("Entity not found in registry: %s", unique_id)
+            return
+        raise ValueError(f"Entity not found {unique_id}")
 
     def fire_hass_event(self, entry, alert: AlertInfo):
         """Fire HASS event for Hikvision camera events."""

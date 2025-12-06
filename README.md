@@ -81,14 +81,14 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 
 ### System Monitoring (Diagnostic)
 
-| Metric                        | Description                           |
-| ----------------------------- | ------------------------------------- |
-| **CPU Utilization**           | Current CPU usage percentage (with aggregated graph) |
+| Metric                        | Description                                             |
+| ----------------------------- | ------------------------------------------------------- |
+| **CPU Utilization**           | Current CPU usage percentage (with aggregated graph)    |
 | **Memory Usage**              | Current memory usage percentage (with aggregated graph) |
-| **Device Uptime**             | Device uptime in hours/days           |
-| **Total Reboots**             | Total reboot count                    |
-| **Active Streaming Sessions** | Number of active video streams        |
-| **Streaming Clients**         | List of client IP addresses streaming |
+| **Device Uptime**             | Device uptime in hours/days                             |
+| **Total Reboots**             | Total reboot count                                      |
+| **Active Streaming Sessions** | Number of active video streams                          |
+| **Streaming Clients**         | List of client IP addresses streaming                   |
 
 ### Other Features
 
@@ -109,6 +109,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 5. Enter camera IP, username (default: `admin`), password, and update interval (default: 30 seconds)
 
 **OR** if your camera is discovered via DHCP:
+
 - Look in **Settings → Devices & Services → Discovered** for your Hikvision camera
 - Click **Configure** and enter your credentials
 
@@ -282,7 +283,7 @@ automation:
 
 | Model                         | Status   | Notes                                     |
 | ----------------------------- | -------- | ----------------------------------------- |
-| **DS-2CD2387G3 (ColorVu G3)** | Tested   | Fully working (except binary sensors)    |
+| **DS-2CD2387G3 (ColorVu G3)** | Tested   | Fully working (except binary sensors)     |
 | Other Hikvision models        | Untested | May work depending on ISAPI compatibility |
 
 ---
@@ -377,6 +378,12 @@ When reporting issues, please include:
 ## License
 
 This project is licensed under the **MIT License**.
+
+---
+
+## Credits
+
+This integration was partially inspired by the [hikvision_next](https://github.com/maciej-or/hikvision_next) integration by [@maciej-or](https://github.com/maciej-or).
 
 ---
 

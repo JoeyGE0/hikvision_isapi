@@ -8,6 +8,7 @@ import requests
 from homeassistant import config_entries
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.helpers.device_registry import format_mac
+from homeassistant.components.network import async_get_source_ip
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,18 +19,23 @@ from .const import (
     CONF_USERNAME,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
+    CONF_SET_ALARM_SERVER,
+    CONF_ALARM_SERVER_HOST,
 )
 
-DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST): str,
+def get_data_schema(default_host=None, default_alarm_server=None):
+    """Get data schema with defaults."""
+    schema = {
+        vol.Required(CONF_HOST, default=default_host or ""): str,
         vol.Required(CONF_USERNAME, default="admin"): str,
         vol.Required(CONF_PASSWORD): str,
         vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
             vol.Coerce(int), vol.Range(min=5, max=300)
         ),
+        vol.Required(CONF_SET_ALARM_SERVER, default=True): bool,
+        vol.Required(CONF_ALARM_SERVER_HOST, default=default_alarm_server or ""): str,
     }
-)
+    return vol.Schema(schema)
 
 
 class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -80,6 +86,10 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # If coming from DHCP discovery, use discovered host as default
         discovered_host = self.context.get("discovered_host")
         
+        # Get local IP for alarm server default
+        local_ip = await async_get_source_ip(self.hass)
+        default_alarm_server = f"http://{local_ip}:8123"
+        
         if user_input is not None:
             # Validate credentials by attempting to connect
             host = user_input[CONF_HOST]
@@ -122,19 +132,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during setup: %s", e)
                 errors["base"] = "unknown"
 
-        # Use discovered host as default if available, otherwise use empty schema
-        schema = DATA_SCHEMA
-        if discovered_host:
-            schema = vol.Schema(
-                {
-                    vol.Required(CONF_HOST, default=discovered_host): str,
-                    vol.Required(CONF_USERNAME, default="admin"): str,
-                    vol.Required(CONF_PASSWORD): str,
-                    vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
-                        vol.Coerce(int), vol.Range(min=5, max=300)
-                    ),
-                }
-            )
+        # Use discovered host as default if available
+        schema = get_data_schema(discovered_host, default_alarm_server)
         
         return self.async_show_form(
             step_id="user", data_schema=schema, errors=errors
@@ -189,18 +188,33 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during reconfiguration: %s", e)
                 errors["base"] = "unknown"
 
+        # Get local IP for alarm server default
+        local_ip = await async_get_source_ip(self.hass)
+        default_alarm_server = entry.data.get(CONF_ALARM_SERVER_HOST, f"http://{local_ip}:8123")
+        
         # Pre-fill form with existing values
-        reconfigure_schema = vol.Schema(
-            {
-                vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST, "")): str,
-                vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME, "admin")): str,
-                vol.Required(CONF_PASSWORD, default=entry.data.get(CONF_PASSWORD, "")): str,
-                vol.Optional(
-                    CONF_UPDATE_INTERVAL,
-                    default=entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
-                ): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
-            }
+        reconfigure_schema = get_data_schema(
+            entry.data.get(CONF_HOST, ""),
+            default_alarm_server
         )
+        # Update with existing values
+        reconfigure_schema = vol.Schema({
+            vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST, "")): str,
+            vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME, "admin")): str,
+            vol.Required(CONF_PASSWORD, default=entry.data.get(CONF_PASSWORD, "")): str,
+            vol.Optional(
+                CONF_UPDATE_INTERVAL,
+                default=entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
+            vol.Required(
+                CONF_SET_ALARM_SERVER,
+                default=entry.data.get(CONF_SET_ALARM_SERVER, True)
+            ): bool,
+            vol.Required(
+                CONF_ALARM_SERVER_HOST,
+                default=default_alarm_server
+            ): str,
+        })
 
         return self.async_show_form(
             step_id="reconfigure", data_schema=reconfigure_schema, errors=errors

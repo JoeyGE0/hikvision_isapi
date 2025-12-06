@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .api import HikvisionISAPI
@@ -36,7 +37,7 @@ async def async_setup_entry(
         HikvisionRegionEntranceDetectionSwitch(coordinator, api, entry, host, device_name),
         HikvisionRegionExitingDetectionSwitch(coordinator, api, entry, host, device_name),
         HikvisionAlarmInputSwitch(coordinator, api, entry, host, device_name),
-        HikvisionAlarmOutputSwitch(coordinator, api, entry, host, device_name),
+        HikvisionAlarmOutputSwitch(coordinator, api, entry, host, device_name, 1),
     ]
 
     async_add_entities(entities)
@@ -762,81 +763,56 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
         )
 
 
-class HikvisionAlarmOutputSwitch(SwitchEntity):
+class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
     """Switch entity for alarm output control."""
 
-    _attr_unique_id = "hikvision_alarm_output_1"
-    _attr_icon = "mdi:eye"
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-outline"
+    _attr_translation_key = "alarm_output"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str, port_no: int = 1):
         """Initialize the switch."""
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Alarm Output 1"
-        self._attr_unique_id = f"{host}_alarm_output_1"
-        self._optimistic_value = None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return DeviceInfo(
+        self._port_no = port_no
+        from homeassistant.components.switch import ENTITY_ID_FORMAT
+        from homeassistant.util import slugify
+        self.entity_id = ENTITY_ID_FORMAT.format(f"{slugify(host)}_{port_no}_alarm_output")
+        self._attr_unique_id = self.entity_id
+        self._attr_translation_placeholders = {"port_no": port_no}
+        self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._host)},
         )
 
     @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    @property
-    def is_on(self) -> bool:
-        """Return if alarm output is enabled."""
-        if self._optimistic_value is not None:
-            return self._optimistic_value
-        
-        if self.coordinator.data and "alarm_output" in self.coordinator.data:
-            return self.coordinator.data["alarm_output"].get("enabled", False)
-        return False
+    def is_on(self) -> bool | None:
+        """Return True if the switch is on."""
+        return self.coordinator.data.get(self.unique_id) if self.coordinator.data else None
 
     async def async_turn_on(self, **kwargs):
-        """Turn on alarm output."""
-        self._optimistic_value = True
-        self.async_write_ha_state()
-        
-        success = await self.hass.async_add_executor_job(
-            self.api.set_alarm_output, 1, True
-        )
-        
-        if success:
+        """Turn on."""
+        try:
+            success = await self.hass.async_add_executor_job(
+                self.api.set_alarm_output, self._port_no, True
+            )
+            if not success:
+                raise Exception("Failed to set alarm output")
+        except Exception as ex:
+            raise ex
+        finally:
             await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("alarm_output", {}).get("enabled") == True):
-                self._optimistic_value = None
-        else:
-            self._optimistic_value = None
 
     async def async_turn_off(self, **kwargs):
-        """Turn off alarm output."""
-        self._optimistic_value = False
-        self.async_write_ha_state()
-        
-        success = await self.hass.async_add_executor_job(
-            self.api.set_alarm_output, 1, False
-        )
-        
-        if success:
+        """Turn off."""
+        try:
+            success = await self.hass.async_add_executor_job(
+                self.api.set_alarm_output, self._port_no, False
+            )
+            if not success:
+                raise Exception("Failed to set alarm output")
+        except Exception:
+            raise
+        finally:
             await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("alarm_output", {}).get("enabled") == False):
-                self._optimistic_value = None
-        else:
-            self._optimistic_value = None
-
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )

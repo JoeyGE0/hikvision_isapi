@@ -29,6 +29,9 @@ class HikvisionISAPI:
         self.base_url = f"http://{host}/ISAPI/Image/channels/{channel}"
         self._audio_session_url = f"http://{host}/ISAPI/System/TwoWayAudio/channels/{channel}/audioData"
         self._audio_session_id = None
+        self.device_info = {}
+        self.capabilities = {}
+        self.cameras = []  # List of discovered cameras/channels
 
     def _get(self, endpoint: str) -> ET.Element:
         """Make a GET request to ISAPI endpoint."""
@@ -558,6 +561,174 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to get device info: %s", e)
             return {}
+
+    def get_capabilities(self) -> dict:
+        """Get device capabilities to detect NVR vs camera, multi-channel support."""
+        try:
+            xml = self._get("/ISAPI/System/capabilities")
+            
+            capabilities = {}
+            
+            # Analog cameras (for NVR/DVR)
+            analog_inputs = xml.find(f".//{XML_NS}SysCap/{XML_NS}VideoCap/{XML_NS}videoInputPortNums")
+            capabilities["analog_cameras_inputs"] = int(analog_inputs.text.strip()) if analog_inputs is not None and analog_inputs.text else 0
+            
+            # Digital cameras (for NVR)
+            digital_inputs = xml.find(f".//{XML_NS}RacmCap/{XML_NS}inputProxyNums")
+            capabilities["digital_cameras_inputs"] = int(digital_inputs.text.strip()) if digital_inputs is not None and digital_inputs.text else 0
+            
+            # IO ports
+            io_inputs = xml.find(f".//{XML_NS}SysCap/{XML_NS}IOCap/{XML_NS}IOInputPortNums")
+            capabilities["input_ports"] = int(io_inputs.text.strip()) if io_inputs is not None and io_inputs.text else 0
+            
+            io_outputs = xml.find(f".//{XML_NS}SysCap/{XML_NS}IOCap/{XML_NS}IOOutputPortNums")
+            capabilities["output_ports"] = int(io_outputs.text.strip()) if io_outputs is not None and io_outputs.text else 0
+            
+            # Holiday mode support
+            holiday_support = xml.find(f".//{XML_NS}SysCap/{XML_NS}isSupportHolidy")
+            capabilities["support_holiday_mode"] = holiday_support.text.strip().lower() == "true" if holiday_support is not None and holiday_support.text else False
+            
+            # Determine if NVR (more than 1 camera input)
+            capabilities["is_nvr"] = (capabilities["analog_cameras_inputs"] + capabilities["digital_cameras_inputs"]) > 1
+            
+            return capabilities
+        except Exception as e:
+            _LOGGER.error("Failed to get capabilities: %s", e)
+            return {"analog_cameras_inputs": 0, "digital_cameras_inputs": 0, "input_ports": 0, "output_ports": 0, "support_holiday_mode": False, "is_nvr": False}
+
+    def get_cameras(self) -> list:
+        """Discover all cameras/channels on the device."""
+        cameras = []
+        
+        try:
+            capabilities = self.get_capabilities()
+            
+            if not capabilities.get("is_nvr", False):
+                # Single IP camera - check for multiple streaming channels
+                try:
+                    xml = self._get("/ISAPI/Streaming/channels")
+                    streaming_channels = xml.findall(f".//{XML_NS}StreamingChannel")
+                    
+                    channel_ids = set()
+                    for channel in streaming_channels:
+                        video_elem = channel.find(f".//{XML_NS}Video")
+                        if video_elem is not None:
+                            channel_id_elem = video_elem.find(f".//{XML_NS}videoInputChannelID")
+                            if channel_id_elem is not None and channel_id_elem.text:
+                                channel_ids.add(int(channel_id_elem.text.strip()))
+                    
+                    # If no channels found, default to channel 1
+                    if not channel_ids:
+                        channel_ids = {1}
+                    
+                    device_name = self.device_info.get("deviceName", self.host)
+                    is_multi_channel = len(channel_ids) > 1
+                    
+                    for channel_id in sorted(channel_ids):
+                        camera_name = f"{device_name} - Channel {channel_id}" if is_multi_channel else device_name
+                        cameras.append({
+                            "id": channel_id,
+                            "name": camera_name,
+                            "model": self.device_info.get("model", ""),
+                            "serial_no": self.device_info.get("serialNumber", ""),
+                            "firmware": self.device_info.get("firmwareVersion", ""),
+                            "input_port": channel_id,
+                            "connection_type": "direct",
+                        })
+                except Exception as e:
+                    _LOGGER.warning("Failed to get streaming channels, using default channel 1: %s", e)
+                    # Fallback to single channel
+                    device_name = self.device_info.get("deviceName", self.host)
+                    cameras.append({
+                        "id": 1,
+                        "name": device_name,
+                        "model": self.device_info.get("model", ""),
+                        "serial_no": self.device_info.get("serialNumber", ""),
+                        "firmware": self.device_info.get("firmwareVersion", ""),
+                        "input_port": 1,
+                        "connection_type": "direct",
+                    })
+            else:
+                # NVR - get digital cameras
+                if capabilities.get("digital_cameras_inputs", 0) > 0:
+                    try:
+                        xml = self._get("/ISAPI/ContentMgmt/InputProxy/channels")
+                        digital_cameras = xml.findall(f".//{XML_NS}InputProxyChannel")
+                        
+                        for camera_elem in digital_cameras:
+                            camera_id_elem = camera_elem.find(f".//{XML_NS}id")
+                            if camera_id_elem is None or not camera_id_elem.text:
+                                continue
+                            
+                            camera_id = int(camera_id_elem.text.strip())
+                            source = camera_elem.find(f".//{XML_NS}sourceInputPortDescriptor")
+                            
+                            if source is None:
+                                continue
+                            
+                            name_elem = camera_elem.find(f".//{XML_NS}name")
+                            model_elem = source.find(f".//{XML_NS}model")
+                            serial_elem = source.find(f".//{XML_NS}serialNumber")
+                            firmware_elem = source.find(f".//{XML_NS}firmwareVersion")
+                            input_port_elem = source.find(f".//{XML_NS}srcInputPort")
+                            
+                            serial_no = serial_elem.text.strip() if serial_elem is not None and serial_elem.text else f"{self.device_info.get('serialNumber', '')}_{camera_id}"
+                            
+                            cameras.append({
+                                "id": camera_id,
+                                "name": name_elem.text.strip() if name_elem is not None and name_elem.text else f"Camera {camera_id}",
+                                "model": model_elem.text.strip() if model_elem is not None and model_elem.text else "Unknown",
+                                "serial_no": serial_no,
+                                "firmware": firmware_elem.text.strip() if firmware_elem is not None and firmware_elem.text else "",
+                                "input_port": int(input_port_elem.text.strip()) if input_port_elem is not None and input_port_elem.text else camera_id,
+                                "connection_type": "proxied",
+                            })
+                    except Exception as e:
+                        _LOGGER.warning("Failed to get digital cameras: %s", e)
+                
+                # NVR - get analog cameras
+                if capabilities.get("analog_cameras_inputs", 0) > 0:
+                    try:
+                        xml = self._get("/ISAPI/System/Video/inputs/channels")
+                        analog_cameras = xml.findall(f".//{XML_NS}VideoInputChannel")
+                        
+                        for camera_elem in analog_cameras:
+                            camera_id_elem = camera_elem.find(f".//{XML_NS}id")
+                            if camera_id_elem is None or not camera_id_elem.text:
+                                continue
+                            
+                            camera_id = int(camera_id_elem.text.strip())
+                            name_elem = camera_elem.find(f".//{XML_NS}name")
+                            model_elem = camera_elem.find(f".//{XML_NS}resDesc")
+                            input_port_elem = camera_elem.find(f".//{XML_NS}inputPort")
+                            
+                            serial_no = f"{self.device_info.get('serialNumber', '')}-VI{camera_id}"
+                            
+                            cameras.append({
+                                "id": camera_id,
+                                "name": name_elem.text.strip() if name_elem is not None and name_elem.text else f"Analog Camera {camera_id}",
+                                "model": model_elem.text.strip() if model_elem is not None and model_elem.text else "Unknown",
+                                "serial_no": serial_no,
+                                "firmware": "",
+                                "input_port": int(input_port_elem.text.strip()) if input_port_elem is not None and input_port_elem.text else camera_id,
+                                "connection_type": "direct",
+                            })
+                    except Exception as e:
+                        _LOGGER.warning("Failed to get analog cameras: %s", e)
+            
+            return cameras
+        except Exception as e:
+            _LOGGER.error("Failed to get cameras: %s", e)
+            # Fallback to single channel
+            return [{
+                "id": 1,
+                "name": self.device_info.get("deviceName", self.host),
+                "model": self.device_info.get("model", ""),
+                "serial_no": self.device_info.get("serialNumber", ""),
+                "firmware": self.device_info.get("firmwareVersion", ""),
+                "input_port": 1,
+                "connection_type": "direct",
+            }]
 
     def get_two_way_audio(self) -> dict:
         """Get two-way audio settings."""
@@ -1221,10 +1392,12 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set tamper detection: %s", e)
             return False
 
-    def get_snapshot(self) -> Optional[bytes]:
+    def get_snapshot(self, channel: int = None) -> Optional[bytes]:
         """Get camera snapshot image."""
         try:
-            url = f"http://{self.host}/ISAPI/Streaming/channels/101/picture"
+            # Snapshot channel format: 10X where X is channel number (101 = channel 1, 102 = channel 2, etc.)
+            snapshot_channel = 100 + (channel if channel is not None else self.channel)
+            url = f"http://{self.host}/ISAPI/Streaming/channels/{snapshot_channel}/picture"
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
@@ -1629,44 +1802,32 @@ class HikvisionISAPI:
             return False
 
     def get_alarm_output(self, port_id: int = 1) -> dict:
-        """Get alarm output port settings."""
+        """Get alarm output port status."""
         try:
-            xml = self._get(f"/ISAPI/System/IO/outputs/{port_id}")
+            xml = self._get(f"/ISAPI/System/IO/outputs/{port_id}/status")
             result = {}
-            port = xml.find(f".//{XML_NS}IOOutputPort")
-            if port is not None:
-                normal_status = port.find(f".//{XML_NS}normalStatus")
-                if normal_status is not None:
-                    # "open" means off, "closed" means on
-                    result["enabled"] = normal_status.text.strip().lower() == "closed"
+            port_status = xml.find(f".//{XML_NS}IOPortStatus")
+            if port_status is not None:
+                io_state = port_status.find(f".//{XML_NS}ioState")
+                if io_state is not None:
+                    # "active" means on, "inactive" means off
+                    result["enabled"] = io_state.text.strip().lower() == "active"
             return result
         except Exception as e:
             _LOGGER.error("Failed to get alarm output: %s", e)
             return {}
 
     def set_alarm_output(self, port_id: int = 1, enabled: bool = True) -> bool:
-        """Enable/disable alarm output port."""
+        """Trigger alarm output port (high/low)."""
         try:
-            url = f"http://{self.host}/ISAPI/System/IO/outputs/{port_id}"
-            response = requests.get(
-                url,
-                auth=(self.username, self.password),
-                verify=False,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            # "open" means off, "closed" means on
-            status_str = "closed" if enabled else "open"
-            xml_str = re.sub(r'<normalStatus>.*?</normalStatus>', f'<normalStatus>{status_str}</normalStatus>', xml_str)
+            url = f"http://{self.host}/ISAPI/System/IO/outputs/{port_id}/trigger"
+            output_state = "high" if enabled else "low"
+            xml_data = f'<?xml version="1.0" encoding="UTF-8"?><IOPortData><outputState>{output_state}</outputState></IOPortData>'
+            
             response = requests.put(
                 url,
                 auth=(self.username, self.password),
-                data=xml_str,
+                data=xml_data,
                 headers={"Content-Type": "application/xml"},
                 verify=False,
                 timeout=5
@@ -1697,4 +1858,155 @@ class HikvisionISAPI:
             return True
         except Exception as e:
             _LOGGER.error("Failed to restart camera: %s", e)
+            return False
+
+    def _get_event_notification_host(self, xml_root):
+        """Get the first HTTP notification host from XML."""
+        hosts = xml_root.findall(f".//{XML_NS}HttpHostNotification")
+        if hosts:
+            return hosts[0]
+        return None
+
+    def set_alarm_server(self, base_url: str, path: str) -> bool:
+        """Set event notifications listener server."""
+        import ipaddress
+        from urllib.parse import urlparse
+        
+        try:
+            # Get current notification hosts
+            url = f"http://{self.host}/ISAPI/Event/notification/httpHosts"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            
+            xml_root = ET.fromstring(response.text)
+            host = self._get_event_notification_host(xml_root)
+            
+            if host is None:
+                _LOGGER.warning("No HTTP notification host found")
+                return False
+            
+            address = urlparse(base_url)
+            
+            # Check if already configured correctly
+            old_protocol = host.find(f".//{XML_NS}protocolType")
+            old_url = host.find(f".//{XML_NS}url")
+            old_port = host.find(f".//{XML_NS}portNo")
+            addressing_type = host.find(f".//{XML_NS}addressingFormatType")
+            old_address = None
+            
+            if addressing_type is not None and addressing_type.text == "ipaddress":
+                old_address_elem = host.find(f".//{XML_NS}ipAddress")
+                if old_address_elem is not None:
+                    old_address = old_address_elem.text
+            else:
+                old_address_elem = host.find(f".//{XML_NS}hostName")
+                if old_address_elem is not None:
+                    old_address = old_address_elem.text
+            
+            if (old_protocol is not None and old_protocol.text == address.scheme.upper() and
+                old_address == address.hostname and
+                old_port is not None and old_port.text == str(address.port or (443 if address.scheme == "https" else 80)) and
+                old_url is not None and old_url.text == path):
+                _LOGGER.debug("Notification host already configured correctly")
+                return True
+            
+            # Update URL
+            if old_url is not None:
+                old_url.text = path
+            else:
+                url_elem = ET.SubElement(host, f"{XML_NS}url")
+                url_elem.text = path
+            
+            # Update protocol
+            if old_protocol is not None:
+                old_protocol.text = address.scheme.upper()
+            else:
+                protocol_elem = ET.SubElement(host, f"{XML_NS}protocolType")
+                protocol_elem.text = address.scheme.upper()
+            
+            # Set parameter format
+            param_format = host.find(f".//{XML_NS}parameterFormatType")
+            if param_format is not None:
+                param_format.text = "XML"
+            else:
+                param_format_elem = ET.SubElement(host, f"{XML_NS}parameterFormatType")
+                param_format_elem.text = "XML"
+            
+            # Set address type and value
+            try:
+                ipaddress.ip_address(address.hostname)
+                # IP address
+                if addressing_type is not None:
+                    addressing_type.text = "ipaddress"
+                else:
+                    addressing_type_elem = ET.SubElement(host, f"{XML_NS}addressingFormatType")
+                    addressing_type_elem.text = "ipaddress"
+                
+                ip_elem = host.find(f".//{XML_NS}ipAddress")
+                if ip_elem is not None:
+                    ip_elem.text = address.hostname
+                else:
+                    ip_elem = ET.SubElement(host, f"{XML_NS}ipAddress")
+                    ip_elem.text = address.hostname
+                
+                # Remove hostname if exists
+                hostname_elem = host.find(f".//{XML_NS}hostName")
+                if hostname_elem is not None:
+                    host.remove(hostname_elem)
+            except ValueError:
+                # Hostname
+                if addressing_type is not None:
+                    addressing_type.text = "hostname"
+                else:
+                    addressing_type_elem = ET.SubElement(host, f"{XML_NS}addressingFormatType")
+                    addressing_type_elem.text = "hostname"
+                
+                hostname_elem = host.find(f".//{XML_NS}hostName")
+                if hostname_elem is not None:
+                    hostname_elem.text = address.hostname
+                else:
+                    hostname_elem = ET.SubElement(host, f"{XML_NS}hostName")
+                    hostname_elem.text = address.hostname
+                
+                # Remove IP if exists
+                ip_elem = host.find(f".//{XML_NS}ipAddress")
+                if ip_elem is not None:
+                    host.remove(ip_elem)
+            
+            # Set port
+            port = address.port or (443 if address.scheme == "https" else 80)
+            if old_port is not None:
+                old_port.text = str(port)
+            else:
+                port_elem = ET.SubElement(host, f"{XML_NS}portNo")
+                port_elem.text = str(port)
+            
+            # Set authentication method
+            auth_method = host.find(f".//{XML_NS}httpAuthenticationMethod")
+            if auth_method is not None:
+                auth_method.text = "none"
+            else:
+                auth_elem = ET.SubElement(host, f"{XML_NS}httpAuthenticationMethod")
+                auth_elem.text = "none"
+            
+            # Send updated XML
+            xml_str = ET.tostring(xml_root, encoding='unicode')
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            response.raise_for_status()
+            _LOGGER.info("Successfully configured notification host: %s%s", base_url, path)
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to set alarm server: %s", e)
             return False

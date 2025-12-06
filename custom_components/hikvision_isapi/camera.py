@@ -18,16 +18,25 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ):
-    """Set up camera entity for the entry."""
+    """Set up camera entities for the entry."""
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
-    device_name = data["device_info"].get("deviceName", host)
+    cameras = data.get("cameras", [])
+    device_info = data["device_info"]
+    device_name = device_info.get("deviceName", host)
+    is_nvr = data.get("capabilities", {}).get("is_nvr", False)
 
-    entities = [
-        HikvisionCamera(coordinator, api, entry, host, device_name),
-    ]
+    entities = []
+    
+    # Create camera entity for each discovered camera/channel
+    for camera in cameras:
+        camera_id = camera["id"]
+        camera_name = camera["name"] if is_nvr or len(cameras) > 1 else device_name
+        entities.append(
+            HikvisionCamera(coordinator, api, entry, host, camera_name, camera_id),
+        )
 
     async_add_entities(entities)
 
@@ -35,18 +44,24 @@ async def async_setup_entry(
 class HikvisionCamera(Camera):
     """Camera entity for Hikvision camera snapshot."""
 
-    _attr_unique_id = "hikvision_camera"
     _attr_icon = "mdi:camera"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str, camera_id: int = 1):
         """Initialize the camera."""
         super().__init__()
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Snapshot"
-        self._attr_unique_id = f"{host}_camera"
+        self._camera_id = camera_id
+        
+        # Set name and unique_id based on camera
+        if camera_id == 1 and len(api.cameras) == 1:
+            self._attr_name = f"{device_name} Snapshot"
+            self._attr_unique_id = f"{host}_camera"
+        else:
+            self._attr_name = f"{device_name} Snapshot"
+            self._attr_unique_id = f"{host}_camera_{camera_id}"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -65,9 +80,9 @@ class HikvisionCamera(Camera):
     ) -> bytes | None:
         """Return a still image response from the camera."""
         try:
-            image = await self.hass.async_add_executor_job(self.api.get_snapshot)
+            image = await self.hass.async_add_executor_job(self.api.get_snapshot, self._camera_id)
             return image
         except Exception as e:
-            _LOGGER.error("Failed to get camera snapshot: %s", e)
+            _LOGGER.error("Failed to get camera snapshot for camera %d: %s", self._camera_id, e)
             return None
 

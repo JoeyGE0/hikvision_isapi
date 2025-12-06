@@ -81,11 +81,10 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             alarm_input = await self.hass.async_add_executor_job(
                 self.api.get_alarm_input, 1
             )
-            alarm_output = await self.hass.async_add_executor_job(
-                self.api.get_alarm_output, 1
-            )
-
-            return {
+            from homeassistant.components.switch import ENTITY_ID_FORMAT
+            from homeassistant.util import slugify
+            
+            data = {
                 "ircut": ircut_data,
                 "supplement_light": supplement_light,
                 "audio": audio_data,
@@ -100,8 +99,17 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "system_status": system_status,
                 "streaming_status": streaming_status,
                 "alarm_input": alarm_input,
-                "alarm_output": alarm_output,
             }
+            
+            # Store alarm output status using unique_id as key
+            alarm_output = await self.hass.async_add_executor_job(
+                self.api.get_alarm_output, 1
+            )
+            host = self.entry.data['host']
+            _id = ENTITY_ID_FORMAT.format(f"{slugify(host)}_1_alarm_output")
+            data[_id] = alarm_output.get("enabled", False)
+            
+            return data
         except AuthenticationError as err:
             raise UpdateFailed(
                 f"Authentication failed. Please check your username and password in the integration settings. "
