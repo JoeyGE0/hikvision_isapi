@@ -16,7 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_registry import async_get
 from homeassistant.util import slugify
 
-from .const import ALARM_SERVER_PATH, DOMAIN, HIKVISION_EVENT, EVENTS_ALTERNATE_ID
+from .const import ALARM_SERVER_PATH, DOMAIN, HIKVISION_EVENT, EVENTS_ALTERNATE_ID, EVENT_IO
 from .models import AlertInfo
 
 _LOGGER = logging.getLogger(__name__)
@@ -171,6 +171,10 @@ class EventNotificationsView(HomeAssistantView):
                 channel_id_elem = alert.find(f".//{XML_NS}dynChannelID")
             channel_id = int(channel_id_elem.text.strip()) if channel_id_elem is not None else 0
             
+            # Get IO port ID
+            io_port_id_elem = alert.find(f".//{XML_NS}inputIOPortID")
+            io_port_id = int(io_port_id_elem.text.strip()) if io_port_id_elem is not None and io_port_id_elem.text else 0
+            
             # Get serial number or MAC address
             device_serial = None
             mac = ""
@@ -199,6 +203,7 @@ class EventNotificationsView(HomeAssistantView):
             
             return AlertInfo(
                 channel_id=channel_id,
+                io_port_id=io_port_id,
                 event_id=event_id,
                 device_serial_no=device_serial,
                 mac=mac,
@@ -210,25 +215,19 @@ class EventNotificationsView(HomeAssistantView):
             raise
 
     def trigger_sensor(self, entry, alert: AlertInfo) -> None:
-        """Determine entity and set binary sensor state - matching your integration style."""
+        """Determine entity and set binary sensor state."""
         _LOGGER.debug("Alert: %s", alert)
 
-        host = self.hass.data[DOMAIN][entry.entry_id].get("host", "")
+        device_info = self.hass.data[DOMAIN][entry.entry_id].get("device_info", {})
+        serial_no = device_info.get("serialNumber", "")
+        if not serial_no:
+            # Fallback to host if serial number not available
+            serial_no = self.hass.data[DOMAIN][entry.entry_id].get("host", "")
+        serial_no = serial_no.lower()
         
-        # Map event_id to unique_id suffix matching your integration style
-        event_unique_id_map = {
-            "motiondetection": "motion",
-            "tamperdetection": "video_tampering",
-            "videoloss": "video_loss",
-            "scenechangedetection": "scene_change",
-            "fielddetection": "intrusion",
-            "linedetection": "line_crossing",
-            "regionentrance": "region_entrance",
-            "regionexiting": "region_exiting",
-        }
-        
-        unique_id_suffix = event_unique_id_map.get(alert.event_id, alert.event_id)
-        unique_id = f"{host}_{unique_id_suffix}"
+        device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
+        io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
+        unique_id = f"binary_sensor.{slugify(serial_no)}{device_id_param}{io_port_id_param}_{alert.event_id}"
 
         _LOGGER.debug("UNIQUE_ID: %s", unique_id)
 
@@ -251,6 +250,7 @@ class EventNotificationsView(HomeAssistantView):
 
         message = {
             "channel_id": alert.channel_id,
+            "io_port_id": alert.io_port_id,
             "camera_name": camera_name,
             "event_id": alert.event_id,
         }

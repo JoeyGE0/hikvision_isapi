@@ -20,6 +20,7 @@ HIKVISION_EVENT: Final = f"{DOMAIN}_event"
 
 # Event type mappings
 EVENT_BASIC: Final = "basic"
+EVENT_IO: Final = "io"
 EVENT_SMART: Final = "smart"
 
 EVENTS: Final = {

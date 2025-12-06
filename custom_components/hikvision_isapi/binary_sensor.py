@@ -2,59 +2,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
-from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
+from homeassistant.components.binary_sensor import ENTITY_ID_FORMAT, BinarySensorEntity, BinarySensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
-from .const import DOMAIN, EVENTS, HIKVISION_EVENT
+from .const import DOMAIN, EVENTS, EVENT_IO
 from .api import HikvisionISAPI
 from .coordinator import HikvisionDataUpdateCoordinator
 from .models import EventInfo
 
 _LOGGER = logging.getLogger(__name__)
-
-# Auto-clear timeout for event sensors (5 seconds default)
-EVENT_CLEAR_TIMEOUT = timedelta(seconds=5)
-
-# Event name mappings (matching your integration style)
-EVENT_NAME_MAP = {
-    "motiondetection": "Motion",
-    "tamperdetection": "Video Tampering",
-    "videoloss": "Video Loss",
-    "scenechangedetection": "Scene Change",
-    "fielddetection": "Intrusion",
-    "linedetection": "Line Crossing",
-    "regionentrance": "Region Entrance",
-    "regionexiting": "Region Exiting",
-}
-
-# Event icon mappings (matching your integration style)
-EVENT_ICON_MAP = {
-    "motiondetection": "mdi:motion-sensor",
-    "tamperdetection": "mdi:shield-alert",
-    "videoloss": "mdi:video-off",
-    "scenechangedetection": "mdi:image-edit",
-    "fielddetection": "mdi:account-alert",
-    "linedetection": "mdi:vector-line",
-    "regionentrance": "mdi:sign-direction",
-    "regionexiting": "mdi:exit-run",
-}
-
-# Event unique ID suffix mappings (matching your integration style)
-EVENT_UNIQUE_ID_MAP = {
-    "motiondetection": "motion",
-    "tamperdetection": "video_tampering",
-    "videoloss": "video_loss",
-    "scenechangedetection": "scene_change",
-    "fielddetection": "intrusion",
-    "linedetection": "line_crossing",
-    "regionentrance": "region_entrance",
-    "regionexiting": "region_exiting",
-}
 
 
 async def async_setup_entry(
@@ -72,8 +32,14 @@ async def async_setup_entry(
 
     entities = []
 
-    # Create binary sensors for all supported events (matching your naming style)
+    # Create binary sensors for all supported events
     for event_id, event_config in EVENTS.items():
+        # Build unique_id using serial number
+        serial_no = device_info.get("serialNumber", host).lower()
+        device_id_param = f"_{0}" if 0 != 0 and event_id != EVENT_IO else ""
+        io_port_id_param = f"_{0}" if 0 != 0 else ""
+        unique_id = f"{slugify(serial_no)}{device_id_param}{io_port_id_param}_{event_id}"
+        
         entities.append(
             EventBinarySensor(
                 coordinator,
@@ -84,20 +50,20 @@ async def async_setup_entry(
                 EventInfo(
                     id=event_id,
                     channel_id=0,
+                    io_port_id=0,
+                    unique_id=unique_id,
                 ),
             )
         )
-
-    # Add alarm input binary sensor
-    entities.append(
-        HikvisionAlarmInputBinarySensor(coordinator, api, entry, host, device_name)
-    )
 
     async_add_entities(entities)
 
 
 class EventBinarySensor(BinarySensorEntity):
-    """Event detection sensor - reads from state set by webhook handler."""
+    """Event detection sensor."""
+
+    _attr_has_entity_name = True
+    _attr_is_on = False
 
     def __init__(
         self,
@@ -114,149 +80,29 @@ class EventBinarySensor(BinarySensorEntity):
         self._host = host
         self._entry = entry
         self.event = event
-        self._hass = None
-        self._clear_timer = None
-        self._state = False
         
-        # Set name matching your integration style: "{device_name} {Event Name}"
-        event_name = EVENT_NAME_MAP.get(event.id, event.id.title())
-        self._attr_name = f"{device_name} {event_name}"
-        
-        # Set unique ID matching your integration style: "{host}_{event_name}"
-        unique_id_suffix = EVENT_UNIQUE_ID_MAP.get(event.id, event.id)
-        self._attr_unique_id = f"{host}_{unique_id_suffix}"
-        
-        # Set icon matching your integration style
-        self._attr_icon = EVENT_ICON_MAP.get(event.id, "mdi:alert")
+        # Set entity_id and unique_id
+        self.entity_id = ENTITY_ID_FORMAT.format(event.unique_id)
+        self._attr_unique_id = self.entity_id
+        self._attr_translation_key = event.id
+        if event.id == EVENT_IO:
+            self._attr_translation_placeholders = {"io_port_id": event.io_port_id}
         
         # Set device class from event config
         event_config = EVENTS.get(event.id, {})
         self._attr_device_class = event_config.get("device_class")
         
+        # Set device info
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+        
         # Entity is disabled by default if event notifications aren't configured
         self._attr_entity_registry_enabled_default = not event.disabled
 
     @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
-
-    @property
     def available(self) -> bool:
         """Return if entity is available."""
         return self.coordinator.last_update_success
 
-    @property
-    def is_on(self) -> bool:
-        """Return if the sensor is on (event detected)."""
-        return self._state
 
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        self._hass = self.hass
-        
-        # Listen to Hikvision events (fired by webhook handler)
-        @callback
-        def hikvision_event_listener(event: Event) -> None:
-            """Handle Hikvision events from webhook."""
-            event_id = event.data.get("event_id", "")
-            # Match event ID (handle both exact match and alternate names)
-            if event_id == self.event.id or event_id.lower() == self.event.id.lower():
-                self._state = True
-                self.async_write_ha_state()
-                
-                # Auto-clear after timeout
-                if self._clear_timer:
-                    self._clear_timer()
-                
-                def clear_state(_now):
-                    self._state = False
-                    self.async_write_ha_state()
-                
-                self._clear_timer = self.hass.loop.call_later(
-                    EVENT_CLEAR_TIMEOUT.total_seconds(),
-                    clear_state
-                )
-        
-        self.async_on_remove(
-            self.hass.bus.async_listen(HIKVISION_EVENT, hikvision_event_listener)
-        )
-
-
-class HikvisionAlarmInputBinarySensor(BinarySensorEntity):
-    """Binary sensor for alarm input state - listens to webhook events in real-time."""
-
-    _attr_unique_id = "hikvision_alarm_input_1"
-    _attr_icon = "mdi:eye-outline"
-
-    def __init__(
-        self,
-        coordinator: HikvisionDataUpdateCoordinator,
-        api: HikvisionISAPI,
-        entry: ConfigEntry,
-        host: str,
-        device_name: str,
-    ):
-        """Initialize the binary sensor."""
-        self.coordinator = coordinator
-        self.api = api
-        self._host = host
-        self._entry = entry
-        self._hass = None
-        self._clear_timer = None
-        self._state = False
-        self._attr_name = f"{device_name} Alarm Input 1"
-        self._attr_unique_id = f"{host}_alarm_input_1"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    @property
-    def is_on(self) -> bool:
-        """Return if alarm input is triggered."""
-        return self._state
-
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        self._hass = self.hass
-        
-        # Listen to Hikvision events (fired by webhook handler)
-        @callback
-        def hikvision_event_listener(event: Event) -> None:
-            """Handle Hikvision events from webhook."""
-            event_id = event.data.get("event_id", "")
-            # Check for alarm input events (might be "alarminput", "ioinput", etc.)
-            if event_id in ["alarminput", "ioinput", "alarm"] or "alarm" in event_id.lower():
-                # Check if it's for input port 1 (channel_id might indicate port)
-                channel_id = event.data.get("channel_id", 0)
-                if channel_id == 1 or channel_id == 0:  # Port 1 or default
-                    self._state = True
-                    self.async_write_ha_state()
-                    
-                    # Auto-clear after timeout
-                    if self._clear_timer:
-                        self._clear_timer()
-                    
-                    def clear_state(_now):
-                        self._state = False
-                        self.async_write_ha_state()
-                    
-                    self._clear_timer = self.hass.loop.call_later(
-                        EVENT_CLEAR_TIMEOUT.total_seconds(),
-                        clear_state
-                    )
-        
-        self.async_on_remove(
-            self.hass.bus.async_listen(HIKVISION_EVENT, hikvision_event_listener)
-        )
