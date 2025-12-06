@@ -225,12 +225,14 @@ class EventNotificationsView(HomeAssistantView):
         """Determine entity and set binary sensor state."""
         _LOGGER.debug("Alert: %s", alert)
 
-        host = self.hass.data[DOMAIN][entry.entry_id].get("host", "").lower()
+        device_info = self.hass.data[DOMAIN][entry.entry_id].get("device_info", {})
+        device_name = device_info.get("deviceName", entry.data.get("host", ""))
+        from homeassistant.util import slugify
         
-        # Build unique_id matching binary sensor format (using host instead of serial_no)
+        # Build unique_id matching binary sensor format (using device name)
         device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
         io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
-        unique_id = f"binary_sensor.{slugify(host)}{device_id_param}{io_port_id_param}_{alert.event_id}"
+        unique_id = f"binary_sensor.{slugify(device_name.lower())}{device_id_param}{io_port_id_param}_{alert.event_id}"
 
         _LOGGER.debug("UNIQUE_ID: %s", unique_id)
 

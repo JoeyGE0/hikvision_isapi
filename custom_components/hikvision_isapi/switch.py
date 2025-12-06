@@ -779,7 +779,7 @@ class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
         self._port_no = port_no
         from homeassistant.components.switch import ENTITY_ID_FORMAT
         from homeassistant.util import slugify
-        self.entity_id = ENTITY_ID_FORMAT.format(f"{slugify(host)}_{port_no}_alarm_output")
+        self.entity_id = ENTITY_ID_FORMAT.format(f"{slugify(device_name.lower())}_{port_no}_alarm_output")
         self._attr_unique_id = self.entity_id
         self._attr_translation_placeholders = {"port_no": port_no}
         self._attr_device_info = DeviceInfo(

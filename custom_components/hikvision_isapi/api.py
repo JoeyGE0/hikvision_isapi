@@ -1883,6 +1883,7 @@ class HikvisionISAPI:
             )
             response.raise_for_status()
             
+            _LOGGER.debug("Received alarm server XML: %s", response.text)
             xml_root = ET.fromstring(response.text)
             host = self._get_event_notification_host(xml_root)
             
@@ -1892,26 +1893,27 @@ class HikvisionISAPI:
             
             address = urlparse(base_url)
             
-            # Check if already configured correctly
-            old_protocol = host.find(f".//{XML_NS}protocolType")
-            old_url = host.find(f".//{XML_NS}url")
-            old_port = host.find(f".//{XML_NS}portNo")
-            addressing_type = host.find(f".//{XML_NS}addressingFormatType")
+            # Check if already configured correctly - search direct children
+            old_protocol = host.find(f"{XML_NS}protocolType")
+            old_url = host.find(f"{XML_NS}url")
+            old_port = host.find(f"{XML_NS}portNo")
+            addressing_type = host.find(f"{XML_NS}addressingFormatType")
             old_address = None
             
             if addressing_type is not None and addressing_type.text == "ipaddress":
-                old_address_elem = host.find(f".//{XML_NS}ipAddress")
-                if old_address_elem is not None:
+                old_address_elem = host.find(f"{XML_NS}ipAddress")
+                if old_address_elem is not None and old_address_elem.text:
                     old_address = old_address_elem.text
             else:
-                old_address_elem = host.find(f".//{XML_NS}hostName")
-                if old_address_elem is not None:
+                old_address_elem = host.find(f"{XML_NS}hostName")
+                if old_address_elem is not None and old_address_elem.text:
                     old_address = old_address_elem.text
             
-            if (old_protocol is not None and old_protocol.text == address.scheme.upper() and
+            port = address.port or (443 if address.scheme == "https" else 80)
+            if (old_protocol is not None and old_protocol.text and old_protocol.text == address.scheme.upper() and
                 old_address == address.hostname and
-                old_port is not None and old_port.text == str(address.port or (443 if address.scheme == "https" else 80)) and
-                old_url is not None and old_url.text == path):
+                old_port is not None and old_port.text and old_port.text == str(port) and
+                old_url is not None and old_url.text and old_url.text == path):
                 _LOGGER.debug("Notification host already configured correctly")
                 return True
             
@@ -1930,7 +1932,7 @@ class HikvisionISAPI:
                 protocol_elem.text = address.scheme.upper()
             
             # Set parameter format
-            param_format = host.find(f".//{XML_NS}parameterFormatType")
+            param_format = host.find(f"{XML_NS}parameterFormatType")
             if param_format is not None:
                 param_format.text = "XML"
             else:
@@ -1947,7 +1949,7 @@ class HikvisionISAPI:
                     addressing_type_elem = ET.SubElement(host, f"{XML_NS}addressingFormatType")
                     addressing_type_elem.text = "ipaddress"
                 
-                ip_elem = host.find(f".//{XML_NS}ipAddress")
+                ip_elem = host.find(f"{XML_NS}ipAddress")
                 if ip_elem is not None:
                     ip_elem.text = address.hostname
                 else:
@@ -1955,7 +1957,7 @@ class HikvisionISAPI:
                     ip_elem.text = address.hostname
                 
                 # Remove hostname if exists
-                hostname_elem = host.find(f".//{XML_NS}hostName")
+                hostname_elem = host.find(f"{XML_NS}hostName")
                 if hostname_elem is not None:
                     host.remove(hostname_elem)
             except ValueError:
@@ -1966,7 +1968,7 @@ class HikvisionISAPI:
                     addressing_type_elem = ET.SubElement(host, f"{XML_NS}addressingFormatType")
                     addressing_type_elem.text = "hostname"
                 
-                hostname_elem = host.find(f".//{XML_NS}hostName")
+                hostname_elem = host.find(f"{XML_NS}hostName")
                 if hostname_elem is not None:
                     hostname_elem.text = address.hostname
                 else:
@@ -1974,12 +1976,11 @@ class HikvisionISAPI:
                     hostname_elem.text = address.hostname
                 
                 # Remove IP if exists
-                ip_elem = host.find(f".//{XML_NS}ipAddress")
+                ip_elem = host.find(f"{XML_NS}ipAddress")
                 if ip_elem is not None:
                     host.remove(ip_elem)
             
             # Set port
-            port = address.port or (443 if address.scheme == "https" else 80)
             if old_port is not None:
                 old_port.text = str(port)
             else:
@@ -1987,15 +1988,18 @@ class HikvisionISAPI:
                 port_elem.text = str(port)
             
             # Set authentication method
-            auth_method = host.find(f".//{XML_NS}httpAuthenticationMethod")
+            auth_method = host.find(f"{XML_NS}httpAuthenticationMethod")
             if auth_method is not None:
                 auth_method.text = "none"
             else:
                 auth_elem = ET.SubElement(host, f"{XML_NS}httpAuthenticationMethod")
                 auth_elem.text = "none"
             
-            # Send updated XML
-            xml_str = ET.tostring(xml_root, encoding='unicode')
+            # Send updated XML - preserve XML declaration and namespace
+            # Register namespace to avoid ns0 prefixes
+            ET.register_namespace('', 'http://www.hikvision.com/ver20/XMLSchema')
+            xml_str = ET.tostring(xml_root, encoding='unicode', xml_declaration=True)
+            _LOGGER.debug("Sending alarm server XML: %s", xml_str)
             response = requests.put(
                 url,
                 auth=(self.username, self.password),
@@ -2004,9 +2008,18 @@ class HikvisionISAPI:
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 400:
+                _LOGGER.error("Bad request - XML sent: %s", xml_str)
+                _LOGGER.error("Response: %s", response.text)
             response.raise_for_status()
             _LOGGER.info("Successfully configured notification host: %s%s", base_url, path)
             return True
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None:
+                _LOGGER.error("Failed to set alarm server: %s - Response: %s", e, e.response.text)
+            else:
+                _LOGGER.error("Failed to set alarm server: %s", e)
+            return False
         except Exception as e:
             _LOGGER.error("Failed to set alarm server: %s", e)
             return False

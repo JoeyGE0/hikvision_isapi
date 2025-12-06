@@ -34,7 +34,7 @@ async def async_setup_entry(
     is_nvr = capabilities.get("is_nvr", False)
 
     entities = []
-    host_lower = host.lower()
+    device_name_slug = slugify(device_name.lower())
     
     # Create binary sensors for each camera/channel
     for camera in cameras:
@@ -42,10 +42,10 @@ async def async_setup_entry(
         camera_name = camera["name"]
         
         for event_id, event_config in EVENTS.items():
-            # Build unique_id using host and camera_id
+            # Build unique_id using device name and camera_id
             device_id_param = f"_{camera_id}" if camera_id != 0 and event_id != EVENT_IO else ""
             io_port_id_param = f"_{0}" if 0 != 0 else ""
-            unique_id = f"{slugify(host_lower)}{device_id_param}{io_port_id_param}_{event_id}"
+            unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event_id}"
             
             entities.append(
                 EventBinarySensor(
@@ -68,7 +68,7 @@ async def async_setup_entry(
         for event_id, event_config in EVENTS.items():
             if event_id == EVENT_IO:  # I/O events are per-port, not general
                 continue
-            unique_id = f"{slugify(host_lower)}_{event_id}"
+            unique_id = f"{device_name_slug}_{event_id}"
             entities.append(
                 EventBinarySensor(
                     coordinator,

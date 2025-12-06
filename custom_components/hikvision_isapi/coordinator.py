@@ -105,8 +105,11 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             alarm_output = await self.hass.async_add_executor_job(
                 self.api.get_alarm_output, 1
             )
-            host = self.entry.data['host']
-            _id = ENTITY_ID_FORMAT.format(f"{slugify(host)}_1_alarm_output")
+            # Get device name from stored data
+            from .const import DOMAIN
+            device_info = self.hass.data[DOMAIN][self.entry.entry_id].get("device_info", {})
+            device_name = device_info.get("deviceName", self.entry.data.get("host", ""))
+            _id = ENTITY_ID_FORMAT.format(f"{slugify(device_name.lower())}_1_alarm_output")
             data[_id] = alarm_output.get("enabled", False)
             
             return data
