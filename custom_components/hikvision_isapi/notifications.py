@@ -45,15 +45,15 @@ class EventNotificationsView(HomeAssistantView):
         """Accept the POST request from camera."""
 
         try:
-            _LOGGER.debug("--- Incoming event notification ---")
-            _LOGGER.debug("Source: %s", request.remote)
+            _LOGGER.info("--- Incoming event notification from %s ---", request.remote)
             xml = await self.parse_event_request(request)
-            _LOGGER.debug("alert info: %s", xml[:500])
+            _LOGGER.debug("Alert XML: %s", xml[:500])
             alert = self.parse_event_notification(xml)
+            _LOGGER.info("Parsed alert: event=%s, channel=%s, io_port=%s", alert.event_id, alert.channel_id, alert.io_port_id)
             device_entry = self.get_isapi_device(request.remote, alert)
             self.trigger_sensor(device_entry, alert)
         except Exception as ex:  # pylint: disable=broad-except
-            _LOGGER.warning("Cannot process incoming event %s", ex)
+            _LOGGER.error("Cannot process incoming event: %s", ex, exc_info=True)
 
         response = web.Response(status=HTTPStatus.OK, content_type=CONTENT_TYPE_TEXT_PLAIN)
         return response
@@ -234,7 +234,7 @@ class EventNotificationsView(HomeAssistantView):
         io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
         unique_id = f"{slugify(device_name.lower())}{device_id_param}{io_port_id_param}_{alert.event_id}"
 
-        _LOGGER.debug("UNIQUE_ID: %s", unique_id)
+        _LOGGER.info("Looking for entity with unique_id: %s", unique_id)
 
         entity_registry = async_get(self.hass)
         # Search using the identifier format (unique_id without prefix)
@@ -242,9 +242,11 @@ class EventNotificationsView(HomeAssistantView):
         if entity_id:
             entity = self.hass.states.get(entity_id)
             if entity:
+                _LOGGER.info("Triggering entity: %s (event: %s)", entity_id, alert.event_id)
                 self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                 self.fire_hass_event(entry, alert)
-            return
+                return
+        _LOGGER.error("Entity not found for unique_id: %s (searched in domain: %s)", unique_id, DOMAIN)
         raise ValueError(f"Entity not found {unique_id}")
 
     def fire_hass_event(self, entry, alert: AlertInfo):
