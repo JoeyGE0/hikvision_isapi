@@ -1310,7 +1310,7 @@ class HikvisionISAPI:
     def get_field_detection(self) -> dict:
         """Get field detection (intrusion) settings."""
         try:
-            xml = self._get("/ISAPI/Smart/FieldDetection")
+            xml = self._get(f"/ISAPI/Smart/FieldDetection/{self.channel}")
             result = {}
             field = xml.find(f".//{XML_NS}FieldDetection")
             if field is not None:
@@ -1325,7 +1325,7 @@ class HikvisionISAPI:
     def set_field_detection(self, enabled: bool) -> bool:
         """Enable/disable field detection (intrusion)."""
         try:
-            url = f"http://{self.host}/ISAPI/Smart/FieldDetection"
+            url = f"http://{self.host}/ISAPI/Smart/FieldDetection/{self.channel}"
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
@@ -1363,7 +1363,7 @@ class HikvisionISAPI:
     def get_line_detection(self) -> dict:
         """Get line detection settings."""
         try:
-            xml = self._get("/ISAPI/Smart/LineDetection")
+            xml = self._get(f"/ISAPI/Smart/LineDetection/{self.channel}")
             result = {}
             line = xml.find(f".//{XML_NS}LineDetection")
             if line is not None:
@@ -1378,7 +1378,7 @@ class HikvisionISAPI:
     def set_line_detection(self, enabled: bool) -> bool:
         """Enable/disable line detection."""
         try:
-            url = f"http://{self.host}/ISAPI/Smart/LineDetection"
+            url = f"http://{self.host}/ISAPI/Smart/LineDetection/{self.channel}"
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
@@ -1416,7 +1416,7 @@ class HikvisionISAPI:
     def get_scene_change_detection(self) -> dict:
         """Get scene change detection settings."""
         try:
-            xml = self._get("/ISAPI/Smart/SceneChangeDetection")
+            xml = self._get(f"/ISAPI/Smart/SceneChangeDetection/{self.channel}")
             result = {}
             scene = xml.find(f".//{XML_NS}SceneChangeDetection")
             if scene is not None:
@@ -1431,7 +1431,7 @@ class HikvisionISAPI:
     def set_scene_change_detection(self, enabled: bool) -> bool:
         """Enable/disable scene change detection."""
         try:
-            url = f"http://{self.host}/ISAPI/Smart/SceneChangeDetection"
+            url = f"http://{self.host}/ISAPI/Smart/SceneChangeDetection/{self.channel}"
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
@@ -1469,7 +1469,7 @@ class HikvisionISAPI:
     def get_region_entrance(self) -> dict:
         """Get region entrance detection settings."""
         try:
-            xml = self._get("/ISAPI/Smart/regionEntrance")
+            xml = self._get(f"/ISAPI/Smart/regionEntrance/{self.channel}")
             result = {}
             region = xml.find(f".//{XML_NS}RegionEntrance")
             if region is not None:
@@ -1484,7 +1484,7 @@ class HikvisionISAPI:
     def set_region_entrance(self, enabled: bool) -> bool:
         """Enable/disable region entrance detection."""
         try:
-            url = f"http://{self.host}/ISAPI/Smart/regionEntrance"
+            url = f"http://{self.host}/ISAPI/Smart/regionEntrance/{self.channel}"
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
@@ -1522,7 +1522,7 @@ class HikvisionISAPI:
     def get_region_exiting(self) -> dict:
         """Get region exiting detection settings."""
         try:
-            xml = self._get("/ISAPI/Smart/regionExiting")
+            xml = self._get(f"/ISAPI/Smart/regionExiting/{self.channel}")
             result = {}
             region = xml.find(f".//{XML_NS}RegionExiting")
             if region is not None:
@@ -1537,7 +1537,7 @@ class HikvisionISAPI:
     def set_region_exiting(self, enabled: bool) -> bool:
         """Enable/disable region exiting detection."""
         try:
-            url = f"http://{self.host}/ISAPI/Smart/regionExiting"
+            url = f"http://{self.host}/ISAPI/Smart/regionExiting/{self.channel}"
             response = requests.get(
                 url,
                 auth=(self.username, self.password),

@@ -173,6 +173,8 @@ class EventNotificationsView(HomeAssistantView):
             
             # Get IO port ID
             io_port_id_elem = alert.find(f".//{XML_NS}inputIOPortID")
+            if io_port_id_elem is None:
+                io_port_id_elem = alert.find(f".//{XML_NS}dynInputIOPortID")
             io_port_id = int(io_port_id_elem.text.strip()) if io_port_id_elem is not None and io_port_id_elem.text else 0
             
             # Get serial number or MAC address
@@ -218,16 +220,22 @@ class EventNotificationsView(HomeAssistantView):
         """Determine entity and set binary sensor state."""
         _LOGGER.debug("Alert: %s", alert)
 
-        device_info = self.hass.data[DOMAIN][entry.entry_id].get("device_info", {})
-        serial_no = device_info.get("serialNumber", "")
-        if not serial_no:
-            # Fallback to host if serial number not available
-            serial_no = self.hass.data[DOMAIN][entry.entry_id].get("host", "")
-        serial_no = serial_no.lower()
+        host = self.hass.data[DOMAIN][entry.entry_id].get("host", "")
         
-        device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
-        io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
-        unique_id = f"binary_sensor.{slugify(serial_no)}{device_id_param}{io_port_id_param}_{alert.event_id}"
+        # Map event_id to unique_id suffix (matching your original naming convention)
+        event_unique_id_map = {
+            "motiondetection": "motion",
+            "tamperdetection": "video_tampering",
+            "videoloss": "video_loss",
+            "scenechangedetection": "scene_change",
+            "fielddetection": "intrusion",
+            "linedetection": "line_crossing",
+            "regionentrance": "region_entrance",
+            "regionexiting": "region_exiting",
+        }
+        
+        unique_id_suffix = event_unique_id_map.get(alert.event_id, alert.event_id)
+        unique_id = f"{host}_{unique_id_suffix}"
 
         _LOGGER.debug("UNIQUE_ID: %s", unique_id)
 
