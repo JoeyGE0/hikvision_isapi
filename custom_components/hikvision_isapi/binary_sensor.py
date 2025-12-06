@@ -91,7 +91,6 @@ async def async_setup_entry(
 class EventBinarySensor(BinarySensorEntity):
     """Event detection sensor."""
 
-    _attr_has_entity_name = True
     _attr_is_on = False
 
     def __init__(
@@ -112,13 +111,17 @@ class EventBinarySensor(BinarySensorEntity):
         
         # Set entity_id and unique_id
         self.entity_id = ENTITY_ID_FORMAT.format(event.unique_id)
-        self._attr_unique_id = self.entity_id
-        self._attr_translation_key = event.id
+        self._attr_unique_id = event.unique_id  # Store just the identifier, not full entity_id
+        
+        # Set name using device name + event label (like switches do)
+        event_config = EVENTS.get(event.id, {})
+        event_label = event_config.get("label", event.id.title())
         if event.id == EVENT_IO:
-            self._attr_translation_placeholders = {"io_port_id": event.io_port_id}
+            self._attr_name = f"{device_name} Alarm Input {event.io_port_id}"
+        else:
+            self._attr_name = f"{device_name} {event_label}"
         
         # Set device class from event config
-        event_config = EVENTS.get(event.id, {})
         self._attr_device_class = event_config.get("device_class")
         
         # Set device info

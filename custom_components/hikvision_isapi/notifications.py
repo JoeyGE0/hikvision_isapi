@@ -229,14 +229,15 @@ class EventNotificationsView(HomeAssistantView):
         device_name = device_info.get("deviceName", entry.data.get("host", ""))
         from homeassistant.util import slugify
         
-        # Build unique_id matching binary sensor format (using device name)
+        # Build unique_id matching binary sensor format (using device name, NO prefix - ENTITY_ID_FORMAT adds it)
         device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
         io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
-        unique_id = f"binary_sensor.{slugify(device_name.lower())}{device_id_param}{io_port_id_param}_{alert.event_id}"
+        unique_id = f"{slugify(device_name.lower())}{device_id_param}{io_port_id_param}_{alert.event_id}"
 
         _LOGGER.debug("UNIQUE_ID: %s", unique_id)
 
         entity_registry = async_get(self.hass)
+        # Search using the identifier format (unique_id without prefix)
         entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, unique_id)
         if entity_id:
             entity = self.hass.states.get(entity_id)
