@@ -1917,17 +1917,18 @@ class HikvisionISAPI:
                 _LOGGER.debug("Notification host already configured correctly")
                 return path
             
-            # Both integrations now use /api/hikvision, so this check is mainly for logging
+            # Check if already configured to the same path
             if old_url is not None and old_url.text and old_url.text == "/api/hikvision" and path == "/api/hikvision":
-                _LOGGER.debug("Notification host already set to /api/hikvision (shared with hikvision_next)")
+                _LOGGER.debug("Notification host already set to /api/hikvision")
             
-            # Warn if configured for another path
-            if old_url is not None and old_url.text and old_url.text != path:
-                _LOGGER.warning(
-                    "Notification host is currently set to '%s'. "
-                    "Updating to '%s'.",
+            # Warn if configured for another path (but not if it's just "/" which is default/unset)
+            if old_url is not None and old_url.text and old_url.text != path and old_url.text != "/":
+                _LOGGER.info(
+                    "Notification host is currently set to '%s'. Updating to '%s'.",
                     old_url.text, path
                 )
+            elif old_url is not None and old_url.text == "/":
+                _LOGGER.info("Notification host is unset (default '/'). Configuring to '%s'.", path)
             
             # Update URL
             if old_url is not None:

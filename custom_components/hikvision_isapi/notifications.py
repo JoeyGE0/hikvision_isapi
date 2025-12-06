@@ -43,18 +43,21 @@ class EventNotificationsView(HomeAssistantView):
 
     async def post(self, request: web.Request):
         """Accept the POST request from camera."""
-
+        _LOGGER.info("=== WEBHOOK RECEIVED === Source: %s, Headers: %s", request.remote, dict(request.headers))
+        
         try:
             _LOGGER.info("--- Incoming event notification from %s ---", request.remote)
             xml = await self.parse_event_request(request)
-            _LOGGER.debug("Alert XML: %s", xml[:500])
+            _LOGGER.info("Parsed XML (first 200 chars): %s", xml[:200] if xml else "None")
+            _LOGGER.debug("Full Alert XML: %s", xml[:500])
             alert = self.parse_event_notification(xml)
             _LOGGER.info("Parsed alert: event=%s, channel=%s, io_port=%s", alert.event_id, alert.channel_id, alert.io_port_id)
             device_entry = self.get_isapi_device(request.remote, alert)
+            _LOGGER.info("Found device entry: %s", device_entry.entry_id)
             self.update_alert_channel(device_entry, alert)
             self.trigger_sensor(device_entry, alert)
         except Exception as ex:  # pylint: disable=broad-except
-            _LOGGER.warning("Cannot process incoming event: %s", ex, exc_info=True)
+            _LOGGER.error("Cannot process incoming event: %s", ex, exc_info=True)
 
         response = web.Response(status=HTTPStatus.OK, content_type=CONTENT_TYPE_TEXT_PLAIN)
         return response

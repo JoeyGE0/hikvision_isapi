@@ -114,7 +114,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     # Only register notification view once if multiple instances
     if get_first_instance_unique_id(hass) == entry.unique_id:
-        hass.http.register_view(EventNotificationsView(hass))
+        view = EventNotificationsView(hass)
+        hass.http.register_view(view)
+        _LOGGER.info("Registered notification webhook at: %s", view.url)
 
     # Set alarm server if enabled
     if entry.data.get(CONF_SET_ALARM_SERVER, True):
@@ -140,16 +142,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    # Reset alarm server if it was set
-    if entry.data.get(CONF_SET_ALARM_SERVER, True):
-        api = hass.data[DOMAIN][entry.entry_id].get("api")
-        if api:
-            try:
-                await hass.async_add_executor_job(
-                    api.set_alarm_server, "http://0.0.0.0:80", "/"
-                )
-            except Exception:
-                pass  # Ignore errors on unload
+    # Don't reset alarm server on unload - leave it configured
+    # This prevents the camera from being reset to "/" which breaks notifications
     
     await hass.config_entries.async_unload_platforms(
         entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
