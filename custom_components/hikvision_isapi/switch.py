@@ -766,9 +766,7 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
 class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
     """Switch entity for alarm output control."""
 
-    _attr_has_entity_name = True
     _attr_icon = "mdi:eye-outline"
-    _attr_translation_key = "alarm_output"
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str, port_no: int = 1):
         """Initialize the switch."""
@@ -781,7 +779,7 @@ class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
         from homeassistant.util import slugify
         self.entity_id = ENTITY_ID_FORMAT.format(f"{slugify(device_name.lower())}_{port_no}_alarm_output")
         self._attr_unique_id = self.entity_id
-        self._attr_translation_placeholders = {"port_no": port_no}
+        self._attr_name = f"{device_name} Alarm Output {port_no}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._host)},
         )
@@ -789,7 +787,10 @@ class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def is_on(self) -> bool | None:
         """Return True if the switch is on."""
-        return self.coordinator.data.get(self.unique_id) if self.coordinator.data else None
+        if not self.coordinator.data:
+            return None
+        # Coordinator stores state using entity_id as key (full entity_id format)
+        return self.coordinator.data.get(self.entity_id, False)
 
     async def async_turn_on(self, **kwargs):
         """Turn on."""
