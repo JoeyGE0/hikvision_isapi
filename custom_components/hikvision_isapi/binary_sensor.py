@@ -43,8 +43,15 @@ async def async_setup_entry(
         
         for event_id, event_config in EVENTS.items():
             # Build unique_id using device name and camera_id
+            # For I/O events: no channel_id, but include io_port_id (even if 0 for now)
+            # For other events: include channel_id if != 0, io_port_id only if != 0
             device_id_param = f"_{camera_id}" if camera_id != 0 and event_id != EVENT_IO else ""
-            io_port_id_param = f"_{0}" if 0 != 0 else ""
+            # For I/O events, io_port_id is part of the unique_id (even if 0)
+            # For other events, only include io_port_id if non-zero (should be 0 normally)
+            if event_id == EVENT_IO:
+                io_port_id_param = "_0"  # I/O events always include io_port_id (even if 0)
+            else:
+                io_port_id_param = ""  # Non-I/O events don't include io_port_id (should be 0)
             unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event_id}"
             
             entities.append(

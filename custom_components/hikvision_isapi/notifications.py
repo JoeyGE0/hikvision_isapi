@@ -51,9 +51,10 @@ class EventNotificationsView(HomeAssistantView):
             alert = self.parse_event_notification(xml)
             _LOGGER.info("Parsed alert: event=%s, channel=%s, io_port=%s", alert.event_id, alert.channel_id, alert.io_port_id)
             device_entry = self.get_isapi_device(request.remote, alert)
+            self.update_alert_channel(device_entry, alert)
             self.trigger_sensor(device_entry, alert)
         except Exception as ex:  # pylint: disable=broad-except
-            _LOGGER.error("Cannot process incoming event: %s", ex, exc_info=True)
+            _LOGGER.warning("Cannot process incoming event: %s", ex, exc_info=True)
 
         response = web.Response(status=HTTPStatus.OK, content_type=CONTENT_TYPE_TEXT_PLAIN)
         return response
@@ -97,6 +98,31 @@ class EventNotificationsView(HomeAssistantView):
             raise ValueError(f"Cannot find ISAPI instance for device {device_ip} in {instance_identifiers}")
 
         return entry
+
+    def update_alert_channel(self, entry, alert: AlertInfo) -> None:
+        """Fix channel id for NVR/DVR alert (channels > 32 are IP cameras)."""
+        device_data = self.hass.data[DOMAIN][entry.entry_id]
+        cameras = device_data.get("cameras", [])
+        capabilities = device_data.get("capabilities", {})
+        
+        if alert.channel_id > 32 and capabilities.get("is_nvr", False):
+            # Channel id above 32 is an IP camera on NVR/DVR
+            # On DVRs that support analog cameras, 33 may not be camera 1 but camera 5 for example
+            try:
+                # Try to find camera by input_port (channel_id - 32)
+                input_port = alert.channel_id - 32
+                matching_camera = next(
+                    (cam for cam in cameras if cam.get("input_port") == input_port),
+                    None
+                )
+                if matching_camera:
+                    alert.channel_id = matching_camera["id"]
+                else:
+                    # Fallback: just subtract 32
+                    alert.channel_id = alert.channel_id - 32
+            except (StopIteration, KeyError, TypeError):
+                # Fallback: just subtract 32
+                alert.channel_id = alert.channel_id - 32
 
     def get_ip(self, ip_string: str) -> str:
         """Return an IP if either hostname or IP is provided."""
@@ -230,11 +256,18 @@ class EventNotificationsView(HomeAssistantView):
         from homeassistant.util import slugify
         
         # Build unique_id matching binary sensor format (using device name, NO prefix - ENTITY_ID_FORMAT adds it)
+        # Format must match exactly what binary_sensor.py creates
         device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
-        io_port_id_param = f"_{alert.io_port_id}" if alert.io_port_id != 0 else ""
+        # For I/O events: always include io_port_id (even if 0) to match binary_sensor format
+        # For other events: don't include io_port_id (should be 0 anyway)
+        if alert.event_id == EVENT_IO:
+            io_port_id_param = f"_{alert.io_port_id}"  # I/O events always include io_port_id
+        else:
+            io_port_id_param = ""  # Non-I/O events don't include io_port_id
         unique_id = f"{slugify(device_name.lower())}{device_id_param}{io_port_id_param}_{alert.event_id}"
 
-        _LOGGER.info("Looking for entity with unique_id: %s", unique_id)
+        _LOGGER.info("Looking for entity with unique_id: %s (event: %s, channel: %s, io_port: %s)", 
+                     unique_id, alert.event_id, alert.channel_id, alert.io_port_id)
 
         entity_registry = async_get(self.hass)
         # Search using the identifier format (unique_id without prefix)
