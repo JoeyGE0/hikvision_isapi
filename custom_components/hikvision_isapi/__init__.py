@@ -18,6 +18,7 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    _LOGGER.info("=== HIKVISION ISAPI: Setting up integration for %s ===", entry.data.get("host", "unknown"))
     hass.data.setdefault(DOMAIN, {})
     
     # Get device info and create device
@@ -116,7 +117,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     if get_first_instance_unique_id(hass) == entry.unique_id:
         view = EventNotificationsView(hass)
         hass.http.register_view(view)
-        _LOGGER.info("Registered notification webhook at: %s", view.url)
+        _LOGGER.info("=== HIKVISION ISAPI: Registered notification webhook at: %s ===", view.url)
+    else:
+        _LOGGER.info("=== HIKVISION ISAPI: Using existing webhook (not first instance) ===")
 
     # Set alarm server if enabled
     if entry.data.get(CONF_SET_ALARM_SERVER, True):
@@ -129,14 +132,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 api.set_alarm_server, alarm_server_host, ALARM_SERVER_PATH
             )
             if actual_path:
-                _LOGGER.info("Successfully configured notification host on camera (path: %s)", actual_path)
+                _LOGGER.info("=== HIKVISION ISAPI: Successfully configured notification host on camera (path: %s) ===", actual_path)
                 # Update ALARM_SERVER_PATH if it was changed to match existing (e.g., /api/hikvision)
                 if actual_path != ALARM_SERVER_PATH:
-                    _LOGGER.info("Using existing notification path: %s (to avoid conflicts)", actual_path)
+                    _LOGGER.info("=== HIKVISION ISAPI: Using existing notification path: %s ===", actual_path)
             else:
-                _LOGGER.warning("Failed to configure notification host on camera")
+                _LOGGER.warning("=== HIKVISION ISAPI: Failed to configure notification host on camera ===")
         except Exception as e:
-            _LOGGER.error("Error configuring notification host: %s", e)
+            _LOGGER.error("=== HIKVISION ISAPI: Error configuring notification host: %s ===", e)
 
     return True
 
