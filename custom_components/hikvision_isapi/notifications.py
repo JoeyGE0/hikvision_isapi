@@ -48,8 +48,8 @@ class EventNotificationsView(HomeAssistantView):
         try:
             _LOGGER.info("--- Incoming event notification from %s ---", request.remote)
             xml = await self.parse_event_request(request)
-            _LOGGER.info("Parsed XML (first 200 chars): %s", xml[:200] if xml else "None")
-            _LOGGER.debug("Full Alert XML: %s", xml[:500])
+            _LOGGER.info("Received XML (first 500 chars): %s", xml[:500] if xml else "None")
+            _LOGGER.debug("Full XML: %s", xml)
             alert = self.parse_event_notification(xml)
             _LOGGER.info("Parsed alert: event=%s, channel=%s, io_port=%s", alert.event_id, alert.channel_id, alert.io_port_id)
             device_entry = self.get_isapi_device(request.remote, alert)
@@ -175,8 +175,40 @@ class EventNotificationsView(HomeAssistantView):
             root = ET.fromstring(xml)
             XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
             
+            # Log the root tag and structure for debugging
+            _LOGGER.info("Root tag: %s, Root attrib: %s", root.tag, root.attrib)
+            
+            # Try multiple ways to find EventNotificationAlert
+            alert = None
+            
+            # Method 1: With namespace
             alert = root.find(f".//{XML_NS}EventNotificationAlert")
+            
+            # Method 2: Without namespace
             if alert is None:
+                alert = root.find(".//EventNotificationAlert")
+            
+            # Method 3: Check if root itself is EventNotificationAlert (with or without namespace)
+            if alert is None:
+                if root.tag.endswith("EventNotificationAlert") or root.tag == "EventNotificationAlert":
+                    alert = root
+            
+            # Method 4: Try finding by local name (strip namespace)
+            if alert is None:
+                for elem in root.iter():
+                    local_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                    if local_name == "EventNotificationAlert":
+                        alert = elem
+                        _LOGGER.info("Found EventNotificationAlert by local name: %s", elem.tag)
+                        break
+            
+            # If still not found, log the XML structure and all element tags
+            if alert is None:
+                _LOGGER.error("No EventNotificationAlert found. Root tag: %s", root.tag)
+                _LOGGER.error("XML structure (first 1000 chars): %s", ET.tostring(root, encoding='unicode')[:1000])
+                # Log all element tags found
+                all_tags = [elem.tag for elem in root.iter()]
+                _LOGGER.error("All XML tags found: %s", all_tags[:20])  # First 20 tags
                 raise ValueError("No EventNotificationAlert found")
             
             event_type_elem = alert.find(f".//{XML_NS}eventType")
