@@ -1867,7 +1867,7 @@ class HikvisionISAPI:
             return hosts[0]
         return None
 
-    def set_alarm_server(self, base_url: str, path: str) -> bool:
+    def set_alarm_server(self, base_url: str, path: str) -> str:
         """Set event notifications listener server."""
         import ipaddress
         from urllib.parse import urlparse
@@ -1889,7 +1889,7 @@ class HikvisionISAPI:
             
             if host is None:
                 _LOGGER.warning("No HTTP notification host found")
-                return False
+                return ""
             
             address = urlparse(base_url)
             
@@ -1915,13 +1915,17 @@ class HikvisionISAPI:
                 old_port is not None and old_port.text and old_port.text == str(port) and
                 old_url is not None and old_url.text and old_url.text == path):
                 _LOGGER.debug("Notification host already configured correctly")
-                return True
+                return path
             
-            # Warn if configured for another integration (e.g. hikvision_next)
+            # Both integrations now use /api/hikvision, so this check is mainly for logging
+            if old_url is not None and old_url.text and old_url.text == "/api/hikvision" and path == "/api/hikvision":
+                _LOGGER.debug("Notification host already set to /api/hikvision (shared with hikvision_next)")
+            
+            # Warn if configured for another path
             if old_url is not None and old_url.text and old_url.text != path:
                 _LOGGER.warning(
-                    "Notification host is currently set to '%s' (possibly by another integration). "
-                    "Updating to '%s'. This may break the other integration.",
+                    "Notification host is currently set to '%s'. "
+                    "Updating to '%s'.",
                     old_url.text, path
                 )
             
@@ -2021,13 +2025,13 @@ class HikvisionISAPI:
                 _LOGGER.error("Response: %s", response.text)
             response.raise_for_status()
             _LOGGER.info("Successfully configured notification host: %s%s", base_url, path)
-            return True
+            return path
         except requests.exceptions.HTTPError as e:
             if e.response is not None:
                 _LOGGER.error("Failed to set alarm server: %s - Response: %s", e, e.response.text)
             else:
                 _LOGGER.error("Failed to set alarm server: %s", e)
-            return False
+            return ""
         except Exception as e:
             _LOGGER.error("Failed to set alarm server: %s", e)
-            return False
+            return ""

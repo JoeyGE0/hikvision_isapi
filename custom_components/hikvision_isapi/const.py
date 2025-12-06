@@ -15,7 +15,8 @@ CONF_ALARM_SERVER_HOST: Final = "alarm_server"
 DEFAULT_UPDATE_INTERVAL = 30
 
 # Webhook path for event notifications (single path for all instances)
-ALARM_SERVER_PATH: Final = "/api/hikvision_isapi"
+# Using /api/hikvision to match hikvision_next and allow both integrations to coexist
+ALARM_SERVER_PATH: Final = "/api/hikvision"
 
 # Home Assistant event fired when camera events occur
 HIKVISION_EVENT: Final = f"{DOMAIN}_event"

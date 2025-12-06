@@ -123,11 +123,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             local_ip = await async_get_source_ip(hass)
             alarm_server_host = f"http://{local_ip}:8123"
         try:
-            success = await hass.async_add_executor_job(
+            actual_path = await hass.async_add_executor_job(
                 api.set_alarm_server, alarm_server_host, ALARM_SERVER_PATH
             )
-            if success:
-                _LOGGER.info("Successfully configured notification host on camera")
+            if actual_path:
+                _LOGGER.info("Successfully configured notification host on camera (path: %s)", actual_path)
+                # Update ALARM_SERVER_PATH if it was changed to match existing (e.g., /api/hikvision)
+                if actual_path != ALARM_SERVER_PATH:
+                    _LOGGER.info("Using existing notification path: %s (to avoid conflicts)", actual_path)
             else:
                 _LOGGER.warning("Failed to configure notification host on camera")
         except Exception as e:
