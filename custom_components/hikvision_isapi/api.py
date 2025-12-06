@@ -1917,6 +1917,14 @@ class HikvisionISAPI:
                 _LOGGER.debug("Notification host already configured correctly")
                 return True
             
+            # Warn if configured for another integration (e.g. hikvision_next)
+            if old_url is not None and old_url.text and old_url.text != path:
+                _LOGGER.warning(
+                    "Notification host is currently set to '%s' (possibly by another integration). "
+                    "Updating to '%s'. This may break the other integration.",
+                    old_url.text, path
+                )
+            
             # Update URL
             if old_url is not None:
                 old_url.text = path
