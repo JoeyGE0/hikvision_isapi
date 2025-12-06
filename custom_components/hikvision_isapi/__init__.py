@@ -91,13 +91,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hw_version=hw_version,
     )
     
-    # Create coordinator
-    coordinator = HikvisionDataUpdateCoordinator(hass, entry, api, update_interval)
-    await coordinator.async_config_entry_first_refresh()
-    
-    # Store coordinator, API and device info
+    # Store data BEFORE creating coordinator (coordinator needs it)
     hass.data[DOMAIN][entry.entry_id] = {
-        "coordinator": coordinator,
         "api": api,
         "device_info": device_info,
         "capabilities": capabilities,
@@ -105,6 +100,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "host": host,
         **entry.data
     }
+    
+    # Create coordinator
+    coordinator = HikvisionDataUpdateCoordinator(hass, entry, api, update_interval)
+    await coordinator.async_config_entry_first_refresh()
+    
+    # Store coordinator in data
+    hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(
         entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
