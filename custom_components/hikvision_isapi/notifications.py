@@ -211,14 +211,43 @@ class EventNotificationsView(HomeAssistantView):
                 _LOGGER.error("All XML tags found: %s", all_tags[:20])  # First 20 tags
                 raise ValueError("No EventNotificationAlert found")
             
+            # Try multiple methods to find eventType
+            event_type_elem = None
+            # Method 1: With namespace
             event_type_elem = alert.find(f".//{XML_NS}eventType")
+            # Method 2: Without namespace
             if event_type_elem is None:
-                # Check for DurationList (version 2.0)
+                event_type_elem = alert.find(".//eventType")
+            # Method 3: Check for DurationList (version 2.0)
+            if event_type_elem is None:
                 duration = alert.find(f".//{XML_NS}DurationList/{XML_NS}Duration")
                 if duration is not None:
                     event_type_elem = duration.find(f".//{XML_NS}relationEvent")
+            # Method 4: Try without namespace in DurationList
+            if event_type_elem is None:
+                duration = alert.find(".//DurationList/Duration")
+                if duration is not None:
+                    event_type_elem = duration.find(".//relationEvent")
+            # Method 5: Search by local name (strip namespace)
+            if event_type_elem is None:
+                for elem in alert.iter():
+                    local_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                    if local_name == "eventType":
+                        event_type_elem = elem
+                        break
+            # Method 6: Check if it's a direct child of alert
+            if event_type_elem is None:
+                for child in alert:
+                    local_name = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                    if local_name == "eventType":
+                        event_type_elem = child
+                        break
             
             if event_type_elem is None:
+                # Log the XML structure for debugging
+                _LOGGER.error("No eventType found. Alert XML structure: %s", ET.tostring(alert, encoding='unicode')[:1000])
+                all_tags = [elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag for elem in alert.iter()]
+                _LOGGER.error("All tags in alert: %s", all_tags[:30])
                 raise ValueError("No eventType found")
             
             event_id = event_type_elem.text.strip().lower()
