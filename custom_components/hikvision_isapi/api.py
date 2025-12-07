@@ -936,7 +936,7 @@ class HikvisionISAPI:
             return False
 
     def play_test_tone(self) -> bool:
-        """Play a 2-second test tone (for testing purposes)."""
+        """Play a 3-second test tone: 1000 Hz for most of it, then ramp to 2500 Hz at end."""
         import time
         import math
         
@@ -977,17 +977,21 @@ class HikvisionISAPI:
                 _LOGGER.error("Failed to open audio session")
                 return False
             
-            # Step 4: Generate 2-second siren sound
-            _LOGGER.info("Generating 2-second siren sound...")
+            # Step 4: Generate 3-second test tone
+            _LOGGER.info("Generating 3-second test tone...")
             sample_rate = 8000
-            duration = 2.0
+            duration = 3.0
             num_samples = int(sample_rate * duration)
             
-            # Siren parameters: alternate between low and high frequencies
-            low_freq = 600   # Lower siren frequency (Hz)
-            high_freq = 1200  # Higher siren frequency (Hz)
-            cycle_duration = 0.3  # How long each "wee" or "woo" lasts (seconds)
-            cycles_per_second = 1.0 / cycle_duration  # How many cycles per second
+            # Tone parameters:
+            # - 1000 Hz for first ~2.5 seconds
+            # - Ramp from 1000 to 2500 Hz over ~0.3 seconds (at 2.5s mark)
+            # - Hold at 2500 Hz for ~0.2 seconds (end)
+            base_freq = 1000  # Hz
+            end_freq = 2500  # Hz
+            ramp_start_time = 2.5  # Start ramping at 2.5 seconds
+            ramp_duration = 0.3  # Ramp over 0.3 seconds
+            hold_end_time = 3.0  # Hold until end
             
             def linear_to_ulaw(linear):
                 linear = max(-32768, min(32767, linear))
@@ -1024,18 +1028,17 @@ class HikvisionISAPI:
             for i in range(num_samples):
                 t = i / sample_rate
                 
-                # Calculate which part of the cycle we're in (0-1)
-                cycle_position = (t * cycles_per_second) % 1.0
-                
-                # Alternate between low and high frequency
-                # First half of cycle: low to high (wee)
-                # Second half of cycle: high to low (woo)
-                if cycle_position < 0.5:
-                    # Rising: low to high
-                    freq = low_freq + (high_freq - low_freq) * (cycle_position * 2)
+                # Determine frequency based on time
+                if t < ramp_start_time:
+                    # Hold at 1000 Hz
+                    freq = base_freq
+                elif t < ramp_start_time + ramp_duration:
+                    # Ramp from 1000 to 2500 Hz
+                    ramp_progress = (t - ramp_start_time) / ramp_duration
+                    freq = base_freq + (end_freq - base_freq) * ramp_progress
                 else:
-                    # Falling: high to low
-                    freq = high_freq - (high_freq - low_freq) * ((cycle_position - 0.5) * 2)
+                    # Hold at 2500 Hz until end
+                    freq = end_freq
                 
                 # Generate sine wave at current frequency
                 sample = math.sin(2 * math.pi * freq * t)
