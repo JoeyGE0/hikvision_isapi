@@ -908,13 +908,20 @@ class HikvisionISAPI:
             response = requests.put(
                 url,
                 auth=(self.username, self.password),
+                headers={"Content-Type": "application/xml"},
                 verify=False,
                 timeout=5
             )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
             xml = ET.fromstring(response.text)
             session_id = xml.find(f".//{XML_NS}sessionId")
             return session_id.text.strip() if session_id is not None else None
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to open audio session: %s", e)
             return None
