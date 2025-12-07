@@ -220,7 +220,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             media_url = media_url.split("?")[0]
                             _LOGGER.info("After removing query params: %s", media_url)
                         
-                        # For local media files, read directly from filesystem (no auth needed)
+                        # For local media files, try filesystem first, then fall back to HTTP
                         # Home Assistant uses both /local/ and /media/local/ for www/ directory
                         if media_url.startswith("/media/local/") or media_url.startswith("/local/"):
                             # Remove both possible prefixes
@@ -238,29 +238,21 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                                 # Home Assistant serves /local/ and /media/local/ from www/ directory
                                 file_path = os.path.join(config_dir, "www", media_path)
                                 _LOGGER.info("Looking for file at: %s", file_path)
-                                _LOGGER.info("File exists: %s, isfile: %s", os.path.exists(file_path), os.path.isfile(file_path) if os.path.exists(file_path) else False)
-                                
-                                # List files in www directory for debugging
-                                www_dir = os.path.join(config_dir, "www")
-                                if os.path.exists(www_dir):
-                                    files = os.listdir(www_dir)
-                                    _LOGGER.info("Files in www directory: %s", files[:20])  # First 20 files
                                 
                                 if os.path.exists(file_path) and os.path.isfile(file_path):
-                                    _LOGGER.info("Reading media file: %s", file_path)
+                                    _LOGGER.info("Reading media file from filesystem: %s", file_path)
                                     with open(file_path, 'rb') as f:
                                         return f.read()
-                                _LOGGER.error("Media file not found at: %s", file_path)
+                                _LOGGER.warning("Media file not found at filesystem path: %s, will try HTTP download", file_path)
                                 return None
                             
                             file_data = await self.hass.async_add_executor_job(read_media_file)
                             if file_data:
                                 return file_data
-                            return None
-                        else:
-                            _LOGGER.info("Media URL does not start with /media/local/ or /local/, URL: %s", media_url)
+                            # Fall through to HTTP download if filesystem read failed
+                            _LOGGER.info("Filesystem read failed, falling back to HTTP download for: %s", media_url)
                         
-                        # For other URLs (TTS, external, etc), use HTTP
+                        # For other URLs (TTS, external, local files that weren't on filesystem), use HTTP
                         if media_url.startswith("/"):
                             base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
                             base_url = base_url.rstrip("/")
