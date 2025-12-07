@@ -214,13 +214,18 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             media_url = media_url.split("?")[0]
                         
                         # For local media files, read directly from filesystem (no auth needed)
-                        if media_url.startswith("/media/local/"):
-                            media_path = media_url.replace("/media/local/", "")
+                        # Home Assistant uses both /local/ and /media/local/ for www/ directory
+                        if media_url.startswith("/media/local/") or media_url.startswith("/local/"):
+                            # Remove both possible prefixes
+                            if media_url.startswith("/media/local/"):
+                                media_path = media_url.replace("/media/local/", "")
+                            else:
+                                media_path = media_url.replace("/local/", "")
                             
                             import os
                             def read_media_file():
                                 config_dir = self.hass.config.config_dir
-                                # Home Assistant serves /media/local/ from www/ directory
+                                # Home Assistant serves /local/ and /media/local/ from www/ directory
                                 file_path = os.path.join(config_dir, "www", media_path)
                                 if os.path.exists(file_path) and os.path.isfile(file_path):
                                     _LOGGER.info("Reading media file: %s", file_path)
