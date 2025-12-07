@@ -1435,12 +1435,15 @@ class HikvisionISAPI:
                     if status_code_elem is not None:
                         status = int(status_code_elem.text.strip())
                         if status != 1:  # 1 = success
+                            _LOGGER.debug("Stream %s (ID %d) returned error status %d", stream_type_name, stream_id, status)
                             continue
                     
                     # Check if StreamingChannel exists as child
                     stream_channel = xml.find(f".//{XML_NS}StreamingChannel")
                 
                 if stream_channel is None:
+                    _LOGGER.debug("Stream %s (ID %d) - no StreamingChannel found, root tag: %s", 
+                                 stream_type_name, stream_id, xml.tag)
                     continue
                 
                 # Parse stream info
@@ -1481,10 +1484,15 @@ class HikvisionISAPI:
                     "height": height,
                     "audio": audio,
                 })
-            except Exception:
-                # Stream type not available for this camera, skip it silently
+                _LOGGER.debug("Found stream %s (ID %d) for channel %d", stream_type_name, stream_id, channel_id)
+            except Exception as e:
+                # Stream type not available for this camera, skip it
+                _LOGGER.debug("Stream type %s (ID %d) not available for channel %d: %s", 
+                             stream_type_name, stream_type_id, channel_id, str(e))
                 continue
         
+        _LOGGER.info("Found %d stream(s) for camera channel %d: %s", 
+                    len(streams), channel_id, [s["type"] for s in streams] if streams else "none")
         return streams
 
     def get_rtsp_port(self) -> int:
