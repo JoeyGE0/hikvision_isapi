@@ -1424,6 +1424,18 @@ class HikvisionISAPI:
             stream_id = channel_id * 100 + stream_type_id
             try:
                 xml = self._get(f"/ISAPI/Streaming/channels/{stream_id}")
+                
+                # Check for error response first
+                status_code = xml.find(f".//{XML_NS}statusCode")
+                if status_code is not None:
+                    status = int(status_code.text.strip())
+                    if status != 1:  # 1 = success
+                        status_string = xml.find(f".//{XML_NS}statusString")
+                        error_msg = status_string.text.strip() if status_string is not None else "Unknown error"
+                        _LOGGER.debug("Stream type %s (ID %d) not available for channel %d: status %d - %s", 
+                                     stream_type_name, stream_type_id, channel_id, status, error_msg)
+                        continue
+                
                 stream_channel = xml.find(f".//{XML_NS}StreamingChannel")
                 
                 if stream_channel is not None:
@@ -1454,6 +1466,9 @@ class HikvisionISAPI:
                         if audio_enabled is not None:
                             audio = audio_enabled.text.strip().lower() == "true"
                     
+                    _LOGGER.debug("Found stream %s (ID %d) for channel %d: enabled=%s, codec=%s, %dx%d", 
+                                 stream_type_name, stream_id, channel_id, enabled, codec, width, height)
+                    
                     streams.append({
                         "id": stream_id,
                         "type_id": stream_type_id,
@@ -1464,12 +1479,17 @@ class HikvisionISAPI:
                         "height": height,
                         "audio": audio,
                     })
+                else:
+                    _LOGGER.debug("Stream type %s (ID %d) - no StreamingChannel element found for channel %d", 
+                                 stream_type_name, stream_type_id, channel_id)
             except Exception as e:
                 # Stream type not available for this camera, skip it
                 _LOGGER.debug("Stream type %s (ID %d) not available for channel %d: %s", 
                              stream_type_name, stream_type_id, channel_id, e)
                 continue
         
+        _LOGGER.info("Found %d stream(s) for camera channel %d: %s", 
+                    len(streams), channel_id, [s["type"] for s in streams])
         return streams
 
     def get_rtsp_port(self) -> int:

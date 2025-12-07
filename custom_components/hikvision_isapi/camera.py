@@ -37,7 +37,11 @@ async def async_setup_entry(
         camera_name = camera["name"] if is_nvr or len(cameras) > 1 else device_name
         
         # Get available streams for this camera
-        streams = await hass.async_add_executor_job(api.get_camera_streams, camera_id)
+        try:
+            streams = await hass.async_add_executor_job(api.get_camera_streams, camera_id)
+        except Exception as e:
+            _LOGGER.error("Failed to get streams for camera %d: %s", camera_id, e)
+            streams = []
         
         if not streams:
             # Fallback: create single camera entity if no streams found
