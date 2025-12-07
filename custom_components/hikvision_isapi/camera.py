@@ -63,7 +63,6 @@ class HikvisionCamera(Camera):
     """Camera entity for Hikvision camera stream."""
 
     _attr_icon = "mdi:camera"
-    _attr_supported_features = CameraEntityFeature.STREAM
 
     def __init__(
         self, 
@@ -83,6 +82,12 @@ class HikvisionCamera(Camera):
         self._entry = entry
         self._camera_id = camera_id
         self.stream = stream
+        
+        # Only enable stream feature if we have a stream configured
+        if stream:
+            self._attr_supported_features = CameraEntityFeature.STREAM
+        else:
+            self._attr_supported_features = CameraEntityFeature(0)  # No features
         
         # Build unique_id
         if stream:
