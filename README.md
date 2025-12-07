@@ -24,7 +24,7 @@
 
 ### Known Issues
 
-- **Binary Sensors (Motion, Intrusion, etc.)**: Event detection binary sensors are currently not working properly. They may not update when events occur.
+- **Binary Sensors**: Motion detection is working! Other event types (Intrusion, Line Crossing, etc.) may require proper configuration on the camera to work.
 - **Media Player (Speaker)**: Media player functionality doesn't work properly (audio playback via TTS/MP3 is not functional).
 
 ---
@@ -41,13 +41,15 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 
 | Feature                       | Description                                               |
 | ----------------------------- | --------------------------------------------------------- |
-| **Motion Detection**          | Real-time motion events (not just enabled/disabled state) |
+| **Motion Detection**          | Real-time motion events (working!)                        |
 | **Intrusion Detection**       | Field detection events                                    |
 | **Line Crossing Detection**   | Line crossing events                                      |
 | **Region Entrance/Exiting**   | Region-based detection events                             |
 | **Scene Change Detection**    | Scene change events                                       |
 | **Video Loss Detection**      | Video loss events                                         |
 | **Video Tampering Detection** | Tamper detection events                                   |
+
+**Note**: Motion detection is confirmed working. Other event types require proper camera configuration (see [Event Notifications Setup](#-event-notifications-setup-real-time-events)).
 
 ### Video/Image Controls
 
@@ -86,13 +88,30 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **CPU Utilization**           | Current CPU usage percentage (with aggregated graph)    |
 | **Memory Usage**              | Current memory usage percentage (with aggregated graph) |
 | **Device Uptime**             | Device uptime in hours/days                             |
-| **Total Reboots**             | Total reboot count                                      |
+| **Total Reboots**             | Total reboot count (disabled by default)                 |
 | **Active Streaming Sessions** | Number of active video streams                          |
 | **Streaming Clients**         | List of client IP addresses streaming                   |
+| **Notification Host**         | Notification host IP address                            |
+| **Notification Host Path**    | Notification host URL path                               |
+| **Notification Host Port**    | Notification host port number                            |
+| **Notification Host Protocol** | Notification host protocol (HTTP/HTTPS)                 |
+
+### Camera Streams
+
+Multiple camera stream support with separate entities for each stream type:
+
+| Stream Type        | Description                          | Default Status |
+| ------------------ | ------------------------------------ | -------------- |
+| **Main Stream**    | Primary high-quality video stream    | Enabled        |
+| **Sub-stream**     | Lower quality stream for preview     | Disabled       |
+| **Third Stream**   | Additional stream (if available)     | Disabled       |
+| **Transcoded Stream** | Transcoded video stream (if available) | Disabled    |
+
+All streams support RTSP streaming and snapshots. Only streams available on your camera will be created.
 
 ### Other Features
 
-- **Snapshot Camera** - Get camera snapshots
+- **Camera Snapshots** - Get snapshots from any available stream
 - **Restart Button** - Remote camera restart
 - **Tamper Detection Enabled** - Configuration state
 
@@ -137,12 +156,19 @@ To enable real-time event detection, configure your camera to send events to Hom
 
 #### Step 1: Configure Notification Host
 
+The integration can automatically configure the notification host, or you can do it manually:
+
+**Automatic (Recommended):**
+- The integration will automatically set the notification host when you add it
+- Uses webhook path: `/api/hikvision`
+
+**Manual Configuration:**
 1. In your camera's web interface, go to **Configuration → Event → Notification**
 2. Add a new HTTP notification host:
    - **Protocol**: `HTTP`
    - **IP Address**: Your Home Assistant IP address
    - **Port**: `8123` (or your HA port)
-   - **URL**: `/api/hikvision_isapi`
+   - **URL**: `/api/hikvision`
 
 #### Step 2: Enable Event Notifications
 
@@ -154,7 +180,7 @@ For each event type you want (Motion, Intrusion, etc.):
 
 Once configured, binary sensors will update in real-time when events occur.
 
-**Note**: Binary sensors are currently experiencing issues and may not update properly even when configured correctly.
+**Note**: Motion detection is confirmed working. Other event types should work if properly configured on the camera. Check the logs if events aren't being received.
 
 ---
 
@@ -193,40 +219,56 @@ All entities are prefixed with your device name (e.g., `Garage`).
 
 ### Binary Sensor Entities (Real-Time Events)
 
-**⚠️ Currently Not Working**: These sensors are experiencing issues and may not update when events occur.
+Real-time event detection via webhook notifications. Motion detection is confirmed working!
 
-| Entity ID                                              | Description                    | Device Class |
-| ------------------------------------------------------ | ------------------------------ | ------------ |
-| `binary_sensor.{device_name}_motion`                   | Motion detection events        | `motion`     |
-| `binary_sensor.{device_name}_intrusion`                | Intrusion detection events     | `motion`     |
-| `binary_sensor.{device_name}_line_crossing`            | Line crossing events           | `motion`     |
-| `binary_sensor.{device_name}_region_entrance`          | Region entrance events         | `motion`     |
-| `binary_sensor.{device_name}_region_exiting`           | Region exiting events          | `motion`     |
-| `binary_sensor.{device_name}_scene_change`             | Scene change events            | `tamper`     |
-| `binary_sensor.{device_name}_video_loss`               | Video loss events              | `problem`    |
-| `binary_sensor.{device_name}_video_tampering`          | Video tampering events         | `tamper`     |
-| `binary_sensor.{device_name}_tamper_detection_enabled` | Tamper detection enabled state | `tamper`     |
+| Entity ID                                              | Description                    | Device Class | Status   |
+| ------------------------------------------------------ | ------------------------------ | ------------ | -------- |
+| `binary_sensor.{device_name}_motion`                   | Motion detection events        | `motion`     | ✅ Working |
+| `binary_sensor.{device_name}_intrusion`                | Intrusion detection events     | `motion`     | ⚠️ Requires config |
+| `binary_sensor.{device_name}_line_crossing`            | Line crossing events           | `motion`     | ⚠️ Requires config |
+| `binary_sensor.{device_name}_region_entrance`          | Region entrance events         | `motion`     | ⚠️ Requires config |
+| `binary_sensor.{device_name}_region_exiting`           | Region exiting events          | `motion`     | ⚠️ Requires config |
+| `binary_sensor.{device_name}_scene_change`             | Scene change events            | `tamper`     | ⚠️ Requires config |
+| `binary_sensor.{device_name}_video_loss`               | Video loss events              | `problem`    | ⚠️ Requires config |
+| `binary_sensor.{device_name}_video_tampering`          | Video tampering events         | `tamper`     | ⚠️ Requires config |
+| `binary_sensor.{device_name}_tamper_detection_enabled` | Tamper detection enabled state | `tamper`     | ✅ Working |
 
 ### Sensor Entities (Diagnostic)
 
-| Entity ID                                        | Description          | Unit         |
-| ------------------------------------------------ | -------------------- | ------------ |
-| `sensor.{device_name}_cpu_utilization`           | CPU usage            | %            |
-| `sensor.{device_name}_memory_usage`              | Memory usage         | %            |
-| `sensor.{device_name}_device_uptime`             | Device uptime        | hours/days   |
-| `sensor.{device_name}_total_reboots`             | Total reboot count   | count        |
-| `sensor.{device_name}_active_streaming_sessions` | Active stream count  | count        |
-| `sensor.{device_name}_streaming_clients`         | Streaming client IPs | IP addresses |
+| Entity ID                                        | Description                    | Unit         | Default Status |
+| ------------------------------------------------ | ------------------------------ | ------------ | -------------- |
+| `sensor.{device_name}_cpu_utilization`           | CPU usage                      | %            | Enabled        |
+| `sensor.{device_name}_memory_usage`              | Memory usage                   | %            | Enabled        |
+| `sensor.{device_name}_device_uptime`             | Device uptime                  | hours/days   | Enabled        |
+| `sensor.{device_name}_total_reboots`             | Total reboot count             | count        | Disabled       |
+| `sensor.{device_name}_active_streaming_sessions` | Active stream count            | count        | Enabled        |
+| `sensor.{device_name}_streaming_clients`         | Streaming client IPs           | IP addresses | Enabled        |
+| `sensor.{device_name}_notification_host`         | Notification host IP address   | -            | Enabled        |
+| `sensor.{device_name}_notification_host_path`   | Notification host URL path      | -            | Enabled        |
+| `sensor.{device_name}_notification_host_port`    | Notification host port          | -            | Enabled        |
+| `sensor.{device_name}_notification_host_protocol` | Notification host protocol    | -            | Enabled        |
 
 **Note**: CPU and Memory sensors display aggregated graphs with smoothed data visualization (similar to Home Assistant's system monitor).
+
+### Camera Entities
+
+| Entity ID                              | Description                    | Status   |
+| -------------------------------------- | ------------------------------ | -------- |
+| `camera.{device_name}_main`            | Main Stream (high quality)     | ✅ Working |
+| `camera.{device_name}_sub_stream`      | Sub-stream (lower quality)     | ✅ Working* |
+| `camera.{device_name}_third_stream`    | Third Stream (if available)    | ✅ Working* |
+| `camera.{device_name}_transcoded_stream` | Transcoded Stream (if available) | ✅ Working* |
+
+\* Disabled by default - enable in entity registry if needed
+
+**Note**: If your camera doesn't support multiple streams, you'll see a single `camera.{device_name}_snapshot` entity instead.
 
 ### Other Entities
 
 | Entity ID                            | Description     | Status      |
 | ------------------------------------ | --------------- | ----------- |
-| `camera.{device_name}_snapshot`      | Camera snapshot | Working     |
-| `button.{device_name}_restart`       | Restart camera  | Working     |
-| `media_player.{device_name}_speaker` | Audio playback  | Not Working |
+| `button.{device_name}_restart`       | Restart camera  | ✅ Working     |
+| `media_player.{device_name}_speaker` | Audio playback  | ❌ Not Working |
 
 ---
 
@@ -326,24 +368,24 @@ automation:
 3. Check **Settings → Devices & Services → Discovered** for the camera
 4. If camera is already configured, it won't appear in discovered devices
 
-### Event Binary Sensors Always Off
+### Event Binary Sensors Not Working
 
-**Status**: Binary sensors are currently experiencing issues and may not update even when properly configured.
+**Status**: Motion detection is working! Other events may require proper camera configuration.
 
 **Possible causes:**
 
 - Event notifications not configured on camera
 - "Notify Surveillance Center" not enabled in Linkage Action
 - Incorrect webhook URL
-- Known bug in binary sensor implementation
+- Event type not supported by camera
 
 **Solution:**
 
 1. Configure event notifications (see [Event Notifications Setup](#-event-notifications-setup-real-time-events))
-2. Ensure webhook URL is correct: `http://YOUR_HA_IP:8123/api/hikvision_isapi`
-3. Verify "Notify Surveillance Center" is enabled for each event type
-4. Check camera logs for notification errors
-5. Check Home Assistant logs for webhook errors
+2. Ensure webhook URL is correct: `http://YOUR_HA_IP:8123/api/hikvision`
+3. Verify "Notify Surveillance Center" is enabled for each event type you want
+4. Check Home Assistant logs for event type received (enable debug logging)
+5. Verify the event type is supported (check logs for "Unsupported event type" messages)
 
 ### Audio Not Working
 
@@ -351,15 +393,24 @@ automation:
 
 **Workaround:** Use speaker volume control instead.
 
-### Streaming Status Shows "Unknown"
+### Camera Streams Not Showing
 
-**Status:** This should be fixed in the latest version.
+**Possible causes:**
 
-**If still showing:**
+- Camera doesn't support multiple streams
+- Stream detection failed during setup
 
-- Check camera logs
-- Verify camera supports streaming status endpoint
-- Try restarting Home Assistant
+**Solution:**
+
+1. Check Home Assistant logs for stream detection errors
+2. If only one camera entity shows, your camera may only support one stream
+3. Enable debug logging to see which streams were detected:
+   ```yaml
+   logger:
+     logs:
+       custom_components.hikvision_isapi: debug
+   ```
+4. Check that your camera model supports multiple streams
 
 ---
 
