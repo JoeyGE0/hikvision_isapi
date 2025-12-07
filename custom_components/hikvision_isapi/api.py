@@ -1425,15 +1425,21 @@ class HikvisionISAPI:
             try:
                 xml = self._get(f"/ISAPI/Streaming/channels/{stream_id}")
                 
-                # Check for error response - if statusCode exists and is not 1, skip this stream
-                status_code_elem = xml.find(f".//{XML_NS}ResponseStatus/{XML_NS}statusCode")
-                if status_code_elem is not None:
-                    status = int(status_code_elem.text.strip())
-                    if status != 1:  # 1 = success
-                        continue
+                # Check if root is StreamingChannel or if it's nested
+                stream_channel = None
+                if xml.tag.endswith("StreamingChannel"):
+                    stream_channel = xml
+                else:
+                    # Check for error response first
+                    status_code_elem = xml.find(f".//{XML_NS}ResponseStatus/{XML_NS}statusCode")
+                    if status_code_elem is not None:
+                        status = int(status_code_elem.text.strip())
+                        if status != 1:  # 1 = success
+                            continue
+                    
+                    # Check if StreamingChannel exists as child
+                    stream_channel = xml.find(f".//{XML_NS}StreamingChannel")
                 
-                # Check if StreamingChannel exists
-                stream_channel = xml.find(f".//{XML_NS}StreamingChannel")
                 if stream_channel is None:
                     continue
                 
