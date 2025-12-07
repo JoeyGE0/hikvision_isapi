@@ -203,15 +203,22 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             if is_media_source_id(media_id):
                 try:
                     resolved_media = await async_resolve_media(self.hass, media_id)
+                    _LOGGER.info("async_resolve_media returned: %s (type: %s)", resolved_media, type(resolved_media))
+                    if resolved_media:
+                        _LOGGER.info("resolved_media.url: %s", getattr(resolved_media, 'url', 'NO URL ATTRIBUTE'))
+                        _LOGGER.info("resolved_media attributes: %s", dir(resolved_media))
+                    
                     if resolved_media and resolved_media.url:
                         _LOGGER.info("Resolved media source: %s -> %s", media_id, resolved_media.url)
                         
                         # Use the resolved URL - for local media, read directly from filesystem
                         media_url = resolved_media.url
+                        _LOGGER.info("Original media_url: %s", media_url)
                         
                         # Remove any query parameters
                         if "?" in media_url:
                             media_url = media_url.split("?")[0]
+                            _LOGGER.info("After removing query params: %s", media_url)
                         
                         # For local media files, read directly from filesystem (no auth needed)
                         # Home Assistant uses both /local/ and /media/local/ for www/ directory
@@ -222,11 +229,23 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             else:
                                 media_path = media_url.replace("/local/", "")
                             
+                            _LOGGER.info("Extracted media_path: %s", media_path)
+                            
                             import os
                             def read_media_file():
                                 config_dir = self.hass.config.config_dir
+                                _LOGGER.info("config_dir: %s", config_dir)
                                 # Home Assistant serves /local/ and /media/local/ from www/ directory
                                 file_path = os.path.join(config_dir, "www", media_path)
+                                _LOGGER.info("Looking for file at: %s", file_path)
+                                _LOGGER.info("File exists: %s, isfile: %s", os.path.exists(file_path), os.path.isfile(file_path) if os.path.exists(file_path) else False)
+                                
+                                # List files in www directory for debugging
+                                www_dir = os.path.join(config_dir, "www")
+                                if os.path.exists(www_dir):
+                                    files = os.listdir(www_dir)
+                                    _LOGGER.info("Files in www directory: %s", files[:20])  # First 20 files
+                                
                                 if os.path.exists(file_path) and os.path.isfile(file_path):
                                     _LOGGER.info("Reading media file: %s", file_path)
                                     with open(file_path, 'rb') as f:
@@ -238,6 +257,8 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             if file_data:
                                 return file_data
                             return None
+                        else:
+                            _LOGGER.info("Media URL does not start with /media/local/ or /local/, URL: %s", media_url)
                         
                         # For other URLs (TTS, external, etc), use HTTP
                         if media_url.startswith("/"):
