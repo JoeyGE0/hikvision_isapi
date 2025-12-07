@@ -1392,11 +1392,15 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set tamper detection: %s", e)
             return False
 
-    def get_snapshot(self, channel: int = None) -> Optional[bytes]:
+    def get_snapshot(self, channel: int = None, stream_id: int = None) -> Optional[bytes]:
         """Get camera snapshot image."""
         try:
-            # Snapshot channel format: 10X where X is channel number (101 = channel 1, 102 = channel 2, etc.)
-            snapshot_channel = 100 + (channel if channel is not None else self.channel)
+            if stream_id is not None:
+                # Use specific stream ID (e.g., 101, 102, 103, 104)
+                snapshot_channel = stream_id
+            else:
+                # Snapshot channel format: 10X where X is channel number (101 = channel 1, 102 = channel 2, etc.)
+                snapshot_channel = 100 + (channel if channel is not None else self.channel)
             url = f"http://{self.host}/ISAPI/Streaming/channels/{snapshot_channel}/picture"
             response = requests.get(
                 url,
@@ -1409,6 +1413,92 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to get snapshot: %s", e)
             return None
+
+    def get_camera_streams(self, channel_id: int) -> list[dict]:
+        """Get available streams for a camera channel."""
+        from .const import STREAM_TYPE
+        streams = []
+        
+        for stream_type_id, stream_type_name in STREAM_TYPE.items():
+            # Stream ID format: {channel_id}0{stream_type_id} (e.g., 101, 102, 103, 104)
+            stream_id = channel_id * 100 + stream_type_id
+            try:
+                xml = self._get(f"/ISAPI/Streaming/channels/{stream_id}")
+                stream_channel = xml.find(f".//{XML_NS}StreamingChannel")
+                
+                if stream_channel is not None:
+                    enabled_elem = stream_channel.find(f".//{XML_NS}enabled")
+                    enabled = enabled_elem is not None and enabled_elem.text.strip().lower() == "true"
+                    
+                    # Get video info
+                    video_elem = stream_channel.find(f".//{XML_NS}Video")
+                    codec = None
+                    width = 0
+                    height = 0
+                    if video_elem is not None:
+                        codec_elem = video_elem.find(f".//{XML_NS}videoCodecType")
+                        if codec_elem is not None:
+                            codec = codec_elem.text.strip()
+                        width_elem = video_elem.find(f".//{XML_NS}videoResolutionWidth")
+                        if width_elem is not None:
+                            width = int(width_elem.text.strip())
+                        height_elem = video_elem.find(f".//{XML_NS}videoResolutionHeight")
+                        if height_elem is not None:
+                            height = int(height_elem.text.strip())
+                    
+                    # Get audio info
+                    audio_elem = stream_channel.find(f".//{XML_NS}Audio")
+                    audio = False
+                    if audio_elem is not None:
+                        audio_enabled = audio_elem.find(f".//{XML_NS}enabled")
+                        if audio_enabled is not None:
+                            audio = audio_enabled.text.strip().lower() == "true"
+                    
+                    streams.append({
+                        "id": stream_id,
+                        "type_id": stream_type_id,
+                        "type": stream_type_name,
+                        "enabled": enabled,
+                        "codec": codec,
+                        "width": width,
+                        "height": height,
+                        "audio": audio,
+                    })
+            except Exception as e:
+                # Stream type not available for this camera, skip it
+                _LOGGER.debug("Stream type %s (ID %d) not available for channel %d: %s", 
+                             stream_type_name, stream_type_id, channel_id, e)
+                continue
+        
+        return streams
+
+    def get_rtsp_port(self) -> int:
+        """Get RTSP port from device."""
+        try:
+            xml = self._get("/ISAPI/Security/adminAccesses")
+            protocols = xml.findall(f".//{XML_NS}AdminAccessProtocol")
+            
+            for protocol in protocols:
+                protocol_type = protocol.find(f".//{XML_NS}protocol")
+                port_elem = protocol.find(f".//{XML_NS}portNo")
+                
+                if protocol_type is not None and protocol_type.text.strip().upper() == "RTSP":
+                    if port_elem is not None and port_elem.text:
+                        return int(port_elem.text.strip())
+            
+            # Default RTSP port
+            return 554
+        except Exception as e:
+            _LOGGER.debug("Failed to get RTSP port, using default 554: %s", e)
+            return 554
+
+    def get_stream_source(self, stream_id: int) -> str:
+        """Get RTSP stream source URL."""
+        from urllib.parse import quote
+        rtsp_port = self.get_rtsp_port()
+        username = quote(self.username, safe="")
+        password = quote(self.password, safe="")
+        return f"rtsp://{username}:{password}@{self.host}:{rtsp_port}/Streaming/channels/{stream_id}"
 
     def get_streaming_status(self) -> dict:
         """Get streaming status information."""

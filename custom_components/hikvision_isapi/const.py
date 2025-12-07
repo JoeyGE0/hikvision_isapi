@@ -84,6 +84,14 @@ EVENTS_ALTERNATE_ID: Final = {
     "VMDHumanVehicle": "motiondetection",
 }
 
+# Stream type mappings
+STREAM_TYPE: Final = {
+    1: "Main Stream",
+    2: "Sub-stream",
+    3: "Third Stream",
+    4: "Transcoded Stream",
+}
+
 # Hikvision MAC address prefixes (OUI) for DHCP discovery
 HIKVISION_MAC_PREFIXES: Final = [
     "00:BC:99",
