@@ -936,7 +936,7 @@ class HikvisionISAPI:
             return False
 
     def play_test_tone(self) -> bool:
-        """Play a 2-second test tone (for testing purposes)."""
+        """Play a 3-second test tone: 1000 Hz for most of it, then ramp to 2500 Hz at end."""
         import time
         import math
         
@@ -977,17 +977,21 @@ class HikvisionISAPI:
                 _LOGGER.error("Failed to open audio session")
                 return False
             
-            # Step 4: Generate 2-second siren sound
-            _LOGGER.info("Generating 2-second siren sound...")
+            # Step 4: Generate 3-second test tone
+            _LOGGER.info("Generating 3-second test tone...")
             sample_rate = 8000
-            duration = 2.0
+            duration = 3.0
             num_samples = int(sample_rate * duration)
             
-            # Siren parameters: alternate between low and high frequencies
-            low_freq = 600   # Lower siren frequency (Hz)
-            high_freq = 1200  # Higher siren frequency (Hz)
-            cycle_duration = 0.3  # How long each "wee" or "woo" lasts (seconds)
-            cycles_per_second = 1.0 / cycle_duration  # How many cycles per second
+            # Tone parameters:
+            # - 1000 Hz for first ~2.5 seconds
+            # - Ramp from 1000 to 2500 Hz over ~0.3 seconds (at 2.5s mark)
+            # - Hold at 2500 Hz for ~0.2 seconds (end)
+            base_freq = 1000  # Hz
+            end_freq = 2500  # Hz
+            ramp_start_time = 2.5  # Start ramping at 2.5 seconds
+            ramp_duration = 0.3  # Ramp over 0.3 seconds
+            hold_end_time = 3.0  # Hold until end
             
             def linear_to_ulaw(linear):
                 linear = max(-32768, min(32767, linear))
@@ -1024,18 +1028,17 @@ class HikvisionISAPI:
             for i in range(num_samples):
                 t = i / sample_rate
                 
-                # Calculate which part of the cycle we're in (0-1)
-                cycle_position = (t * cycles_per_second) % 1.0
-                
-                # Alternate between low and high frequency
-                # First half of cycle: low to high (wee)
-                # Second half of cycle: high to low (woo)
-                if cycle_position < 0.5:
-                    # Rising: low to high
-                    freq = low_freq + (high_freq - low_freq) * (cycle_position * 2)
+                # Determine frequency based on time
+                if t < ramp_start_time:
+                    # Hold at 1000 Hz
+                    freq = base_freq
+                elif t < ramp_start_time + ramp_duration:
+                    # Ramp from 1000 to 2500 Hz
+                    ramp_progress = (t - ramp_start_time) / ramp_duration
+                    freq = base_freq + (end_freq - base_freq) * ramp_progress
                 else:
-                    # Falling: high to low
-                    freq = high_freq - (high_freq - low_freq) * ((cycle_position - 0.5) * 2)
+                    # Hold at 2500 Hz until end
+                    freq = end_freq
                 
                 # Generate sine wave at current frequency
                 sample = math.sin(2 * math.pi * freq * t)
@@ -1043,27 +1046,62 @@ class HikvisionISAPI:
                 ulaw_byte = linear_to_ulaw(pcm_sample)
                 ulaw_data.append(ulaw_byte)
             
-            _LOGGER.info("Generated %d bytes of audio", len(ulaw_data))
+            _LOGGER.info("Generated %d bytes of audio (%.2f seconds)", len(ulaw_data), len(ulaw_data) / 8000.0)
             
-            # Step 5: Send all audio in one request
-            _LOGGER.info("Sending audio to camera...")
+            # Step 5: Send audio in chunks (like media player) to avoid timeout
+            _LOGGER.info("Sending audio to camera in chunks...")
             endpoint = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/audioData"
-            response = requests.put(
-                endpoint,
-                auth=(self.username, self.password),
-                data=bytes(ulaw_data),
-                verify=False,
-                timeout=10
-            )
             
-            if response.status_code != 200:
-                _LOGGER.error("Failed to send audio: %s", response.text[:300])
-                self.close_audio_session()
-                return False
+            # Chunk size: 160 bytes = 20ms of audio at 8kHz
+            chunk_size = 160
+            sleep_time = 0.02  # 20ms delay to maintain 8000 bytes/sec rate
             
-            _LOGGER.info("Test tone sent successfully!")
+            # Create a session for persistent connection
+            session = requests.Session()
+            session.auth = (self.username, self.password)
+            session.verify = False
+            
+            total_chunks = (len(ulaw_data) + chunk_size - 1) // chunk_size
+            _LOGGER.info("Streaming %d bytes in %d chunks", len(ulaw_data), total_chunks)
+            
+            sent_bytes = 0
+            for i in range(0, len(ulaw_data), chunk_size):
+                chunk = ulaw_data[i:i + chunk_size]
+                
+                # Pad chunk to exact size if needed (last chunk might be smaller)
+                if len(chunk) < chunk_size:
+                    chunk = chunk + (b'\x7F' * (chunk_size - len(chunk)))  # 0x7F is silence in ulaw
+                
+                try:
+                    # Use stream=True and short timeout - don't wait for response
+                    # Timeouts are OK, camera is processing audio
+                    response = session.put(
+                        endpoint,
+                        data=chunk,
+                        timeout=0.3,  # Short timeout
+                        stream=True  # Don't read response immediately
+                    )
+                    sent_bytes += len(chunk)
+                    
+                    # Wait 20ms before next chunk to maintain proper playback rate
+                    time.sleep(sleep_time)
+                    
+                except requests.exceptions.Timeout:
+                    # Timeout is OK - camera is processing, continue streaming
+                    sent_bytes += len(chunk)
+                    time.sleep(sleep_time)
+                    continue
+                except Exception as e:
+                    _LOGGER.warning("Error sending audio chunk at %d bytes: %s", sent_bytes, e)
+                    # Continue anyway - might still work
+                    sent_bytes += len(chunk)
+                    time.sleep(sleep_time)
+            
+            _LOGGER.info("Test tone sent successfully: %d/%d bytes", sent_bytes, len(ulaw_data))
+            session.close()
             
             # Step 6: Close session
+            time.sleep(0.1)  # Brief pause before closing
             self.close_audio_session()
             return True
             
