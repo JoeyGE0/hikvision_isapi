@@ -222,10 +222,13 @@ class EventNotificationsView(HomeAssistantView):
                 raise ValueError("No eventType found")
             
             event_id = event_type_elem.text.strip().lower()
+            _LOGGER.info("Received event type: %s (raw)", event_id)
             
             # Handle alternate event type
             if EVENTS_ALTERNATE_ID.get(event_id):
+                original_id = event_id
                 event_id = EVENTS_ALTERNATE_ID[event_id]
+                _LOGGER.info("Mapped event type %s -> %s", original_id, event_id)
             
             channel_id_elem = alert.find(f".//{XML_NS}channelID")
             if channel_id_elem is None:
@@ -267,7 +270,11 @@ class EventNotificationsView(HomeAssistantView):
             # Check if event is supported
             from .const import EVENTS
             if not EVENTS.get(event_id):
+                _LOGGER.warning("Unsupported event type: %s (channel: %s, io_port: %s)", 
+                             event_id, channel_id, io_port_id)
                 raise ValueError(f"Unsupported event {event_id}")
+            
+            _LOGGER.info("Parsed event: type=%s, channel=%s, io_port=%s", event_id, channel_id, io_port_id)
             
             return AlertInfo(
                 channel_id=channel_id,
