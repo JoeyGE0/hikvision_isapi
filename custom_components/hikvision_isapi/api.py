@@ -1600,11 +1600,12 @@ class HikvisionISAPI:
         try:
             xml = self._get(f"/ISAPI/Smart/FieldDetection/{self.channel}")
             result = {}
-            field = xml.find(f".//{XML_NS}FieldDetection")
-            if field is not None:
-                enabled = field.find(f".//{XML_NS}enabled")
-                if enabled is not None:
-                    result["enabled"] = enabled.text.strip().lower() == "true"
+            # Find enabled directly like tamper detection does
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None and enabled.text:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            else:
+                _LOGGER.warning("FieldDetection enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
             _LOGGER.error("Failed to get field detection: %s", e)
@@ -1653,11 +1654,12 @@ class HikvisionISAPI:
         try:
             xml = self._get(f"/ISAPI/Smart/LineDetection/{self.channel}")
             result = {}
-            line = xml.find(f".//{XML_NS}LineDetection")
-            if line is not None:
-                enabled = line.find(f".//{XML_NS}enabled")
-                if enabled is not None:
-                    result["enabled"] = enabled.text.strip().lower() == "true"
+            # Find enabled directly like tamper detection does
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None and enabled.text:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            else:
+                _LOGGER.warning("LineDetection enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
             _LOGGER.error("Failed to get line detection: %s", e)
@@ -1759,11 +1761,12 @@ class HikvisionISAPI:
         try:
             xml = self._get(f"/ISAPI/Smart/regionEntrance/{self.channel}")
             result = {}
-            region = xml.find(f".//{XML_NS}RegionEntrance")
-            if region is not None:
-                enabled = region.find(f".//{XML_NS}enabled")
-                if enabled is not None:
-                    result["enabled"] = enabled.text.strip().lower() == "true"
+            # Find enabled directly like tamper detection does
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None and enabled.text:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            else:
+                _LOGGER.warning("RegionEntrance enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
             _LOGGER.error("Failed to get region entrance: %s", e)
@@ -1812,11 +1815,12 @@ class HikvisionISAPI:
         try:
             xml = self._get(f"/ISAPI/Smart/regionExiting/{self.channel}")
             result = {}
-            region = xml.find(f".//{XML_NS}RegionExiting")
-            if region is not None:
-                enabled = region.find(f".//{XML_NS}enabled")
-                if enabled is not None:
-                    result["enabled"] = enabled.text.strip().lower() == "true"
+            # Find enabled directly like tamper detection does
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None and enabled.text:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            else:
+                _LOGGER.warning("RegionExiting enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
             _LOGGER.error("Failed to get region exiting: %s", e)

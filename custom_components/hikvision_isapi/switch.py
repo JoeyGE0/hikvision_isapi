@@ -687,7 +687,7 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
     """Switch entity for alarm input control."""
 
     _attr_unique_id = "hikvision_alarm_input_1"
-    _attr_icon = "mdi:eye"
+    _attr_icon = "mdi:video-input-hdmi"
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the switch."""
@@ -766,7 +766,7 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
 class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
     """Switch entity for alarm output control."""
 
-    _attr_icon = "mdi:eye-outline"
+    _attr_icon = "mdi:video-input-hdmi"
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str, port_no: int = 1):
         """Initialize the switch."""
