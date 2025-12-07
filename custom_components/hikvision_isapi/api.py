@@ -1425,71 +1425,60 @@ class HikvisionISAPI:
             try:
                 xml = self._get(f"/ISAPI/Streaming/channels/{stream_id}")
                 
-                # Check for error response first
-                status_code = xml.find(f".//{XML_NS}statusCode")
-                if status_code is not None:
-                    status = int(status_code.text.strip())
+                # Check for error response - if statusCode exists and is not 1, skip this stream
+                status_code_elem = xml.find(f".//{XML_NS}ResponseStatus/{XML_NS}statusCode")
+                if status_code_elem is not None:
+                    status = int(status_code_elem.text.strip())
                     if status != 1:  # 1 = success
-                        status_string = xml.find(f".//{XML_NS}statusString")
-                        error_msg = status_string.text.strip() if status_string is not None else "Unknown error"
-                        _LOGGER.debug("Stream type %s (ID %d) not available for channel %d: status %d - %s", 
-                                     stream_type_name, stream_type_id, channel_id, status, error_msg)
                         continue
                 
+                # Check if StreamingChannel exists
                 stream_channel = xml.find(f".//{XML_NS}StreamingChannel")
+                if stream_channel is None:
+                    continue
                 
-                if stream_channel is not None:
-                    enabled_elem = stream_channel.find(f".//{XML_NS}enabled")
-                    enabled = enabled_elem is not None and enabled_elem.text.strip().lower() == "true"
-                    
-                    # Get video info
-                    video_elem = stream_channel.find(f".//{XML_NS}Video")
-                    codec = None
-                    width = 0
-                    height = 0
-                    if video_elem is not None:
-                        codec_elem = video_elem.find(f".//{XML_NS}videoCodecType")
-                        if codec_elem is not None:
-                            codec = codec_elem.text.strip()
-                        width_elem = video_elem.find(f".//{XML_NS}videoResolutionWidth")
-                        if width_elem is not None:
-                            width = int(width_elem.text.strip())
-                        height_elem = video_elem.find(f".//{XML_NS}videoResolutionHeight")
-                        if height_elem is not None:
-                            height = int(height_elem.text.strip())
-                    
-                    # Get audio info
-                    audio_elem = stream_channel.find(f".//{XML_NS}Audio")
-                    audio = False
-                    if audio_elem is not None:
-                        audio_enabled = audio_elem.find(f".//{XML_NS}enabled")
-                        if audio_enabled is not None:
-                            audio = audio_enabled.text.strip().lower() == "true"
-                    
-                    _LOGGER.debug("Found stream %s (ID %d) for channel %d: enabled=%s, codec=%s, %dx%d", 
-                                 stream_type_name, stream_id, channel_id, enabled, codec, width, height)
-                    
-                    streams.append({
-                        "id": stream_id,
-                        "type_id": stream_type_id,
-                        "type": stream_type_name,
-                        "enabled": enabled,
-                        "codec": codec,
-                        "width": width,
-                        "height": height,
-                        "audio": audio,
-                    })
-                else:
-                    _LOGGER.debug("Stream type %s (ID %d) - no StreamingChannel element found for channel %d", 
-                                 stream_type_name, stream_type_id, channel_id)
-            except Exception as e:
-                # Stream type not available for this camera, skip it
-                _LOGGER.debug("Stream type %s (ID %d) not available for channel %d: %s", 
-                             stream_type_name, stream_type_id, channel_id, e)
+                # Parse stream info
+                enabled_elem = stream_channel.find(f".//{XML_NS}enabled")
+                enabled = enabled_elem is not None and enabled_elem.text.strip().lower() == "true"
+                
+                # Get video info
+                video_elem = stream_channel.find(f".//{XML_NS}Video")
+                codec = None
+                width = 0
+                height = 0
+                if video_elem is not None:
+                    codec_elem = video_elem.find(f".//{XML_NS}videoCodecType")
+                    if codec_elem is not None:
+                        codec = codec_elem.text.strip()
+                    width_elem = video_elem.find(f".//{XML_NS}videoResolutionWidth")
+                    if width_elem is not None:
+                        width = int(width_elem.text.strip())
+                    height_elem = video_elem.find(f".//{XML_NS}videoResolutionHeight")
+                    if height_elem is not None:
+                        height = int(height_elem.text.strip())
+                
+                # Get audio info
+                audio_elem = stream_channel.find(f".//{XML_NS}Audio")
+                audio = False
+                if audio_elem is not None:
+                    audio_enabled = audio_elem.find(f".//{XML_NS}enabled")
+                    if audio_enabled is not None:
+                        audio = audio_enabled.text.strip().lower() == "true"
+                
+                streams.append({
+                    "id": stream_id,
+                    "type_id": stream_type_id,
+                    "type": stream_type_name,
+                    "enabled": enabled,
+                    "codec": codec,
+                    "width": width,
+                    "height": height,
+                    "audio": audio,
+                })
+            except Exception:
+                # Stream type not available for this camera, skip it silently
                 continue
         
-        _LOGGER.info("Found %d stream(s) for camera channel %d: %s", 
-                    len(streams), channel_id, [s["type"] for s in streams])
         return streams
 
     def get_rtsp_port(self) -> int:
