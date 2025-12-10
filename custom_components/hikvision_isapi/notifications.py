@@ -250,10 +250,28 @@ class EventNotificationsView(HomeAssistantView):
                 _LOGGER.error("All tags in alert: %s", all_tags[:30])
                 raise ValueError("No eventType found")
             
-            event_id = event_type_elem.text.strip().lower()
+            event_id = event_type_elem.text.strip().lower() if event_type_elem.text else ""
             _LOGGER.info("Received event type: %s (raw)", event_id)
             
-            # Handle alternate event type
+            # Handle duration events (version 2.0 notifications)
+            # When eventType is "duration" or empty, the actual event type is in DurationList
+            if not event_id or event_id == "duration":
+                duration = alert.find(f".//{XML_NS}DurationList/{XML_NS}Duration")
+                if duration is not None:
+                    relation_event = duration.find(f".//{XML_NS}relationEvent")
+                    if relation_event is not None and relation_event.text:
+                        event_id = relation_event.text.strip().lower()
+                        _LOGGER.info("Extracted event type from DurationList: %s", event_id)
+                # Try without namespace if not found
+                if not event_id or event_id == "duration":
+                    duration = alert.find(".//DurationList/Duration")
+                    if duration is not None:
+                        relation_event = duration.find(".//relationEvent")
+                        if relation_event is not None and relation_event.text:
+                            event_id = relation_event.text.strip().lower()
+                            _LOGGER.info("Extracted event type from DurationList (no namespace): %s", event_id)
+            
+            # Handle alternate event type mapping
             if EVENTS_ALTERNATE_ID.get(event_id):
                 original_id = event_id
                 event_id = EVENTS_ALTERNATE_ID[event_id]

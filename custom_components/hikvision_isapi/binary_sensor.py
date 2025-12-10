@@ -70,27 +70,27 @@ async def async_setup_entry(
                 )
             )
     
-    # Also create general events (channel 0) for NVR-level events
-    if is_nvr:
-        for event_id, event_config in EVENTS.items():
-            if event_id == EVENT_IO:  # I/O events are per-port, not general
-                continue
-            unique_id = f"{device_name_slug}_{event_id}"
-            entities.append(
-                EventBinarySensor(
-                    coordinator,
-                    api,
-                    entry,
-                    host,
-                    device_name,
-                    EventInfo(
-                        id=event_id,
-                        channel_id=0,
-                        io_port_id=0,
-                        unique_id=unique_id,
-                    ),
-                )
+    # Also create general events (channel 0) for all devices
+    # Some notifications arrive with channel_id=0, so we need entities for both channel 0 and channel-specific
+    for event_id, event_config in EVENTS.items():
+        if event_id == EVENT_IO:  # I/O events are per-port, not general
+            continue
+        unique_id = f"{device_name_slug}_{event_id}"
+        entities.append(
+            EventBinarySensor(
+                coordinator,
+                api,
+                entry,
+                host,
+                device_name,
+                EventInfo(
+                    id=event_id,
+                    channel_id=0,
+                    io_port_id=0,
+                    unique_id=unique_id,
+                ),
             )
+        )
 
     async_add_entities(entities)
 
