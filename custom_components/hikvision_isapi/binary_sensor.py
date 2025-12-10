@@ -36,22 +36,20 @@ async def async_setup_entry(
     entities = []
     device_name_slug = slugify(device_name.lower())
     
-    # Create binary sensors for each camera/channel
+    # Create binary sensors for each camera/channel (Video Events)
     for camera in cameras:
         camera_id = camera["id"]
         camera_name = camera["name"]
         
         for event_id, event_config in EVENTS.items():
-            # Build unique_id using device name and camera_id
-            # For I/O events: no channel_id, but include io_port_id (even if 0 for now)
-            # For other events: include channel_id if != 0, io_port_id only if != 0
-            device_id_param = f"_{camera_id}" if camera_id != 0 and event_id != EVENT_IO else ""
-            # For I/O events, io_port_id is part of the unique_id (even if 0)
-            # For other events, only include io_port_id if non-zero (should be 0 normally)
+            # Skip I/O events here - they're created at device level (channel 0)
             if event_id == EVENT_IO:
-                io_port_id_param = "_0"  # I/O events always include io_port_id (even if 0)
-            else:
-                io_port_id_param = ""  # Non-I/O events don't include io_port_id (should be 0)
+                continue
+                
+            # Build unique_id using device name and camera_id
+            # For non-I/O events: include channel_id if != 0, io_port_id only if != 0
+            device_id_param = f"_{camera_id}" if camera_id != 0 else ""
+            io_port_id_param = ""  # Non-I/O events don't include io_port_id (should be 0)
             unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event_id}"
             
             entities.append(
@@ -70,27 +68,30 @@ async def async_setup_entry(
                 )
             )
     
-    # Also create general events (channel 0) for all devices
-    # Some notifications arrive with channel_id=0, so we need entities for both channel 0 and channel-specific
+    # Create channel 0 entities for I/O events (device-level)
+    # Only create I/O events at channel 0, not other events
     for event_id, event_config in EVENTS.items():
-        if event_id == EVENT_IO:  # I/O events are per-port, not general
-            continue
-        unique_id = f"{device_name_slug}_{event_id}"
-        entities.append(
-            EventBinarySensor(
-                coordinator,
-                api,
-                entry,
-                host,
-                device_name,
-                EventInfo(
-                    id=event_id,
-                    channel_id=0,
-                    io_port_id=0,
-                    unique_id=unique_id,
-                ),
+        if event_id == EVENT_IO:
+            # I/O events are device-level (channel 0)
+            device_id_param = ""  # No channel_id for I/O events
+            io_port_id_param = "_0"  # I/O events always include io_port_id (even if 0)
+            unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event_id}"
+            
+            entities.append(
+                EventBinarySensor(
+                    coordinator,
+                    api,
+                    entry,
+                    host,
+                    device_name,
+                    EventInfo(
+                        id=event_id,
+                        channel_id=0,
+                        io_port_id=0,
+                        unique_id=unique_id,
+                    ),
+                )
             )
-        )
 
     async_add_entities(entities)
 

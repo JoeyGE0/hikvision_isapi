@@ -340,8 +340,10 @@ class EventNotificationsView(HomeAssistantView):
         """Determine entity and set binary sensor state."""
         _LOGGER.debug("Alert: %s", alert)
 
-        device_info = self.hass.data[DOMAIN][entry.entry_id].get("device_info", {})
-        device_name = device_info.get("deviceName", entry.data.get("host", ""))
+        device_data = self.hass.data[DOMAIN][entry.entry_id]
+        device_info = device_data.get("device_info", {})
+        host = device_data.get("host", entry.data.get("host", ""))
+        device_name = device_info.get("deviceName", host)
         from homeassistant.util import slugify
         
         # Build unique_id matching binary sensor format (using device name, NO prefix - ENTITY_ID_FORMAT adds it)
@@ -359,7 +361,6 @@ class EventNotificationsView(HomeAssistantView):
                      unique_id, alert.event_id, alert.channel_id, alert.io_port_id)
 
         entity_registry = async_get(self.hass)
-        # Search using the identifier format (unique_id without prefix)
         entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, unique_id)
         if entity_id:
             entity = self.hass.states.get(entity_id)
@@ -368,18 +369,6 @@ class EventNotificationsView(HomeAssistantView):
                 self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                 self.fire_hass_event(entry, alert)
                 return
-        
-        # Debug: List all available binary sensor entities for this device
-        _LOGGER.warning("Entity not found for unique_id: %s", unique_id)
-        matching_entities = []
-        for entity_id, entity_entry in entity_registry.entities.items():
-            if (entity_entry.platform == DOMAIN and 
-                entity_entry.config_entry_id == entry.entry_id and
-                entity_entry.entity_category is None):  # Only binary sensors, not diagnostic
-                matching_entities.append((entity_id, entity_entry.unique_id))
-        _LOGGER.debug("Available binary sensor entities for this device: %s", matching_entities)
-        _LOGGER.error("Entity not found for unique_id: %s (searched in domain: %s). Available entities: %s", 
-                     unique_id, DOMAIN, [uid for _, uid in matching_entities])
         raise ValueError(f"Entity not found {unique_id}")
 
     def fire_hass_event(self, entry, alert: AlertInfo):
