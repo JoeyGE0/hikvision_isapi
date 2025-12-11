@@ -83,6 +83,8 @@ class HikvisionIRSensitivityNumber(NumberEntity):
             return self._optimistic_value
         
         # Otherwise use coordinator data
+        if not self.available:
+            return None
         if self.coordinator.data and "ircut" in self.coordinator.data:
             sensitivity = self.coordinator.data["ircut"].get("sensitivity")
             if sensitivity is not None:
@@ -159,6 +161,8 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
             return self._optimistic_value
         
         # Otherwise use coordinator data
+        if not self.available:
+            return None
         if self.coordinator.data and "ircut" in self.coordinator.data:
             filter_time = self.coordinator.data["ircut"].get("filter_time")
             if filter_time is not None:
@@ -234,6 +238,8 @@ class HikvisionSpeakerVolumeNumber(NumberEntity):
             return self._optimistic_value
         
         # Otherwise use coordinator data
+        if not self.available:
+            return None
         if self.coordinator.data and "audio" in self.coordinator.data:
             volume = self.coordinator.data["audio"].get("speakerVolume")
             if volume is not None:
@@ -309,6 +315,8 @@ class HikvisionMicrophoneVolumeNumber(NumberEntity):
             return self._optimistic_value
         
         # Otherwise use coordinator data
+        if not self.available:
+            return None
         if self.coordinator.data and "audio" in self.coordinator.data:
             volume = self.coordinator.data["audio"].get("microphoneVolume")
             if volume is not None:
@@ -376,6 +384,8 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
         if self.coordinator.data and "white_light_time" in self.coordinator.data:
             time_value = self.coordinator.data["white_light_time"]
             if time_value is not None:
@@ -446,6 +456,8 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             brightness = self.coordinator.data["supplement_light"].get("whiteLightBrightness")
             if brightness is not None:
@@ -516,6 +528,8 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             brightness = self.coordinator.data["supplement_light"].get("irLightBrightness")
             if brightness is not None:
@@ -586,6 +600,8 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
 
+        if not self.available:
+            return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             limit = self.coordinator.data["supplement_light"].get("whiteLightbrightLimit")
             if limit is not None:
@@ -658,6 +674,8 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
 
+        if not self.available:
+            return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             limit = self.coordinator.data["supplement_light"].get("irLightbrightLimit")
             if limit is not None:
@@ -729,6 +747,8 @@ class HikvisionMotionSensitivityNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
         if self.coordinator.data and "motion" in self.coordinator.data:
             sensitivity = self.coordinator.data["motion"].get("sensitivityLevel")
             if sensitivity is not None:
@@ -798,6 +818,8 @@ class HikvisionMotionStartTriggerTimeNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
         if self.coordinator.data and "motion" in self.coordinator.data:
             time_value = self.coordinator.data["motion"].get("startTriggerTime")
             if time_value is not None:
@@ -872,6 +894,8 @@ class HikvisionMotionEndTriggerTimeNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
         if self.coordinator.data and "motion" in self.coordinator.data:
             time_value = self.coordinator.data["motion"].get("endTriggerTime")
             if time_value is not None:

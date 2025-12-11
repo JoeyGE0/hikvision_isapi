@@ -52,9 +52,9 @@ async def async_setup_entry(
         else:
             # Create entity for each stream
             for stream in streams:
-        entities.append(
+                entities.append(
                     HikvisionCamera(coordinator, api, entry, host, camera_name, camera_id, stream),
-        )
+                )
 
     async_add_entities(entities)
 
@@ -105,12 +105,12 @@ class HikvisionCamera(Camera):
                 self._attr_entity_registry_enabled_default = False
         else:
             # Fallback: old snapshot-style entity
-        if camera_id == 1 and len(api.cameras) == 1:
-            self._attr_name = f"{device_name} Snapshot"
-            self._attr_unique_id = f"{host}_camera"
-        else:
-            self._attr_name = f"{device_name} Snapshot"
-            self._attr_unique_id = f"{host}_camera_{camera_id}"
+            if camera_id == 1 and len(api.cameras) == 1:
+                self._attr_name = f"{device_name} Snapshot"
+                self._attr_unique_id = f"{host}_camera"
+            else:
+                self._attr_name = f"{device_name} Snapshot"
+                self._attr_unique_id = f"{host}_camera_{camera_id}"
 
     @property
     def device_info(self) -> DeviceInfo:
