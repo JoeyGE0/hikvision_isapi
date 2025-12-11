@@ -1160,7 +1160,7 @@ class HikvisionISAPI:
             
             result = {}
             enabled = xml.find(f".//{XML_NS}enabled")
-            if enabled is not None:
+            if enabled is not None and enabled.text:
                 result["enabled"] = enabled.text.strip().lower() == "true"
             
             # Get sensitivity from MotionDetectionLayout
@@ -1409,7 +1409,7 @@ class HikvisionISAPI:
             
             result = {}
             enabled = xml.find(f".//{XML_NS}enabled")
-            if enabled is not None:
+            if enabled is not None and enabled.text:
                 result["enabled"] = enabled.text.strip().lower() == "true"
             
             return result
@@ -1744,8 +1744,17 @@ class HikvisionISAPI:
         try:
             xml = self._get(f"/ISAPI/Smart/LineDetection/{self.channel}")
             result = {}
-            # Find enabled directly like field_detection and scene_change_detection do
+            # Find enabled directly - try multiple methods to handle namespace variations
             enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is None:
+                # Fallback: XML might not have namespace declaration
+                enabled = xml.find(".//enabled")
+            if enabled is None:
+                # Fallback: Try as direct child of root
+                for child in xml:
+                    if child.tag.endswith("enabled") or child.tag == "enabled":
+                        enabled = child
+                        break
             if enabled is not None and enabled.text:
                 result["enabled"] = enabled.text.strip().lower() == "true"
             else:
