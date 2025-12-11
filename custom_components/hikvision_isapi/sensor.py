@@ -178,7 +178,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
-    _attr_icon = "mdi:network-port"
+    _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
@@ -395,7 +395,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
-    _attr_icon = "mdi:network-port"
+    _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
@@ -630,7 +630,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
-    _attr_icon = "mdi:network-port"
+    _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
@@ -850,7 +850,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
-    _attr_icon = "mdi:network-port"
+    _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
@@ -1070,7 +1070,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
-    _attr_icon = "mdi:network-port"
+    _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
@@ -1291,7 +1291,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
-    _attr_icon = "mdi:network-port"
+    _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):

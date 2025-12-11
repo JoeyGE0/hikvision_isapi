@@ -46,7 +46,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         cameras = await hass.async_add_executor_job(api.get_cameras)
         api.cameras = cameras
         
-        _LOGGER.info("Discovered %d camera(s) on %s (NVR: %s)", len(cameras), host, capabilities.get("is_nvr", False))
+        # Get supported events from Event/triggers API
+        supported_events = await hass.async_add_executor_job(api.get_supported_events)
+        api.supported_events = supported_events
+        
+        _LOGGER.info("Discovered %d camera(s) on %s (NVR: %s), %d supported events", 
+                    len(cameras), host, capabilities.get("is_nvr", False), len(supported_events))
     except AuthenticationError as err:
         _LOGGER.error("Authentication failed for %s: %s", host, err)
         raise ConfigEntryNotReady(
@@ -61,15 +66,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     
     device_registry = dr.async_get(hass)
     
-    # Build identifiers - use MAC address if available for auto-linking
-    identifiers = {(DOMAIN, host)}
+    # Build identifiers - use serial number as primary, fallback to host
+    serial_number = device_info.get("serialNumber")
+    if serial_number:
+        identifiers = {(DOMAIN, serial_number)}
+        nvr_device_identifier = serial_number  # For via_device on NVR cameras
+    else:
+        identifiers = {(DOMAIN, host)}
+        nvr_device_identifier = host  # For via_device on NVR cameras
+    
     if mac_address := device_info.get("macAddress"):
         # Add MAC address identifier for auto-linking with other integrations (UniFi, etc.)
         identifiers.add(("mac", mac_address.lower()))
-    
-    # Add serial number as additional identifier if available
-    if serial_number := device_info.get("serialNumber"):
-        identifiers.add((DOMAIN, serial_number))
     
     # Build connections - MAC address for display in device info
     connections = set()
@@ -98,7 +106,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "device_info": device_info,
         "capabilities": capabilities,
         "cameras": cameras,
+        "supported_events": supported_events,
         "host": host,
+        "nvr_device_identifier": nvr_device_identifier,  # For via_device on NVR cameras
         **entry.data
     }
     
