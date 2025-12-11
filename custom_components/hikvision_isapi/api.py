@@ -2271,6 +2271,12 @@ class HikvisionISAPI:
         try:
             xml = self._get("/ISAPI/Event/triggers")
             
+            # Debug: Log root element and first 500 chars of XML
+            _LOGGER.debug("Event/triggers root tag: %s, root attrib: %s", xml.tag, xml.attrib)
+            import xml.etree.ElementTree as ET
+            xml_str = ET.tostring(xml, encoding='unicode')[:500]
+            _LOGGER.debug("Event/triggers XML (first 500 chars): %s", xml_str)
+            
             # Find EventNotification/EventTriggerList/EventTrigger or EventTriggerList/EventTrigger
             event_notification = xml.find(f".//{XML_NS}EventNotification")
             if event_notification is not None:
@@ -2278,8 +2284,15 @@ class HikvisionISAPI:
             else:
                 event_trigger_list = xml.find(f".//{XML_NS}EventTriggerList")
             
+            # Also check if root itself is EventTriggerList (some cameras might return it directly)
+            if event_trigger_list is None and xml.tag.endswith("EventTriggerList"):
+                event_trigger_list = xml
+            
             if event_trigger_list is None:
-                _LOGGER.warning("No EventTriggerList found in Event/triggers response")
+                _LOGGER.warning("No EventTriggerList found in Event/triggers response. Root tag: %s", xml.tag)
+                # Log all child elements for debugging
+                all_tags = [child.tag for child in xml]
+                _LOGGER.debug("Available XML elements: %s", all_tags[:10])
                 return events
             
             event_triggers = event_trigger_list.findall(f".//{XML_NS}EventTrigger")
