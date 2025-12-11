@@ -1744,21 +1744,12 @@ class HikvisionISAPI:
         try:
             xml = self._get(f"/ISAPI/Smart/LineDetection/{self.channel}")
             result = {}
-            # Try multiple methods to find enabled element
-            enabled = None
-            # Method 1: With namespace
+            # Find enabled directly like field_detection and scene_change_detection do
             enabled = xml.find(f".//{XML_NS}enabled")
-            # Method 2: Without namespace (if root doesn't have namespace)
-            if enabled is None:
-                enabled = xml.find(".//enabled")
-            # Method 3: Direct child of root
-            if enabled is None:
-                for child in xml:
-                    if child.tag.endswith("enabled") or child.tag == "enabled":
-                        enabled = child
-                        break
             if enabled is not None and enabled.text:
-                    result["enabled"] = enabled.text.strip().lower() == "true"
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            else:
+                _LOGGER.warning("LineDetection enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
             # Connection errors are expected during camera restarts - log as debug
@@ -1811,11 +1802,13 @@ class HikvisionISAPI:
         try:
             xml = self._get(f"/ISAPI/Smart/SceneChangeDetection/{self.channel}")
             result = {}
-            scene = xml.find(f".//{XML_NS}SceneChangeDetection")
-            if scene is not None:
-                enabled = scene.find(f".//{XML_NS}enabled")
-                if enabled is not None:
-                    result["enabled"] = enabled.text.strip().lower() == "true"
+            # Find enabled directly like field_detection and line_detection do
+            # The root element is SceneChangeDetection, so enabled is a direct child
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None and enabled.text:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            else:
+                _LOGGER.warning("SceneChangeDetection enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
             # Connection errors are expected during camera restarts - log as debug
