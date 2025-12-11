@@ -1075,18 +1075,15 @@ class HikvisionISAPI:
             
             _LOGGER.info("Generated %d bytes of audio", len(ulaw_data))
             
-            # Step 5: Send all audio in one request (test with base64 encoding)
-            _LOGGER.info("Encoding audio as base64 and sending to camera...")
-            import base64
-            base64_data = base64.b64encode(bytes(ulaw_data)).decode('ascii')
-            _LOGGER.info("Base64 encoded length: %d characters", len(base64_data))
+            # Step 5: Send all audio in one request
+            _LOGGER.info("Sending audio data to camera...")
             
             endpoint = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/audioData"
             response = requests.put(
                 endpoint,
                 auth=(self.username, self.password),
-                data=base64_data,
-                headers={"Content-Type": "application/base64"},
+                data=bytes(ulaw_data),
+                headers={"Content-Type": "application/octet-stream"},
                 verify=False,
                 timeout=10
             )
