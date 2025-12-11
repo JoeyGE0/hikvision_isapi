@@ -163,9 +163,13 @@ class HikvisionBrightnessControlSelect(SelectEntity):
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        if self._optimistic_value\n        \n        if not self.available:\n            return None\n         is not None:
+        # Use optimistic value if set (immediate feedback)
+        if self._optimistic_value is not None:
             return self._optimistic_value
 
+        # Otherwise use coordinator data - convert API value to display name
+        if not self.available:
+            return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             data = self.coordinator.data["supplement_light"]
             api_value = data.get("brightnessRegulatMode") or data.get(
@@ -327,9 +331,13 @@ class HikvisionMotionTargetTypeSelect(SelectEntity):
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        if self._optimistic_value\n        \n        if not self.available:\n            return None\n         is not None:
+        # Use optimistic value if set (immediate feedback)
+        if self._optimistic_value is not None:
             return self._optimistic_value
         
+        # Otherwise use coordinator data - convert API value to display name
+        if not self.available:
+            return None
         if self.coordinator.data and "motion" in self.coordinator.data:
             target_type = self.coordinator.data["motion"].get("targetType")
             if target_type and target_type in self._attr_options:
