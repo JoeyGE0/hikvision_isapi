@@ -61,7 +61,11 @@ class HikvisionISAPI:
             _LOGGER.error("HTTP error GET %s: %s", endpoint, e)
             raise
         except requests.exceptions.RequestException as e:
-            _LOGGER.error("Request error GET %s: %s", endpoint, e)
+            # Connection errors are expected during camera restarts - log as warning
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Connection error GET %s (camera may be restarting): %s", endpoint, e)
+            else:
+                _LOGGER.error("Request error GET %s: %s", endpoint, e)
             raise
         except Exception as e:
             _LOGGER.error("Failed to GET %s: %s", endpoint, e)
@@ -141,7 +145,11 @@ class HikvisionISAPI:
         except AuthenticationError:
             raise
         except Exception as e:
-            _LOGGER.error("Failed to get supplement light: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get supplement light (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get supplement light: %s", e)
             return {}
 
     def set_supplement_light(self, mode: str) -> bool:
@@ -438,7 +446,11 @@ class HikvisionISAPI:
                 return int(time_elem.text.strip())
             return None
         except Exception as e:
-            _LOGGER.error("Failed to get white light time: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get white light time (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get white light time: %s", e)
             return None
 
     def set_white_light_time(self, duration: int) -> bool:
@@ -507,7 +519,11 @@ class HikvisionISAPI:
             
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get IR cut filter: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get IR cut filter (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get IR cut filter: %s", e)
             return {}
 
     def set_ircut_mode(self, mode: str) -> bool:
@@ -563,7 +579,11 @@ class HikvisionISAPI:
             
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get device info: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get device info (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get device info: %s", e)
             return {}
 
     def get_capabilities(self) -> dict:
@@ -597,7 +617,11 @@ class HikvisionISAPI:
             
             return capabilities
         except Exception as e:
-            _LOGGER.error("Failed to get capabilities: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get capabilities (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get capabilities: %s", e)
             return {"analog_cameras_inputs": 0, "digital_cameras_inputs": 0, "input_ports": 0, "output_ports": 0, "support_holiday_mode": False, "is_nvr": False}
 
     def get_cameras(self) -> list:
@@ -722,7 +746,11 @@ class HikvisionISAPI:
             
             return cameras
         except Exception as e:
-            _LOGGER.error("Failed to get cameras: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get cameras (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get cameras: %s", e)
             # Fallback to single channel
             return [{
                 "id": 1,
@@ -761,7 +789,11 @@ class HikvisionISAPI:
         except AuthenticationError:
             raise
         except Exception as e:
-            _LOGGER.error("Failed to get two-way audio: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get two-way audio (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get two-way audio: %s", e)
             return {}
 
     def set_speaker_volume(self, volume: int) -> bool:
@@ -1155,7 +1187,11 @@ class HikvisionISAPI:
         except AuthenticationError:
             raise
         except Exception as e:
-            _LOGGER.error("Failed to get motion detection: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get motion detection (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get motion detection: %s", e)
             return {}
 
     def set_motion_detection(self, enabled: bool) -> bool:
@@ -1380,7 +1416,11 @@ class HikvisionISAPI:
         except AuthenticationError:
             raise
         except Exception as e:
-            _LOGGER.error("Failed to get tamper detection: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get tamper detection (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get tamper detection: %s", e)
             return {}
 
     def set_tamper_detection(self, enabled: bool) -> bool:
@@ -1447,7 +1487,11 @@ class HikvisionISAPI:
             response.raise_for_status()
             return response.content
         except Exception as e:
-            _LOGGER.error("Failed to get snapshot: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get snapshot (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get snapshot: %s", e)
             return None
 
     def get_camera_streams(self, channel_id: int) -> list[dict]:
@@ -1588,7 +1632,11 @@ class HikvisionISAPI:
         except AuthenticationError:
             raise
         except Exception as e:
-            _LOGGER.error("Failed to get streaming status: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get streaming status (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get streaming status: %s", e)
             return {}
 
     def get_system_status(self) -> dict:
@@ -1626,7 +1674,11 @@ class HikvisionISAPI:
         except AuthenticationError:
             raise
         except Exception as e:
-            _LOGGER.error("Failed to get system status: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get system status (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get system status: %s", e)
             return {}
 
     def get_field_detection(self) -> dict:
@@ -1637,12 +1689,16 @@ class HikvisionISAPI:
             # Find enabled directly like tamper detection does
             enabled = xml.find(f".//{XML_NS}enabled")
             if enabled is not None and enabled.text:
-                result["enabled"] = enabled.text.strip().lower() == "true"
+                    result["enabled"] = enabled.text.strip().lower() == "true"
             else:
                 _LOGGER.warning("FieldDetection enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get field detection: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get field detection (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get field detection: %s", e)
             return {}
 
     def set_field_detection(self, enabled: bool) -> bool:
@@ -1702,10 +1758,14 @@ class HikvisionISAPI:
                         enabled = child
                         break
             if enabled is not None and enabled.text:
-                result["enabled"] = enabled.text.strip().lower() == "true"
+                    result["enabled"] = enabled.text.strip().lower() == "true"
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get line detection: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get line detection (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get line detection: %s", e)
             return {}
 
     def set_line_detection(self, enabled: bool) -> bool:
@@ -1758,7 +1818,11 @@ class HikvisionISAPI:
                     result["enabled"] = enabled.text.strip().lower() == "true"
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get scene change detection: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get scene change detection (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get scene change detection: %s", e)
             return {}
 
     def set_scene_change_detection(self, enabled: bool) -> bool:
@@ -1807,12 +1871,16 @@ class HikvisionISAPI:
             # Find enabled directly like tamper detection does
             enabled = xml.find(f".//{XML_NS}enabled")
             if enabled is not None and enabled.text:
-                result["enabled"] = enabled.text.strip().lower() == "true"
+                    result["enabled"] = enabled.text.strip().lower() == "true"
             else:
                 _LOGGER.warning("RegionEntrance enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get region entrance: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get region entrance (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get region entrance: %s", e)
             return {}
 
     def set_region_entrance(self, enabled: bool) -> bool:
@@ -1861,12 +1929,16 @@ class HikvisionISAPI:
             # Find enabled directly like tamper detection does
             enabled = xml.find(f".//{XML_NS}enabled")
             if enabled is not None and enabled.text:
-                result["enabled"] = enabled.text.strip().lower() == "true"
+                    result["enabled"] = enabled.text.strip().lower() == "true"
             else:
                 _LOGGER.warning("RegionExiting enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get region exiting: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get region exiting (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get region exiting: %s", e)
             return {}
 
     def set_region_exiting(self, enabled: bool) -> bool:
@@ -1922,7 +1994,11 @@ class HikvisionISAPI:
                     result["triggering"] = triggering.text.strip()
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get alarm input: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get alarm input (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get alarm input: %s", e)
             return {}
 
     def set_alarm_input(self, port_id: int = 1, enabled: bool = True) -> bool:
@@ -1976,7 +2052,11 @@ class HikvisionISAPI:
                     result["enabled"] = io_state.text.strip().lower() == "active"
             return result
         except Exception as e:
-            _LOGGER.error("Failed to get alarm output: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get alarm output (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get alarm output: %s", e)
             return {}
 
     def set_alarm_output(self, port_id: int = 1, enabled: bool = True) -> bool:
@@ -2253,7 +2333,11 @@ class HikvisionISAPI:
                 "protocol": protocol
             }
         except Exception as e:
-            _LOGGER.error("Failed to get alarm server: %s", e)
+            # Connection errors are expected during camera restarts - log as debug
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get alarm server (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get alarm server: %s", e)
             return {
                 "host": None,
                 "path": None,

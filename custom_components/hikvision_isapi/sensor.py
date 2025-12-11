@@ -75,6 +75,8 @@ class HikvisionCPUUtilizationSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the current CPU utilization."""
+        if not self.available:
+            return None
         if self.coordinator.data and "system_status" in self.coordinator.data:
             cpu = self.coordinator.data["system_status"].get("cpu_utilization")
             return cpu if cpu is not None else None
@@ -118,10 +120,12 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host address."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             host = self.coordinator.data["alarm_server"].get("host")
             return host if host else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -161,10 +165,12 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host path."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             path = self.coordinator.data["alarm_server"].get("path")
             return path if path else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -204,10 +210,12 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host port."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             port = self.coordinator.data["alarm_server"].get("port")
             return port if port is not None else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -247,10 +255,12 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host protocol."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             protocol = self.coordinator.data["alarm_server"].get("protocol")
             return protocol if protocol else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -292,6 +302,8 @@ class HikvisionMemoryUsageSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the current memory usage."""
+        if not self.available:
+            return None
         if self.coordinator.data and "system_status" in self.coordinator.data:
             memory = self.coordinator.data["system_status"].get("memory_usage")
             return memory if memory is not None else None
@@ -335,10 +347,12 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host address."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             host = self.coordinator.data["alarm_server"].get("host")
             return host if host else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -378,10 +392,12 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host path."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             path = self.coordinator.data["alarm_server"].get("path")
             return path if path else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -421,10 +437,12 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host port."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             port = self.coordinator.data["alarm_server"].get("port")
             return port if port is not None else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -464,10 +482,12 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host protocol."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             protocol = self.coordinator.data["alarm_server"].get("protocol")
             return protocol if protocol else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -509,6 +529,8 @@ class HikvisionDeviceUptimeSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the device start time (current time minus uptime) as a datetime."""
+        if not self.available:
+            return None
         if self.coordinator.data and "system_status" in self.coordinator.data:
             uptime_seconds = self.coordinator.data["system_status"].get("uptime")
             if uptime_seconds is not None:
@@ -570,10 +592,12 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host address."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             host = self.coordinator.data["alarm_server"].get("host")
             return host if host else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -613,10 +637,12 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host path."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             path = self.coordinator.data["alarm_server"].get("path")
             return path if path else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -656,10 +682,12 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host port."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             port = self.coordinator.data["alarm_server"].get("port")
             return port if port is not None else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -699,10 +727,12 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host protocol."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             protocol = self.coordinator.data["alarm_server"].get("protocol")
             return protocol if protocol else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -742,6 +772,8 @@ class HikvisionStreamingSessionsSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the total streaming sessions count."""
+        if not self.available:
+            return None
         if self.coordinator.data and "streaming_status" in self.coordinator.data:
             count = self.coordinator.data["streaming_status"].get("totalStreamingSessions")
             return count if count is not None else 0
@@ -790,10 +822,12 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host address."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             host = self.coordinator.data["alarm_server"].get("host")
             return host if host else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -833,10 +867,12 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host path."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             path = self.coordinator.data["alarm_server"].get("path")
             return path if path else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -876,10 +912,12 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host port."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             port = self.coordinator.data["alarm_server"].get("port")
             return port if port is not None else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -919,10 +957,12 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host protocol."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             protocol = self.coordinator.data["alarm_server"].get("protocol")
             return protocol if protocol else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -962,6 +1002,8 @@ class HikvisionStreamingClientsSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the client addresses."""
+        if not self.available:
+            return None
         if self.coordinator.data and "streaming_status" in self.coordinator.data:
             clients = self.coordinator.data["streaming_status"].get("clientAddresses")
             return clients if clients is not None else "None"
@@ -1010,10 +1052,12 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host address."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             host = self.coordinator.data["alarm_server"].get("host")
             return host if host else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1053,10 +1097,12 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host path."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             path = self.coordinator.data["alarm_server"].get("path")
             return path if path else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1096,10 +1142,12 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host port."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             port = self.coordinator.data["alarm_server"].get("port")
             return port if port is not None else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1139,10 +1187,12 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host protocol."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             protocol = self.coordinator.data["alarm_server"].get("protocol")
             return protocol if protocol else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1183,6 +1233,8 @@ class HikvisionRebootCountSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the total reboot count."""
+        if not self.available:
+            return None
         if self.coordinator.data and "system_status" in self.coordinator.data:
             count = self.coordinator.data["system_status"].get("reboot_count")
             return count if count is not None else "unknown"
@@ -1231,10 +1283,12 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host address."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             host = self.coordinator.data["alarm_server"].get("host")
             return host if host else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1274,10 +1328,12 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host path."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             path = self.coordinator.data["alarm_server"].get("path")
             return path if path else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1317,10 +1373,12 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host port."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             port = self.coordinator.data["alarm_server"].get("port")
             return port if port is not None else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1360,10 +1418,12 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the notification host protocol."""
+        if not self.available:
+            return None
         if self.coordinator.data and "alarm_server" in self.coordinator.data:
             protocol = self.coordinator.data["alarm_server"].get("protocol")
             return protocol if protocol else "Not configured"
-        return "Unknown"
+        return None
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

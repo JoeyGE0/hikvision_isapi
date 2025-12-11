@@ -38,47 +38,79 @@ async def async_setup_entry(
     entities = []
     device_name_slug = slugify(device_name.lower())
     
-    # Use supported_events from Event/triggers if available, otherwise fallback to all EVENTS
+    # Create entities for all known events, but use channel_id from Event/triggers if available
+    # Build a lookup dict: {event_id: {channel_id: EventInfo}} from supported_events
+    supported_events_lookup = {}
     if supported_events:
-        # Create binary sensors using supported_events from Event/triggers
-        # Filter supported_events by camera_id
-        for camera in cameras:
-            camera_id = camera["id"]
-            camera_name = camera["name"]
-            camera_serial_no = camera.get("serial_no", device_info.get("serialNumber", ""))
-            camera_model = camera.get("model", device_info.get("model", ""))
-            camera_firmware = camera.get("firmware", device_info.get("firmwareVersion", ""))
+        for event in supported_events:
+            if event.id not in supported_events_lookup:
+                supported_events_lookup[event.id] = {}
+            supported_events_lookup[event.id][event.channel_id] = event
+    
+    # Create binary sensors for each camera/channel (Video Events)
+    for camera in cameras:
+        camera_id = camera["id"]
+        camera_name = camera["name"]
+        camera_serial_no = camera.get("serial_no", device_info.get("serialNumber", ""))
+        camera_model = camera.get("model", device_info.get("model", ""))
+        camera_firmware = camera.get("firmware", device_info.get("firmwareVersion", ""))
+        
+        # Create entities for all known events (not just those in Event/triggers)
+        # This ensures all events are always created, even if Event/triggers doesn't return them
+        for event_id, event_config in EVENTS.items():
+            # Skip I/O events here - they're created at device level (channel 0)
+            if event_id == EVENT_IO:
+                continue
             
-            # Filter events for this camera (channel_id matches camera_id)
-            camera_events = [e for e in supported_events if e.channel_id == camera_id and e.id != EVENT_IO]
+            # Use channel_id from Event/triggers if available, otherwise use camera_id
+            event_from_triggers = None
+            if event_id in supported_events_lookup:
+                # Try to find event with matching channel_id
+                if camera_id in supported_events_lookup[event_id]:
+                    event_from_triggers = supported_events_lookup[event_id][camera_id]
+                # Fallback to first available channel_id for this event
+                elif supported_events_lookup[event_id]:
+                    event_from_triggers = list(supported_events_lookup[event_id].values())[0]
             
-            for event in camera_events:
-                # Build unique_id using device name and actual channel_id from Event/triggers
-                device_id_param = f"_{event.channel_id}" if event.channel_id != 0 else ""
-                io_port_id_param = ""  # Non-I/O events don't include io_port_id (should be 0)
-                unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event.id}"
-                
-                event.unique_id = unique_id
-                
-                entities.append(
-                    EventBinarySensor(
-                        coordinator,
-                        api,
-                        entry,
-                        host,
-                        camera_name if is_nvr or len(cameras) > 1 else device_name,
-                        event,
-                        camera_serial_no if is_nvr else None,
-                        camera_model if is_nvr else None,
-                        camera_firmware if is_nvr else None,
-                        nvr_device_identifier if is_nvr and camera_id > 0 else None,
-                    )
+            # Use channel_id from Event/triggers if available, otherwise use camera_id
+            if event_from_triggers:
+                channel_id = event_from_triggers.channel_id
+                disabled = event_from_triggers.disabled
+            else:
+                channel_id = camera_id
+                disabled = False
+            
+            # Build unique_id using device name and channel_id
+            device_id_param = f"_{channel_id}" if channel_id != 0 else ""
+            io_port_id_param = ""  # Non-I/O events don't include io_port_id (should be 0)
+            unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event_id}"
+            
+            entities.append(
+                EventBinarySensor(
+                    coordinator,
+                    api,
+                    entry,
+                    host,
+                    camera_name if is_nvr or len(cameras) > 1 else device_name,
+                    EventInfo(
+                        id=event_id,
+                        channel_id=channel_id,
+                        io_port_id=0,
+                        unique_id=unique_id,
+                        disabled=disabled,
+                    ),
+                    camera_serial_no if is_nvr else None,
+                    camera_model if is_nvr else None,
+                    camera_firmware if is_nvr else None,
+                    nvr_device_identifier if is_nvr and camera_id > 0 else None,
                 )
-        
-        # Create channel 0 entities for I/O events (device-level)
-        # Filter supported_events for I/O events
+            )
+    
+    # Create channel 0 entities for I/O events (device-level)
+    # Use I/O events from Event/triggers if available, otherwise create for all I/O ports
+    if supported_events:
+        # Use I/O events from Event/triggers
         device_io_events = [e for e in supported_events if e.id == EVENT_IO]
-        
         for event in device_io_events:
             # I/O events are device-level (channel 0)
             device_id_param = ""  # No channel_id for I/O events
@@ -102,63 +134,31 @@ async def async_setup_entry(
                 )
             )
     else:
-        # Fallback: Create entities for all EVENTS (old behavior if Event/triggers fails)
-        _LOGGER.warning("No supported events from Event/triggers, using fallback: creating entities for all EVENTS")
+        # Fallback: Create default I/O entity if Event/triggers doesn't return I/O events
+        device_id_param = ""  # No channel_id for I/O events
+        io_port_id_param = "_0"  # Default to port 0
+        unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{EVENT_IO}"
         
-        # Create binary sensors for each camera/channel (Video Events)
-        for camera in cameras:
-            camera_id = camera["id"]
-            camera_name = camera["name"]
-            
-            for event_id, event_config in EVENTS.items():
-                # Skip I/O events here - they're created at device level (channel 0)
-                if event_id == EVENT_IO:
-                    continue
-                    
-                # Build unique_id using device name and camera_id
-                device_id_param = f"_{camera_id}" if camera_id != 0 else ""
-                io_port_id_param = ""  # Non-I/O events don't include io_port_id (should be 0)
-                unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event_id}"
-                
-                entities.append(
-                    EventBinarySensor(
-                        coordinator,
-                        api,
-                        entry,
-                        host,
-                        camera_name if is_nvr or len(cameras) > 1 else device_name,
-                        EventInfo(
-                            id=event_id,
-                            channel_id=camera_id,
-                            io_port_id=0,
-                            unique_id=unique_id,
-                        ),
-                    )
-                )
-        
-        # Create channel 0 entities for I/O events (device-level)
-        for event_id, event_config in EVENTS.items():
-            if event_id == EVENT_IO:
-                # I/O events are device-level (channel 0)
-                device_id_param = ""  # No channel_id for I/O events
-                io_port_id_param = "_0"  # I/O events always include io_port_id (even if 0)
-                unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event_id}"
-                
-                entities.append(
-                    EventBinarySensor(
-                        coordinator,
-                        api,
-                        entry,
-                        host,
-                        device_name,
-                        EventInfo(
-                            id=event_id,
-                            channel_id=0,
-                            io_port_id=0,
-                            unique_id=unique_id,
-                        ),
-                    )
-                )
+        entities.append(
+            EventBinarySensor(
+                coordinator,
+                api,
+                entry,
+                host,
+                device_name,
+                EventInfo(
+                    id=EVENT_IO,
+                    channel_id=0,
+                    io_port_id=0,
+                    unique_id=unique_id,
+                    disabled=False,
+                ),
+                None,  # No camera serial for device-level events
+                None,  # No camera model for device-level events
+                None,  # No camera firmware for device-level events
+                None,  # No via_device for device-level events
+            )
+        )
 
     async_add_entities(entities)
 

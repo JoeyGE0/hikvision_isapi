@@ -80,6 +80,8 @@ class HikvisionLightModeSelect(SelectEntity):
             return self._optimistic_value
 
         # Otherwise use coordinator data - convert API value to display name
+        if not self.available:
+            return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             api_value = self.coordinator.data["supplement_light"].get("mode")
             display_value = self._display_value_map.get(api_value)
@@ -161,7 +163,7 @@ class HikvisionBrightnessControlSelect(SelectEntity):
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        if self._optimistic_value is not None:
+        if self._optimistic_value\n        \n        if not self.available:\n            return None\n         is not None:
             return self._optimistic_value
 
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
@@ -251,6 +253,8 @@ class HikvisionIRModeSelect(SelectEntity):
             return self._optimistic_value
         
         # Otherwise use coordinator data - convert API value to display name
+        if not self.available:
+            return None
         if self.coordinator.data and "ircut" in self.coordinator.data:
             api_value = self.coordinator.data["ircut"].get("mode")
             display_value = self._display_value_map.get(api_value)
@@ -323,7 +327,7 @@ class HikvisionMotionTargetTypeSelect(SelectEntity):
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        if self._optimistic_value is not None:
+        if self._optimistic_value\n        \n        if not self.available:\n            return None\n         is not None:
             return self._optimistic_value
         
         if self.coordinator.data and "motion" in self.coordinator.data:

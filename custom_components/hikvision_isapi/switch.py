@@ -77,6 +77,9 @@ class HikvisionNoiseReduceSwitch(SwitchEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
+        
         if self.coordinator.data and "audio" in self.coordinator.data:
             return self.coordinator.data["audio"].get("noisereduce", False)
         return False
@@ -156,6 +159,9 @@ class HikvisionMotionDetectionSwitch(SwitchEntity):
         """Return if motion detection is enabled."""
         if self._optimistic_value is not None:
             return self._optimistic_value
+        
+        if not self.available:
+            return None
         
         if self.coordinator.data and "motion" in self.coordinator.data:
             return self.coordinator.data["motion"].get("enabled", False)
@@ -237,6 +243,9 @@ class HikvisionTamperDetectionSwitch(SwitchEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
+        
         if self.coordinator.data and "tamper" in self.coordinator.data:
             return self.coordinator.data["tamper"].get("enabled", False)
         return False
@@ -316,6 +325,9 @@ class HikvisionIntrusionDetectionSwitch(SwitchEntity):
         """Return if intrusion detection is enabled."""
         if self._optimistic_value is not None:
             return self._optimistic_value
+        
+        if not self.available:
+            return None
         
         if self.coordinator.data and "field_detection" in self.coordinator.data:
             return self.coordinator.data["field_detection"].get("enabled", False)
@@ -397,6 +409,9 @@ class HikvisionLineCrossingDetectionSwitch(SwitchEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
+        
         if self.coordinator.data and "line_detection" in self.coordinator.data:
             return self.coordinator.data["line_detection"].get("enabled", False)
         return False
@@ -476,6 +491,9 @@ class HikvisionSceneChangeDetectionSwitch(SwitchEntity):
         """Return if scene change detection is enabled."""
         if self._optimistic_value is not None:
             return self._optimistic_value
+        
+        if not self.available:
+            return None
         
         if self.coordinator.data and "scene_change" in self.coordinator.data:
             return self.coordinator.data["scene_change"].get("enabled", False)
@@ -557,6 +575,9 @@ class HikvisionRegionEntranceDetectionSwitch(SwitchEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
+        
         if self.coordinator.data and "region_entrance" in self.coordinator.data:
             return self.coordinator.data["region_entrance"].get("enabled", False)
         return False
@@ -637,6 +658,9 @@ class HikvisionRegionExitingDetectionSwitch(SwitchEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
+        if not self.available:
+            return None
+        
         if self.coordinator.data and "region_exiting" in self.coordinator.data:
             return self.coordinator.data["region_exiting"].get("enabled", False)
         return False
@@ -716,6 +740,9 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
         """Return if alarm input is enabled."""
         if self._optimistic_value is not None:
             return self._optimistic_value
+        
+        if not self.available:
+            return None
         
         if self.coordinator.data and "alarm_input" in self.coordinator.data:
             return self.coordinator.data["alarm_input"].get("enabled", False)
