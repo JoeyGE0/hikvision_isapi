@@ -59,8 +59,11 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Day/Night Switch Sensitivity** | 0-7                                |
 | **Day/Night Switch Delay**       | 5-120 seconds                      |
 | **Supplement Light Mode**        | Smart, IR Supplement Light, or Off |
+| **Light Brightness Control**     | Auto or Manual mode                |
 | **White Light Brightness**       | 0-100%                             |
 | **IR Light Brightness**          | 0-100%                             |
+| **White Light Brightness Limit** | 0-100%                             |
+| **IR Light Brightness Limit**    | 0-100%                             |
 | **LED On Duration**              | 10-300 seconds                     |
 
 ### Motion Detection Settings
@@ -109,11 +112,25 @@ Multiple camera stream support with separate entities for each stream type:
 
 All streams support RTSP streaming and snapshots. Only streams available on your camera will be created.
 
+### Detection Controls
+
+| Control                       | Description                              |
+| ----------------------------- | ---------------------------------------- |
+| **Motion Detection**          | Enable/disable motion detection          |
+| **Intrusion Detection**       | Enable/disable intrusion detection       |
+| **Line Crossing Detection**   | Enable/disable line crossing detection   |
+| **Scene Change Detection**    | Enable/disable scene change detection    |
+| **Region Entrance Detection** | Enable/disable region entrance detection |
+| **Region Exiting Detection**  | Enable/disable region exiting detection  |
+| **Video Tampering Detection** | Enable/disable tamper detection          |
+| **Alarm Input**               | Enable/disable alarm input port          |
+| **Alarm Output**              | Control alarm output port (high/low)     |
+
 ### Other Features
 
 - **Camera Snapshots** - Get snapshots from any available stream
 - **Restart Button** - Remote camera restart
-- **Tamper Detection Enabled** - Configuration state
+- **Test Tone Button** - Play test tone (partially working)
 
 ---
 
@@ -192,32 +209,44 @@ All entities are prefixed with your device name (e.g., `Garage`).
 
 ### Select Entities
 
-| Entity ID                                 | Description                  |
-| ----------------------------------------- | ---------------------------- |
-| `select.{device_name}_day_night_switch`   | Day/Night/Auto mode          |
-| `select.{device_name}_supplement_light`   | Supplement light mode        |
-| `select.{device_name}_motion_target_type` | Motion detection target type |
+| Entity ID                                       | Description                                 | Default Status |
+| ----------------------------------------------- | ------------------------------------------- | -------------- |
+| `select.{device_name}_day_night_switch`         | Day/Night/Auto mode                         | Enabled        |
+| `select.{device_name}_supplement_light`         | Supplement light mode                       | Enabled        |
+| `select.{device_name}_light_brightness_control` | Light brightness control mode (Auto/Manual) | Disabled       |
+| `select.{device_name}_motion_target_type`       | Motion detection target type                | Enabled        |
 
 ### Number Entities
 
-| Entity ID                                           | Description            | Range     |
-| --------------------------------------------------- | ---------------------- | --------- |
-| `number.{device_name}_day_night_switch_sensitivity` | IR sensitivity         | 0-7       |
-| `number.{device_name}_day_night_switch_delay`       | IR filter delay        | 5-120s    |
-| `number.{device_name}_speaker_volume`               | Speaker volume         | 0-100%    |
-| `number.{device_name}_microphone_volume`            | Microphone volume      | 0-100%    |
-| `number.{device_name}_led_on_duration`              | LED duration           | 10-300s   |
-| `number.{device_name}_white_light_brightness`       | White light brightness | 0-100%    |
-| `number.{device_name}_ir_light_brightness`          | IR light brightness    | 0-100%    |
-| `number.{device_name}_motion_sensitivity`           | Motion sensitivity     | 0-100%    |
-| `number.{device_name}_motion_start_trigger_time`    | Motion start time      | 0-10000ms |
-| `number.{device_name}_motion_end_trigger_time`      | Motion end time        | 0-10000ms |
+| Entity ID                                           | Description                  | Range     | Default Status |
+| --------------------------------------------------- | ---------------------------- | --------- | -------------- |
+| `number.{device_name}_day_night_switch_sensitivity` | IR sensitivity               | 0-7       | Enabled        |
+| `number.{device_name}_day_night_switch_delay`       | IR filter delay              | 5-120s    | Enabled        |
+| `number.{device_name}_speaker_volume`               | Speaker volume               | 0-100%    | Enabled        |
+| `number.{device_name}_microphone_volume`            | Microphone volume            | 0-100%    | Enabled        |
+| `number.{device_name}_led_on_duration`              | LED duration                 | 10-300s   | Enabled        |
+| `number.{device_name}_white_light_brightness`       | White light brightness       | 0-100%    | Enabled        |
+| `number.{device_name}_ir_light_brightness`          | IR light brightness          | 0-100%    | Enabled        |
+| `number.{device_name}_white_light_brightness_limit` | White light brightness limit | 0-100%    | Enabled        |
+| `number.{device_name}_ir_light_brightness_limit`    | IR light brightness limit    | 0-100%    | Enabled        |
+| `number.{device_name}_motion_sensitivity`           | Motion sensitivity           | 0-100%    | Enabled        |
+| `number.{device_name}_motion_start_trigger_time`    | Motion start time            | 0-10000ms | Enabled        |
+| `number.{device_name}_motion_end_trigger_time`      | Motion end time              | 0-10000ms | Disabled       |
 
 ### Switch Entities
 
-| Entity ID                              | Description            |
-| -------------------------------------- | ---------------------- |
-| `switch.{device_name}_noise_reduction` | Noise reduction on/off |
+| Entity ID                                        | Description                              | Default Status |
+| ------------------------------------------------ | ---------------------------------------- | -------------- |
+| `switch.{device_name}_noise_reduction`           | Noise reduction on/off                   | Enabled        |
+| `switch.{device_name}_motion_detection`          | Motion detection enable/disable          | Enabled        |
+| `switch.{device_name}_video_tampering_detection` | Video tampering detection enable/disable | Enabled        |
+| `switch.{device_name}_intrusion_detection`       | Intrusion detection enable/disable       | Enabled        |
+| `switch.{device_name}_line_crossing_detection`   | Line crossing detection enable/disable   | Enabled        |
+| `switch.{device_name}_scene_change_detection`    | Scene change detection enable/disable    | Enabled        |
+| `switch.{device_name}_region_entrance_detection` | Region entrance detection enable/disable | Enabled        |
+| `switch.{device_name}_region_exiting_detection`  | Region exiting detection enable/disable  | Enabled        |
+| `switch.{device_name}_alarm_input_1`             | Alarm input port 1 enable/disable        | Enabled        |
+| `switch.{device_name}_alarm_output_1`            | Alarm output port 1 control (high/low)   | Enabled        |
 
 ### Binary Sensor Entities (Real-Time Events)
 
@@ -234,6 +263,7 @@ Real-time event detection via webhook notifications. Motion detection is confirm
 | `binary_sensor.{device_name}_video_loss`               | Video loss events              | `problem`    | ⚠️ Requires config |
 | `binary_sensor.{device_name}_video_tampering`          | Video tampering events         | `tamper`     | ⚠️ Requires config |
 | `binary_sensor.{device_name}_tamper_detection_enabled` | Tamper detection enabled state | `tamper`     | ✅ Working         |
+| `binary_sensor.{device_name}_alarm_input_{port}`       | Alarm input events (I/O port)  | `motion`     | ⚠️ Requires config |
 
 ### Sensor Entities (Diagnostic)
 
@@ -265,11 +295,17 @@ Real-time event detection via webhook notifications. Motion detection is confirm
 
 **Note**: If your camera doesn't support multiple streams, you'll see a single `camera.{device_name}_snapshot` entity instead.
 
-### Other Entities
+### Button Entities
+
+| Entity ID                        | Description    | Status               |
+| -------------------------------- | -------------- | -------------------- |
+| `button.{device_name}_restart`   | Restart camera | ✅ Working           |
+| `button.{device_name}_test_tone` | Play test tone | ⚠️ Partially Working |
+
+### Media Player Entities
 
 | Entity ID                            | Description    | Status         |
 | ------------------------------------ | -------------- | -------------- |
-| `button.{device_name}_restart`       | Restart camera | ✅ Working     |
 | `media_player.{device_name}_speaker` | Audio playback | ❌ Not Working |
 
 ---
@@ -280,8 +316,8 @@ When camera events occur, the integration fires `hikvision_isapi_event` events w
 
 | Field              | Type    | Description                                   |
 | ------------------ | ------- | --------------------------------------------- |
-| `device`           | string  | Camera host/IP                                |
 | `channel_id`       | integer | Camera channel ID                             |
+| `io_port_id`       | integer | I/O port ID (for alarm input/output events)   |
 | `camera_name`      | string  | Camera name                                   |
 | `event_id`         | string  | Event type (motiondetection, intrusion, etc.) |
 | `detection_target` | string  | Detection target (if applicable)              |
