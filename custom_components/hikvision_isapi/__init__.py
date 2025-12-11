@@ -46,17 +46,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         cameras = await hass.async_add_executor_job(api.get_cameras)
         api.cameras = cameras
         
-        # Get supported events from Event/triggers API (optional - fallback to empty list if fails)
-        supported_events = []
-        if hasattr(api, 'get_supported_events'):
-            try:
-                supported_events = await hass.async_add_executor_job(api.get_supported_events)
-                api.supported_events = supported_events
-            except Exception as e:
-                _LOGGER.warning("Failed to get supported events (will use fallback): %s", e)
-                supported_events = []
-        else:
-            _LOGGER.warning("get_supported_events method not found, using fallback")
+        # Get supported events from Event/triggers API
+        supported_events = await hass.async_add_executor_job(api.get_supported_events)
+        api.supported_events = supported_events
         
         _LOGGER.info("Discovered %d camera(s) on %s (NVR: %s), %d supported events", 
                     len(cameras), host, capabilities.get("is_nvr", False), len(supported_events))
