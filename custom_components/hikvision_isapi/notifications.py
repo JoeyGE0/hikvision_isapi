@@ -11,7 +11,7 @@ from aiohttp import web
 from requests_toolbelt.multipart import MultipartDecoder
 
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN, STATE_ON, Platform
+from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN, STATE_ON, STATE_OFF, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_registry import async_get
 from homeassistant.util import slugify
@@ -44,7 +44,7 @@ class EventNotificationsView(HomeAssistantView):
     async def post(self, request: web.Request):
         """Accept the POST request from camera."""
         _LOGGER.info("=== WEBHOOK RECEIVED === Source: %s, Headers: %s", request.remote, dict(request.headers))
-        
+
         try:
             _LOGGER.info("--- Incoming event notification from %s ---", request.remote)
             xml = await self.parse_event_request(request)
@@ -320,6 +320,15 @@ class EventNotificationsView(HomeAssistantView):
                 if region_id_elem is not None:
                     region_id = int(region_id_elem.text.strip()) if region_id_elem.text else 0
             
+            # Check for activeState to determine if event is starting or ending
+            # Some cameras send activeState="inactive" when event ends
+            active_state = None
+            active_state_elem = alert.find(f".//{XML_NS}activeState")
+            if active_state_elem is None:
+                active_state_elem = alert.find(".//activeState")
+            if active_state_elem is not None and active_state_elem.text:
+                active_state = active_state_elem.text.strip().lower()
+            
             # Check if event is supported
             from .const import EVENTS
             if not EVENTS.get(event_id):
@@ -327,7 +336,8 @@ class EventNotificationsView(HomeAssistantView):
                              event_id, channel_id, io_port_id)
                 raise ValueError(f"Unsupported event {event_id}")
             
-            _LOGGER.info("Parsed event: type=%s, channel=%s, io_port=%s", event_id, channel_id, io_port_id)
+            _LOGGER.info("Parsed event: type=%s, channel=%s, io_port=%s, activeState=%s", 
+                        event_id, channel_id, io_port_id, active_state)
             
             return AlertInfo(
                 channel_id=channel_id,
@@ -337,6 +347,7 @@ class EventNotificationsView(HomeAssistantView):
                 mac=mac,
                 region_id=region_id,
                 detection_target=detection_target,
+                active_state=active_state,
             )
         except Exception as e:
             _LOGGER.error("Failed to parse event notification: %s", e)
@@ -371,8 +382,14 @@ class EventNotificationsView(HomeAssistantView):
         if entity_id:
             entity = self.hass.states.get(entity_id)
             if entity:
-                _LOGGER.info("Triggering entity: %s (event: %s)", entity_id, alert.event_id)
-                self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                # Check activeState: "inactive" means event ended, otherwise it's starting/active
+                if alert.active_state and alert.active_state.lower() == "inactive":
+                    _LOGGER.info("Clearing entity: %s (event: %s, activeState: inactive)", entity_id, alert.event_id)
+                    self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
+                else:
+                    _LOGGER.info("Triggering entity: %s (event: %s, activeState: %s)", 
+                               entity_id, alert.event_id, alert.active_state or "active")
+                    self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                 self.fire_hass_event(entry, alert)
                 return
         
@@ -391,9 +408,15 @@ class EventNotificationsView(HomeAssistantView):
                     if entity_id:
                         entity = self.hass.states.get(entity_id)
                         if entity:
-                            _LOGGER.info("Triggering entity with fallback channel_id=%d: %s (event: %s)", 
-                                       camera_id, entity_id, alert.event_id)
-                            self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                            # Check activeState: "inactive" means event ended, otherwise it's starting/active
+                            if alert.active_state and alert.active_state.lower() == "inactive":
+                                _LOGGER.info("Clearing entity with fallback channel_id=%d: %s (event: %s, activeState: inactive)", 
+                                           camera_id, entity_id, alert.event_id)
+                                self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
+                            else:
+                                _LOGGER.info("Triggering entity with fallback channel_id=%d: %s (event: %s, activeState: %s)", 
+                                           camera_id, entity_id, alert.event_id, alert.active_state or "active")
+                                self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                             self.fire_hass_event(entry, alert)
                             return
         

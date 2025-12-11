@@ -14,6 +14,7 @@ class AlertInfo:
     mac: str = ""
     region_id: int = 0
     detection_target: str = None
+    active_state: str = None  # "active" or "inactive" - indicates if event is starting or ending
 
 
 @dataclass
