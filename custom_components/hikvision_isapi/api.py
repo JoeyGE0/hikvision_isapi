@@ -2258,7 +2258,7 @@ class HikvisionISAPI:
                 "port": None,
                 "protocol": None
             }
-    
+
     def get_supported_events(self):
         """Get list of all supported events from Event/triggers API."""
         from .models import EventInfo
