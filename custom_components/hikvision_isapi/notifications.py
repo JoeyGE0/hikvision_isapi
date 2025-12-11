@@ -256,17 +256,23 @@ class EventNotificationsView(HomeAssistantView):
             # Handle duration events (version 2.0 notifications)
             # When eventType is "duration" or empty, the actual event type is in DurationList
             if not event_id or event_id == "duration":
+                # Try with namespace first
                 duration = alert.find(f".//{XML_NS}DurationList/{XML_NS}Duration")
                 if duration is not None:
-                    relation_event = duration.find(f".//{XML_NS}relationEvent")
+                    relation_event = duration.find(f"{XML_NS}relationEvent")
+                    if relation_event is None:
+                        relation_event = duration.find(".//relationEvent")
                     if relation_event is not None and relation_event.text:
                         event_id = relation_event.text.strip().lower()
                         _LOGGER.info("Extracted event type from DurationList: %s", event_id)
-                # Try without namespace if not found
+                
+                # Try without namespace if still not found
                 if not event_id or event_id == "duration":
                     duration = alert.find(".//DurationList/Duration")
                     if duration is not None:
-                        relation_event = duration.find(".//relationEvent")
+                        relation_event = duration.find("relationEvent")
+                        if relation_event is None:
+                            relation_event = duration.find(".//relationEvent")
                         if relation_event is not None and relation_event.text:
                             event_id = relation_event.text.strip().lower()
                             _LOGGER.info("Extracted event type from DurationList (no namespace): %s", event_id)
@@ -369,6 +375,28 @@ class EventNotificationsView(HomeAssistantView):
                 self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                 self.fire_hass_event(entry, alert)
                 return
+        
+        # Fallback: If lookup failed with channel_id=0, try with channel_id=1 (for single cameras)
+        # Some cameras send notifications with channel_id=0 but entities are created with channel_id=1
+        if not entity_id and alert.channel_id == 0 and alert.event_id != EVENT_IO:
+            device_data = self.hass.data[DOMAIN][entry.entry_id]
+            cameras = device_data.get("cameras", [])
+            # Try with channel_id=1 (first camera)
+            if cameras:
+                camera_id = cameras[0].get("id", 1)
+                if camera_id != 0:
+                    fallback_device_id_param = f"_{camera_id}"
+                    fallback_unique_id = f"{slugify(device_name.lower())}{fallback_device_id_param}_{alert.event_id}"
+                    entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, fallback_unique_id)
+                    if entity_id:
+                        entity = self.hass.states.get(entity_id)
+                        if entity:
+                            _LOGGER.info("Triggering entity with fallback channel_id=%d: %s (event: %s)", 
+                                       camera_id, entity_id, alert.event_id)
+                            self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                            self.fire_hass_event(entry, alert)
+                            return
+        
         raise ValueError(f"Entity not found {unique_id}")
 
     def fire_hass_event(self, entry, alert: AlertInfo):
