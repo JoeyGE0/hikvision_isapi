@@ -45,7 +45,32 @@ async def async_setup_entry(
 
 
 class HikvisionMediaPlayer(MediaPlayerEntity):
-    """Media player entity for Hikvision camera speaker."""
+    """Media player entity for Hikvision camera speaker.
+    
+    ⚠️ WARNING: THIS MEDIA PLAYER DOES NOT WORK ⚠️
+    
+    NOTE FOR DEVELOPERS: This media player implementation is broken and does not function correctly.
+    If you have experience with Hikvision ISAPI two-way audio or G.711 codec streaming,
+    your help would be greatly appreciated to fix this implementation!
+    
+    WHAT WAS ATTEMPTED (AI-generated, not 100% certain):
+    - The camera supports two-way audio via ISAPI endpoint /ISAPI/System/TwoWayAudio/channels/1
+    - Audio must be converted to G.711ulaw format (8kHz sample rate) before streaming
+    - The implementation attempts to:
+      1. Enable two-way audio channel via PUT request with XML config
+      2. Convert input audio (from TTS, media files, URLs) to G.711ulaw using pydub
+      3. Stream audio data to /ISAPI/System/TwoWayAudio/channels/1/audioData endpoint
+    
+    KNOWN PROBLEMS:
+    - Session management is probably wrong (opening/closing sessions properly)
+    - Audio chunking might be required instead of sending all at once
+    - The endpoint might require specific headers or authentication tokens
+    - Real-time streaming vs batch upload approach is unclear
+    - The entire implementation may need to be rewritten
+    
+    If you can help fix this, please check the Hikvision ISAPI documentation for two-way audio
+    and compare with working implementations. Any contributions welcome!
+    """
 
     _attr_supported_features = (
         MediaPlayerEntityFeature.PLAY_MEDIA
@@ -203,56 +228,38 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             if is_media_source_id(media_id):
                 try:
                     resolved_media = await async_resolve_media(self.hass, media_id)
-                    _LOGGER.info("async_resolve_media returned: %s (type: %s)", resolved_media, type(resolved_media))
-                    if resolved_media:
-                        _LOGGER.info("resolved_media.url: %s", getattr(resolved_media, 'url', 'NO URL ATTRIBUTE'))
-                        _LOGGER.info("resolved_media attributes: %s", dir(resolved_media))
-                    
                     if resolved_media and resolved_media.url:
                         _LOGGER.info("Resolved media source: %s -> %s", media_id, resolved_media.url)
                         
                         # Use the resolved URL - for local media, read directly from filesystem
                         media_url = resolved_media.url
-                        _LOGGER.info("Original media_url: %s", media_url)
                         
                         # Remove any query parameters
                         if "?" in media_url:
                             media_url = media_url.split("?")[0]
-                            _LOGGER.info("After removing query params: %s", media_url)
                         
-                        # For local media files, try filesystem first, then fall back to HTTP
-                        # Home Assistant uses both /local/ and /media/local/ for www/ directory
-                        if media_url.startswith("/media/local/") or media_url.startswith("/local/"):
-                            # Remove both possible prefixes
-                            if media_url.startswith("/media/local/"):
-                                media_path = media_url.replace("/media/local/", "")
-                            else:
-                                media_path = media_url.replace("/local/", "")
-                            
-                            _LOGGER.info("Extracted media_path: %s", media_path)
+                        # For local media files, read directly from filesystem (no auth needed)
+                        if media_url.startswith("/media/local/"):
+                            media_path = media_url.replace("/media/local/", "")
                             
                             import os
                             def read_media_file():
                                 config_dir = self.hass.config.config_dir
-                                _LOGGER.info("config_dir: %s", config_dir)
-                                # Home Assistant serves /local/ and /media/local/ from www/ directory
+                                # Home Assistant serves /media/local/ from www/ directory
                                 file_path = os.path.join(config_dir, "www", media_path)
-                                _LOGGER.info("Looking for file at: %s", file_path)
-                                
                                 if os.path.exists(file_path) and os.path.isfile(file_path):
-                                    _LOGGER.info("Reading media file from filesystem: %s", file_path)
+                                    _LOGGER.info("Reading media file: %s", file_path)
                                     with open(file_path, 'rb') as f:
                                         return f.read()
-                                _LOGGER.warning("Media file not found at filesystem path: %s, will try HTTP download", file_path)
+                                _LOGGER.error("Media file not found at: %s", file_path)
                                 return None
                             
                             file_data = await self.hass.async_add_executor_job(read_media_file)
                             if file_data:
                                 return file_data
-                            # Fall through to HTTP download if filesystem read failed
-                            _LOGGER.info("Filesystem read failed, falling back to HTTP download for: %s", media_url)
+                            return None
                         
-                        # For other URLs (TTS, external, local files that weren't on filesystem), use HTTP
+                        # For other URLs (TTS, external, etc), use HTTP
                         if media_url.startswith("/"):
                             base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
                             base_url = base_url.rstrip("/")

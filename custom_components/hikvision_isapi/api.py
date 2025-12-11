@@ -936,7 +936,34 @@ class HikvisionISAPI:
             return False
 
     def play_test_tone(self) -> bool:
-        """Play a 3-second test tone: 1000 Hz for most of it, then ramp to 2500 Hz at end."""
+        """Play a 3-second test tone: 1000 Hz for most of it, then ramp to 2500 Hz at end.
+        
+        ⚠️ STATUS: THIS TEST TONE SORTA WORKS (partially functional) ⚠️
+        
+        NOTE FOR DEVELOPERS: This test tone function is partially working but may have issues.
+        If you have experience with Hikvision ISAPI audio streaming or G.711 codec implementation,
+        your help would be greatly appreciated to improve this!
+        
+        HOW IT CURRENTLY WORKS (AI-generated, not 100% certain):
+        - Generates a sine wave test tone programmatically (1000 Hz, ramping to 2500 Hz)
+        - Converts PCM samples to G.711ulaw format using a custom linear_to_ulaw function
+        - Sends the audio data to /ISAPI/System/TwoWayAudio/channels/1/audioData
+        - The tone is 3 seconds at 8kHz sample rate (24,000 samples total)
+        - This appears to work to some degree, but may not be perfect
+        
+        KNOWN ISSUES / UNCERTAINTIES:
+        - The G.711ulaw conversion might have bugs (custom implementation, not using standard library)
+        - Audio might need to be sent in chunks rather than all at once
+        - Session management might be incorrect (open/close timing)
+        - The endpoint might require different headers or data format
+        - Quality or reliability may be poor
+        
+        If you can help improve this, please check:
+        - Hikvision ISAPI documentation for two-way audio streaming
+        - Standard G.711ulaw encoding libraries (pyaudio, wave, etc.)
+        - Compare with working audio streaming implementations
+        Any contributions welcome!
+        """
         import time
         import math
         
@@ -1048,13 +1075,18 @@ class HikvisionISAPI:
             
             _LOGGER.info("Generated %d bytes of audio", len(ulaw_data))
             
-            # Step 5: Send all audio in one request
-            _LOGGER.info("Sending audio to camera...")
+            # Step 5: Send all audio in one request (test with base64 encoding)
+            _LOGGER.info("Encoding audio as base64 and sending to camera...")
+            import base64
+            base64_data = base64.b64encode(bytes(ulaw_data)).decode('ascii')
+            _LOGGER.info("Base64 encoded length: %d characters", len(base64_data))
+            
             endpoint = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/audioData"
             response = requests.put(
                 endpoint,
                 auth=(self.username, self.password),
-                data=bytes(ulaw_data),
+                data=base64_data,
+                headers={"Content-Type": "application/base64"},
                 verify=False,
                 timeout=10
             )
@@ -2229,3 +2261,88 @@ class HikvisionISAPI:
                 "port": None,
                 "protocol": None
             }
+    
+    def get_supported_events(self):
+        """Get list of all supported events from Event/triggers API."""
+        from .models import EventInfo
+        from .const import EVENTS, EVENTS_ALTERNATE_ID, EVENT_IO
+        
+        events = []
+        
+        try:
+            xml = self._get("/ISAPI/Event/triggers")
+            
+            # Find EventNotification/EventTriggerList/EventTrigger or EventTriggerList/EventTrigger
+            event_notification = xml.find(f".//{XML_NS}EventNotification")
+            if event_notification is not None:
+                event_trigger_list = event_notification.find(f".//{XML_NS}EventTriggerList")
+            else:
+                event_trigger_list = xml.find(f".//{XML_NS}EventTriggerList")
+            
+            if event_trigger_list is None:
+                _LOGGER.warning("No EventTriggerList found in Event/triggers response")
+                return events
+            
+            event_triggers = event_trigger_list.findall(f".//{XML_NS}EventTrigger")
+            
+            for event_trigger in event_triggers:
+                # Get eventType
+                event_type_elem = event_trigger.find(f".//{XML_NS}eventType")
+                if event_type_elem is None or not event_type_elem.text:
+                    continue
+                
+                event_id = event_type_elem.text.strip().lower()
+                
+                # Handle alternate event type mapping
+                if event_id in EVENTS_ALTERNATE_ID:
+                    event_id = EVENTS_ALTERNATE_ID[event_id]
+                
+                # Skip if not in our supported events
+                if event_id not in EVENTS:
+                    continue
+                
+                # Get channel_id and io_port_id
+                channel_id = 0
+                io_port_id = 0
+                
+                if event_id == EVENT_IO:
+                    # I/O events use inputIOPortID
+                    io_port_elem = event_trigger.find(f".//{XML_NS}inputIOPortID")
+                    if io_port_elem is None or not io_port_elem.text:
+                        io_port_elem = event_trigger.find(f".//{XML_NS}dynInputIOPortID")
+                    if io_port_elem is not None and io_port_elem.text:
+                        io_port_id = int(io_port_elem.text.strip())
+                else:
+                    # Other events use videoInputChannelID
+                    channel_elem = event_trigger.find(f".//{XML_NS}videoInputChannelID")
+                    if channel_elem is None or not channel_elem.text:
+                        channel_elem = event_trigger.find(f".//{XML_NS}dynVideoInputChannelID")
+                    if channel_elem is not None and channel_elem.text:
+                        channel_id = int(channel_elem.text.strip())
+                
+                # Get notification methods to determine if event is disabled
+                notification_list = event_trigger.find(f".//{XML_NS}EventTriggerNotificationList")
+                notifications = []
+                disabled = False
+                if notification_list is not None:
+                    notification_elems = notification_list.findall(f".//{XML_NS}EventTriggerNotification")
+                    for notif in notification_elems:
+                        method_elem = notif.find(f".//{XML_NS}notificationMethod")
+                        if method_elem is not None and method_elem.text:
+                            notifications.append(method_elem.text.strip())
+                    # Event is disabled if "center" (Surveillance Center) is not in notifications
+                    disabled = "center" not in notifications
+                
+                events.append(EventInfo(
+                    id=event_id,
+                    channel_id=channel_id,
+                    io_port_id=io_port_id,
+                    disabled=disabled,
+                ))
+            
+            _LOGGER.info("Found %d supported events from Event/triggers", len(events))
+            return events
+            
+        except Exception as e:
+            _LOGGER.warning("Failed to get supported events from Event/triggers: %s", e)
+            return events
