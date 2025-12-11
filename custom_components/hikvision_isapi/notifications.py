@@ -57,7 +57,12 @@ class EventNotificationsView(HomeAssistantView):
             self.update_alert_channel(device_entry, alert)
             self.trigger_sensor(device_entry, alert)
         except Exception as ex:  # pylint: disable=broad-except
-            _LOGGER.error("Cannot process incoming event: %s", ex, exc_info=True)
+            # Log duration parsing failures at debug level to reduce noise
+            # These are expected when DurationList exists but relationEvent is missing
+            if "Cannot extract event type from DurationList" in str(ex):
+                _LOGGER.debug("Skipping duration event notification: %s", ex)
+            else:
+                _LOGGER.error("Cannot process incoming event: %s", ex, exc_info=True)
 
         response = web.Response(status=HTTPStatus.OK, content_type=CONTENT_TYPE_TEXT_PLAIN)
         return response
@@ -276,6 +281,12 @@ class EventNotificationsView(HomeAssistantView):
                         if relation_event is not None and relation_event.text:
                             event_id = relation_event.text.strip().lower()
                             _LOGGER.info("Extracted event type from DurationList (no namespace): %s", event_id)
+                
+                # If we still can't extract the event type, skip this notification
+                # This happens when DurationList exists but relationEvent is missing/invalid
+                if not event_id or event_id == "duration":
+                    _LOGGER.debug("Cannot extract event type from DurationList, skipping notification")
+                    raise ValueError("Cannot extract event type from DurationList")
             
             # Handle alternate event type mapping
             if EVENTS_ALTERNATE_ID.get(event_id):
@@ -382,15 +393,25 @@ class EventNotificationsView(HomeAssistantView):
         if entity_id:
             entity = self.hass.states.get(entity_id)
             if entity:
+                current_state = entity.state
+                
                 # Check activeState: "inactive" means event ended, otherwise it's starting/active
                 if alert.active_state and alert.active_state.lower() == "inactive":
-                    _LOGGER.info("Clearing entity: %s (event: %s, activeState: inactive)", entity_id, alert.event_id)
-                    self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
+                    # Only clear if currently ON (state change)
+                    if current_state == STATE_ON:
+                        _LOGGER.info("Clearing entity: %s (event: %s, activeState: inactive)", entity_id, alert.event_id)
+                        self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
+                    else:
+                        _LOGGER.debug("Entity %s already OFF, ignoring inactive notification", entity_id)
                 else:
-                    _LOGGER.info("Triggering entity: %s (event: %s, activeState: %s)", 
-                               entity_id, alert.event_id, alert.active_state or "active")
-                    self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
-                self.fire_hass_event(entry, alert)
+                    # Only trigger if currently OFF (state change) - prevents duplicate notifications during continuous detection
+                    if current_state == STATE_OFF:
+                        _LOGGER.info("Triggering entity: %s (event: %s, activeState: %s)", 
+                                   entity_id, alert.event_id, alert.active_state or "active")
+                        self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                        self.fire_hass_event(entry, alert)
+                    else:
+                        _LOGGER.debug("Entity %s already ON, ignoring duplicate active notification", entity_id)
                 return
         
         # Fallback: If lookup failed with channel_id=0, try with channel_id=1 (for single cameras)
@@ -408,16 +429,26 @@ class EventNotificationsView(HomeAssistantView):
                     if entity_id:
                         entity = self.hass.states.get(entity_id)
                         if entity:
+                            current_state = entity.state
+                            
                             # Check activeState: "inactive" means event ended, otherwise it's starting/active
                             if alert.active_state and alert.active_state.lower() == "inactive":
-                                _LOGGER.info("Clearing entity with fallback channel_id=%d: %s (event: %s, activeState: inactive)", 
-                                           camera_id, entity_id, alert.event_id)
-                                self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
+                                # Only clear if currently ON (state change)
+                                if current_state == STATE_ON:
+                                    _LOGGER.info("Clearing entity with fallback channel_id=%d: %s (event: %s, activeState: inactive)", 
+                                               camera_id, entity_id, alert.event_id)
+                                    self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
+                                else:
+                                    _LOGGER.debug("Entity %s already OFF, ignoring inactive notification", entity_id)
                             else:
-                                _LOGGER.info("Triggering entity with fallback channel_id=%d: %s (event: %s, activeState: %s)", 
-                                           camera_id, entity_id, alert.event_id, alert.active_state or "active")
-                                self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
-                            self.fire_hass_event(entry, alert)
+                                # Only trigger if currently OFF (state change) - prevents duplicate notifications during continuous detection
+                                if current_state == STATE_OFF:
+                                    _LOGGER.info("Triggering entity with fallback channel_id=%d: %s (event: %s, activeState: %s)", 
+                                               camera_id, entity_id, alert.event_id, alert.active_state or "active")
+                                    self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                                    self.fire_hass_event(entry, alert)
+                                else:
+                                    _LOGGER.debug("Entity %s already ON, ignoring duplicate active notification", entity_id)
                             return
         
         raise ValueError(f"Entity not found {unique_id}")
