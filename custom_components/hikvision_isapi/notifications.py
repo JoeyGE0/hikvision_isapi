@@ -361,7 +361,29 @@ class EventNotificationsView(HomeAssistantView):
                 active_state=active_state,
             )
         except Exception as e:
-            _LOGGER.error("Failed to parse event notification: %s", e)
+            # DurationList errors are expected - log as warning with XML detail
+            if "Cannot extract event type from DurationList" in str(e):
+                # Try to get alert XML if available, otherwise use raw XML
+                try:
+                    root = ET.fromstring(xml)
+                    alert = root.find(".//EventNotificationAlert")
+                    if alert is None:
+                        alert = root
+                    alert_xml = ET.tostring(alert, encoding='unicode')[:500]
+                    _LOGGER.warning(
+                        "Cannot extract event type from DurationList (expected for some camera notifications). "
+                        "Alert XML: %s",
+                        alert_xml
+                    )
+                except:
+                    xml_snippet = xml[:500] if len(xml) > 500 else xml
+                    _LOGGER.warning(
+                        "Cannot extract event type from DurationList (expected for some camera notifications). "
+                        "Raw XML: %s",
+                        xml_snippet
+                    )
+            else:
+                _LOGGER.error("Failed to parse event notification: %s", e)
             raise
 
     def trigger_sensor(self, entry, alert: AlertInfo) -> None:
