@@ -363,24 +363,49 @@ class EventNotificationsView(HomeAssistantView):
         except Exception as e:
             # DurationList errors are expected - log as warning with XML detail
             if "Cannot extract event type from DurationList" in str(e):
-                # Try to get alert XML if available, otherwise use raw XML
+                # Try to extract and show DurationList section specifically
                 try:
                     root = ET.fromstring(xml)
                     alert = root.find(".//EventNotificationAlert")
                     if alert is None:
                         alert = root
-                    alert_xml = ET.tostring(alert, encoding='unicode')[:500]
+                    
+                    # Try to find DurationList with namespace
+                    XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+                    duration_list = alert.find(f".//{XML_NS}DurationList")
+                    if duration_list is None:
+                        # Try without namespace
+                        duration_list = alert.find(".//DurationList")
+                    if duration_list is None:
+                        # Try with ISAPI namespace (some cameras use this)
+                        isapi_ns = "{http://www.isapi.org/ver20/XMLSchema}"
+                        duration_list = alert.find(f".//{isapi_ns}DurationList")
+                    
+                    if duration_list is not None:
+                        duration_xml = ET.tostring(duration_list, encoding='unicode')
+                        event_type_elem = alert.find(f".//{XML_NS}eventType")
+                        if event_type_elem is None:
+                            event_type_elem = alert.find(".//eventType")
+                        event_type = event_type_elem.text if event_type_elem is not None and event_type_elem.text else "missing"
+                        _LOGGER.warning(
+                            "Cannot extract event type from DurationList (expected for some camera notifications). "
+                            "eventType=%s, DurationList XML: %s",
+                            event_type, duration_xml
+                        )
+                    else:
+                        # DurationList not found at all
+                        alert_xml = ET.tostring(alert, encoding='unicode')[:800]
+                        _LOGGER.warning(
+                            "Cannot extract event type from DurationList - DurationList element not found. "
+                            "Alert XML (first 800 chars): %s",
+                            alert_xml
+                        )
+                except Exception as parse_err:
+                    xml_snippet = xml[:800] if len(xml) > 800 else xml
                     _LOGGER.warning(
                         "Cannot extract event type from DurationList (expected for some camera notifications). "
-                        "Alert XML: %s",
-                        alert_xml
-                    )
-                except:
-                    xml_snippet = xml[:500] if len(xml) > 500 else xml
-                    _LOGGER.warning(
-                        "Cannot extract event type from DurationList (expected for some camera notifications). "
-                        "Raw XML: %s",
-                        xml_snippet
+                        "Failed to parse XML for detail. Raw XML (first 800 chars): %s, Parse error: %s",
+                        xml_snippet, parse_err
                     )
             else:
                 _LOGGER.error("Failed to parse event notification: %s", e)
