@@ -1,12 +1,9 @@
 """Media player platform for Hikvision ISAPI."""
 import asyncio
 import logging
-import io
 from typing import Any
-from urllib.parse import urlparse
 
 import requests
-from pydub import AudioSegment
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
@@ -47,29 +44,11 @@ async def async_setup_entry(
 class HikvisionMediaPlayer(MediaPlayerEntity):
     """Media player entity for Hikvision camera speaker.
     
-    ⚠️ WARNING: THIS MEDIA PLAYER DOES NOT WORK ⚠️
+    Supports only pre-encoded G.711ulaw audio files:
+    - WAV files with G.711ulaw codec (8kHz, mono)
+    - Raw G.711ulaw files (.ulaw, .pcm)
     
-    NOTE FOR DEVELOPERS: This media player implementation is broken and does not function correctly.
-    If you have experience with Hikvision ISAPI two-way audio or G.711 codec streaming,
-    your help would be greatly appreciated to fix this implementation!
-    
-    WHAT WAS ATTEMPTED (AI-generated, not 100% certain):
-    - The camera supports two-way audio via ISAPI endpoint /ISAPI/System/TwoWayAudio/channels/1
-    - Audio must be converted to G.711ulaw format (8kHz sample rate) before streaming
-    - The implementation attempts to:
-      1. Enable two-way audio channel via PUT request with XML config
-      2. Convert input audio (from TTS, media files, URLs) to G.711ulaw using pydub
-      3. Stream audio data to /ISAPI/System/TwoWayAudio/channels/1/audioData endpoint
-    
-    KNOWN PROBLEMS:
-    - Session management is probably wrong (opening/closing sessions properly)
-    - Audio chunking might be required instead of sending all at once
-    - The endpoint might require specific headers or authentication tokens
-    - Real-time streaming vs batch upload approach is unclear
-    - The entire implementation may need to be rewritten
-    
-    If you can help fix this, please check the Hikvision ISAPI documentation for two-way audio
-    and compare with working implementations. Any contributions welcome!
+    No audio conversion is performed - files must already be in G.711ulaw format.
     """
 
     _attr_supported_features = (
@@ -190,17 +169,17 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             # Get audio data
             audio_data = await self._get_audio_data(media_id, media_type)
             if not audio_data:
-                _LOGGER.error("Failed to get audio data")
+                _LOGGER.error("Failed to get audio data for: %s", media_id)
                 await self.async_media_stop()
                 return
             
-            # Convert to G.711ulaw
+            # Extract G.711ulaw data (no conversion - must be pre-encoded)
             ulaw_data = await self.hass.async_add_executor_job(
-                self._convert_to_ulaw, audio_data
+                self._extract_ulaw_data, audio_data, media_id
             )
             
             if not ulaw_data:
-                _LOGGER.error("Failed to convert audio to G.711ulaw")
+                _LOGGER.error("File is not in G.711ulaw format. Only pre-encoded G.711ulaw WAV files or raw ulaw files are supported.")
                 await self.async_media_stop()
                 return
             
@@ -213,7 +192,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             await self.async_media_stop()
             
         except Exception as e:
-            _LOGGER.error("Error streaming audio: %s", e)
+            _LOGGER.error("Error streaming audio: %s", e, exc_info=True)
             await self.async_media_stop()
     
     async def _get_audio_data(self, media_id: str, media_type: str) -> bytes | None:
@@ -239,14 +218,26 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                             media_url = media_url.split("?")[0]
                         
                         # For local media files, read directly from filesystem (no auth needed)
+                        # Home Assistant serves local media from /media/local/ which maps to www/ directory
                         if media_url.startswith("/media/local/"):
-                            media_path = media_url.replace("/media/local/", "")
-                            
                             import os
+                            
                             def read_media_file():
                                 config_dir = self.hass.config.config_dir
+                                # Extract path after /media/local/
+                                media_path = media_url.replace("/media/local/", "").lstrip("/")
                                 # Home Assistant serves /media/local/ from www/ directory
                                 file_path = os.path.join(config_dir, "www", media_path)
+                                
+                                # Normalize path to prevent directory traversal
+                                file_path = os.path.normpath(file_path)
+                                www_dir = os.path.normpath(os.path.join(config_dir, "www"))
+                                
+                                # Security check: ensure file is within www directory
+                                if not file_path.startswith(www_dir):
+                                    _LOGGER.error("Invalid media path (security check failed): %s", file_path)
+                                    return None
+                                
                                 if os.path.exists(file_path) and os.path.isfile(file_path):
                                     _LOGGER.info("Reading media file: %s", file_path)
                                     with open(file_path, 'rb') as f:
@@ -353,35 +344,115 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Failed to get audio data: %s", e)
             return None
     
-    def _convert_to_ulaw(self, audio_data: bytes) -> bytes | None:
-        """Convert audio to G.711ulaw format."""
+    def _extract_ulaw_data(self, audio_data: bytes, media_id: str = "") -> bytes | None:
+        """Extract G.711ulaw audio data from file.
+        
+        Supports:
+        - WAV files with G.711ulaw codec (codec ID 0x0007)
+        - Raw G.711ulaw files (no header)
+        
+        Returns raw ulaw audio data (no WAV header) or None if format is not supported.
+        """
+        if len(audio_data) < 12:
+            _LOGGER.error("File too small to be valid audio")
+            return None
+        
+        # Check if it's a WAV file (starts with "RIFF" and "WAVE")
+        if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
+            return self._extract_ulaw_from_wav(audio_data)
+        
+        # Check file extension for raw ulaw files
+        if media_id:
+            media_lower = media_id.lower()
+            if media_lower.endswith('.ulaw') or media_lower.endswith('.pcm'):
+                _LOGGER.info("Treating as raw G.711ulaw file")
+                return audio_data
+        
+        # If it's not a WAV and not a known raw format, try to detect if it's raw ulaw
+        # (no header, just raw data - this is a guess)
+        if len(audio_data) > 1000:  # Reasonable size for audio
+            _LOGGER.warning("File doesn't appear to be WAV or raw ulaw. Attempting as raw ulaw...")
+            return audio_data
+        
+        _LOGGER.error("Unsupported audio format. Only G.711ulaw WAV files or raw ulaw files are supported.")
+        return None
+    
+    def _extract_ulaw_from_wav(self, wav_data: bytes) -> bytes | None:
+        """Extract raw G.711ulaw audio data from WAV file.
+        
+        WAV format:
+        - Offset 0-3: "RIFF"
+        - Offset 8-11: "WAVE"
+        - Offset 20-21: Audio format code (0x0007 = G.711ulaw, 0x0006 = G.711alaw)
+        - Offset 22-23: Number of channels (should be 1 for mono)
+        - Offset 24-27: Sample rate (should be 8000 for G.711)
+        - After "data" chunk: Raw audio data
+        """
         try:
-            # Load audio
-            audio = AudioSegment.from_file(io.BytesIO(audio_data))
+            # Check WAV header
+            if wav_data[:4] != b'RIFF' or wav_data[8:12] != b'WAVE':
+                _LOGGER.error("Not a valid WAV file")
+                return None
             
-            # Convert to mono, 8000Hz (G.711 requirements)
-            audio = audio.set_channels(1).set_frame_rate(8000)
+            # Find audio format code (offset 20-21)
+            if len(wav_data) < 22:
+                _LOGGER.error("WAV file too small")
+                return None
             
-            # Export as raw PCM 16-bit
-            pcm_data = io.BytesIO()
-            audio.export(pcm_data, format="raw", parameters=["-acodec", "pcm_s16le"])
-            pcm_bytes = pcm_data.getvalue()
+            audio_format = int.from_bytes(wav_data[20:22], byteorder='little')
             
-            # Convert PCM to G.711ulaw using audioop
-            try:
-                import audioop
-                ulaw_data = audioop.lin2ulaw(pcm_bytes, 2)  # 2 = 16-bit
-                return ulaw_data
-            except ImportError:
-                # audioop not available, try alternative
-                _LOGGER.warning("audioop not available, using pydub export")
-                # Export directly as ulaw using ffmpeg (if available via pydub)
-                ulaw_io = io.BytesIO()
-                audio.export(ulaw_io, format="ulaw")
-                return ulaw_io.getvalue()
+            # Check if it's G.711ulaw (0x0007) or G.711alaw (0x0006)
+            if audio_format == 0x0007:  # G.711ulaw
+                codec_name = "G.711ulaw"
+            elif audio_format == 0x0006:  # G.711alaw
+                _LOGGER.error("File is G.711alaw, but camera requires G.711ulaw")
+                return None
+            else:
+                _LOGGER.error("WAV file is not G.711ulaw format (codec: 0x%04x). Only G.711ulaw (0x0007) is supported.", audio_format)
+                return None
+            
+            # Check channels (offset 22-23) - should be 1 (mono)
+            channels = int.from_bytes(wav_data[22:24], byteorder='little')
+            if channels != 1:
+                _LOGGER.warning("WAV file has %d channels, expected 1 (mono). Proceeding anyway...", channels)
+            
+            # Check sample rate (offset 24-27) - should be 8000 for G.711
+            sample_rate = int.from_bytes(wav_data[24:28], byteorder='little')
+            if sample_rate != 8000:
+                _LOGGER.warning("WAV file sample rate is %d Hz, expected 8000 Hz. Proceeding anyway...", sample_rate)
+            
+            _LOGGER.info("Detected %s WAV file (%d channels, %d Hz)", codec_name, channels, sample_rate)
+            
+            # Find "data" chunk and extract raw audio
+            # WAV format: chunks start at offset 12
+            offset = 12
+            while offset < len(wav_data) - 8:
+                chunk_id = wav_data[offset:offset+4]
+                chunk_size = int.from_bytes(wav_data[offset+4:offset+8], byteorder='little')
+                
+                if chunk_id == b'data':
+                    # Found data chunk - extract raw audio
+                    data_start = offset + 8
+                    data_end = data_start + chunk_size
+                    if data_end > len(wav_data):
+                        _LOGGER.warning("Data chunk extends beyond file, using available data")
+                        data_end = len(wav_data)
+                    
+                    raw_audio = wav_data[data_start:data_end]
+                    _LOGGER.info("Extracted %d bytes of raw G.711ulaw audio from WAV file", len(raw_audio))
+                    return raw_audio
+                
+                # Move to next chunk
+                offset += 8 + chunk_size
+                # Align to even boundary
+                if offset % 2:
+                    offset += 1
+            
+            _LOGGER.error("Could not find 'data' chunk in WAV file")
+            return None
             
         except Exception as e:
-            _LOGGER.error("Failed to convert audio: %s", e)
+            _LOGGER.error("Failed to extract ulaw from WAV: %s", e)
             return None
     
     def _send_audio_stream(self, ulaw_data: bytes):
@@ -517,9 +588,11 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         media_content_type: MediaType | str | None = None,
         media_content_id: str | None = None,
     ) -> BrowseMedia:
-        """Browse media."""
+        """Browse media - shows audio files from media source."""
         from homeassistant.components.media_source import async_browse_media
         
+        # Home Assistant's async_browse_media only accepts hass and media_content_id
+        # It will automatically filter and show available media sources
         return await async_browse_media(
             self.hass,
             media_content_id,
