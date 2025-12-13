@@ -403,7 +403,14 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                     data_start = offset + 8
                     data_end = data_start + chunk_size
                     if data_end > len(wav_data):
-                        _LOGGER.warning("Data chunk extends beyond file, using available data")
+                        # WAV header says there's more data than exists - file might be truncated or header is wrong
+                        expected_bytes = chunk_size
+                        available_bytes = len(wav_data) - data_start
+                        _LOGGER.warning(
+                            "WAV file data chunk header claims %d bytes, but only %d bytes available in file. "
+                            "Using available data (file may be truncated or header incorrect).",
+                            expected_bytes, available_bytes
+                        )
                         data_end = len(wav_data)
                     
                     raw_audio = wav_data[data_start:data_end]
@@ -445,6 +452,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             # Use the audioData endpoint with PUT
             # According to ISAPI PDF: sessionId is a query parameter (required for multi-channel, optional for single channel)
             endpoint = f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/audioData?sessionId={session_id}"
+            _LOGGER.debug("Using audioData endpoint: %s", endpoint)
             
             # Chunk size: 160 bytes = 20ms of audio at 8kHz (8000 bytes/sec)
             # G.711ulaw: 1 byte per sample, 8000 samples/sec = 8000 bytes/sec
@@ -472,18 +480,26 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                     chunk = chunk + (b'\x7F' * (chunk_size - len(chunk)))  # 0x7F is silence in ulaw
                 
                 try:
-                    # Use stream=True to not block on response, short timeout
                     # According to ISAPI PDF: Content-Type should be application/octet-stream
                     response = session.put(
                         endpoint,
                         data=chunk,
                         headers={"Content-Type": "application/octet-stream"},
-                        timeout=0.3,  # Short timeout - timeouts are OK, camera is processing
-                        stream=True  # Don't read response immediately
+                        timeout=2.0,  # Increased timeout to see actual responses
+                        stream=False  # Read response to check for errors
                     )
                     
-                    # Don't check status immediately - just continue streaming
-                    # Timeouts are expected and OK - camera is processing audio
+                    # Check response status - camera should return 200 OK for each chunk
+                    if response.status_code != 200:
+                        _LOGGER.warning(
+                            "Camera returned status %d for audio chunk at byte %d: %s",
+                            response.status_code, sent_bytes, response.text[:200]
+                        )
+                        # Continue anyway - might still work
+                    elif i == 0:
+                        # Log success on first chunk to confirm endpoint is working
+                        _LOGGER.info("First audio chunk accepted by camera (status 200)")
+                    
                     sent_bytes += len(chunk)
                     
                     # Log progress every second (50 chunks)
@@ -495,19 +511,30 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                     time.sleep(sleep_time)
                     
                 except requests.exceptions.Timeout:
-                    # Timeout is OK - camera is processing, continue streaming
+                    _LOGGER.warning("Timeout sending audio chunk at byte %d (camera may be processing)", sent_bytes)
                     sent_bytes += len(chunk)
                     time.sleep(sleep_time)
                     continue
+                except requests.exceptions.HTTPError as e:
+                    _LOGGER.error("HTTP error sending audio chunk at byte %d: %s - %s", 
+                                 sent_bytes, e, response.text[:200] if 'response' in locals() else 'No response')
+                    # Stop on HTTP errors - camera is rejecting the data
+                    break
                 except Exception as e:
-                    _LOGGER.warning("Error sending audio chunk at %d bytes: %s", sent_bytes, e)
-                    # Continue anyway - might still work
-                    sent_bytes += len(chunk)
-                    time.sleep(sleep_time)
+                    _LOGGER.error("Error sending audio chunk at %d bytes: %s", sent_bytes, e, exc_info=True)
+                    # Stop on unexpected errors
+                    break
             
-            _LOGGER.info("Audio streaming complete: sent %d/%d bytes", sent_bytes, len(ulaw_data))
+            if sent_bytes < len(ulaw_data):
+                _LOGGER.warning("Audio streaming incomplete: sent %d/%d bytes (%.1f%%)", 
+                               sent_bytes, len(ulaw_data), (sent_bytes / len(ulaw_data)) * 100)
+            else:
+                _LOGGER.info("Audio streaming complete: sent %d/%d bytes", sent_bytes, len(ulaw_data))
             
             session.close()
+            
+            # Small delay before closing session to let camera process final chunks
+            time.sleep(0.1)
                 
         except Exception as e:
             _LOGGER.error("Failed to send audio stream: %s", e)
