@@ -127,5 +127,6 @@ class HikvisionTestAudioAlarmButton(ButtonEntity):
         if success:
             _LOGGER.info("Audio alarm test triggered successfully")
         else:
-            _LOGGER.warning("Failed to trigger audio alarm test - endpoint may not be available")
+            # Error details are already logged by test_audio_alarm() method
+            _LOGGER.debug("Audio alarm test failed - check logs above for camera error message")
 

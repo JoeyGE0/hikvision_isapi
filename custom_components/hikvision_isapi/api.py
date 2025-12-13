@@ -13,6 +13,80 @@ _LOGGER = logging.getLogger(__name__)
 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
 
 
+def _extract_error_message(response) -> str:
+    """Extract error message from camera response (XML or JSON)."""
+    try:
+        text = response.text
+        if not text:
+            return ""
+        
+        # Try JSON first
+        try:
+            data = json.loads(text)
+            # Check common JSON error fields (statusString is user-friendly summary, errorMsg is detailed)
+            if isinstance(data, dict):
+                status_string = data.get("ResponseStatus", {}).get("statusString") or data.get("statusString") or ""
+                error_msg = data.get("errorMsg") or ""
+                
+                # Prefer statusString if it's meaningful, otherwise use errorMsg
+                if status_string and status_string.strip():
+                    # If we also have errorMsg, try to find a relevant part
+                    if error_msg:
+                        # Look for common error patterns in errorMsg
+                        error_parts = [e.strip() for e in error_msg.split(";") if e.strip()]
+                        # Filter for relevant errors (not just technical details)
+                        relevant_errors = []
+                        for e in error_parts:
+                            e_lower = e.lower()
+                            # Check for specific patterns
+                            if "remain_path=audiodata" in e_lower or "remain_path=audio" in e_lower:
+                                relevant_errors.append("Two-way audio is in progress")
+                            elif any(keyword in e_lower for keyword in [
+                                "two-way audio", "busy", "in progress", 
+                                "not support", "not allowed", "permission", "forbidden"
+                            ]):
+                                relevant_errors.append(e)
+                        
+                        if relevant_errors:
+                            return f"{status_string}: {relevant_errors[0]}"
+                    return status_string
+                elif error_msg and error_msg.strip():
+                    # Clean up errorMsg - it can be very long with multiple errors separated by semicolons
+                    errors = [e.strip() for e in error_msg.split(";") if e.strip()]
+                    if errors:
+                        # Return first error, or first 200 chars if single long error
+                        result = errors[0] if len(errors[0]) < 200 else errors[0][:200]
+                        if len(errors) > 1:
+                            result += f" (+{len(errors)-1} more)"
+                        return result
+                
+                # Fallback to other fields
+                other_msg = data.get("errorMessage") or data.get("message") or data.get("error") or ""
+                if other_msg and other_msg.strip() and other_msg != "{}":
+                    return other_msg
+        except (json.JSONDecodeError, ValueError):
+            pass
+        
+        # Try XML
+        try:
+            root = ET.fromstring(text)
+            # Check common XML error elements
+            for ns in [XML_NS, "{http://www.isapi.org/ver20/XMLSchema}", ""]:
+                status_string = root.find(f".//{ns}statusString")
+                if status_string is not None and status_string.text:
+                    return status_string.text.strip()
+                error_msg = root.find(f".//{ns}errorMessage")
+                if error_msg is not None and error_msg.text:
+                    return error_msg.text.strip()
+        except ET.ParseError:
+            pass
+        
+        # Fallback: return first 200 chars of response
+        return text[:200].strip() if text else ""
+    except Exception:
+        return ""
+
+
 class AuthenticationError(Exception):
     """Raised when authentication fails."""
     pass
@@ -1714,12 +1788,36 @@ class HikvisionISAPI:
             )
             response.raise_for_status()
             return response.content
+        except requests.exceptions.HTTPError as e:
+            # Handle specific HTTP errors with more context
+            error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
+            if e.response.status_code == 503:
+                if error_msg:
+                    _LOGGER.debug("Failed to get snapshot: Service Unavailable (503) - %s", error_msg)
+                else:
+                    _LOGGER.debug("Failed to get snapshot: Service Unavailable (503) - camera may be busy with another operation (e.g., two-way audio, streaming, or processing)")
+            elif e.response.status_code == 401:
+                if error_msg:
+                    _LOGGER.error("Failed to get snapshot: Authentication failed (401) - %s", error_msg)
+                else:
+                    _LOGGER.error("Failed to get snapshot: Authentication failed (401) - check username and password")
+            elif e.response.status_code == 403:
+                if error_msg:
+                    _LOGGER.debug("Failed to get snapshot: Access forbidden (403) - %s", error_msg)
+                else:
+                    _LOGGER.debug("Failed to get snapshot: Access forbidden (403) - user may not have required permissions")
+            else:
+                if error_msg:
+                    _LOGGER.warning("Failed to get snapshot: HTTP %d - %s", e.response.status_code, error_msg)
+                else:
+                    _LOGGER.warning("Failed to get snapshot: HTTP %d - %s", e.response.status_code, e)
+            return None
         except Exception as e:
             # Connection errors are expected during camera restarts - log as debug
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
                 _LOGGER.debug("Failed to get snapshot (camera may be restarting): %s", e)
             else:
-                _LOGGER.error("Failed to get snapshot: %s", e)
+                _LOGGER.warning("Failed to get snapshot: %s", e)
             return None
 
     def get_camera_streams(self, channel_id: int) -> list[dict]:
@@ -2692,9 +2790,7 @@ class HikvisionISAPI:
                 _LOGGER.debug("Audio alarm endpoint not found (404) - feature may not be supported")
                 return None
             response.raise_for_status()
-            data = json.loads(response.text)
-            _LOGGER.debug("Successfully retrieved audio alarm config: %s", data.get("AudioAlarm", {}).get("audioClass", "unknown"))
-            return data
+            return json.loads(response.text)
         except Exception as e:
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
                 _LOGGER.debug("Failed to get audio alarm (camera may be restarting): %s", e)
@@ -2746,8 +2842,6 @@ class HikvisionISAPI:
                 _LOGGER.error("Access forbidden - user '%s' may not have required permissions (403)", self.username)
                 return False
             response.raise_for_status()
-            _LOGGER.debug("Successfully set audio alarm config (audioClass=%s, alertAudioID=%s, audioVolume=%s, alarmTimes=%s)",
-                         audio_class, alert_audio_id, audio_volume, alarm_times)
             return True
         except Exception as e:
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
@@ -2771,14 +2865,21 @@ class HikvisionISAPI:
                 timeout=10
             )
             if response.status_code == 200:
-                _LOGGER.debug("Successfully triggered audio alarm test via test endpoint")
                 return True
-            elif response.status_code == 403:
-                _LOGGER.debug("Audio alarm test endpoint not accessible (403)")
-            elif response.status_code == 404:
-                _LOGGER.debug("Audio alarm test endpoint not found (404)")
             else:
-                _LOGGER.debug("Audio alarm test returned status %d", response.status_code)
+                error_msg = _extract_error_message(response)
+                if response.status_code == 403:
+                    if error_msg:
+                        _LOGGER.debug("Audio alarm test endpoint not accessible (403): %s", error_msg)
+                    else:
+                        _LOGGER.debug("Audio alarm test endpoint not accessible (403)")
+                elif response.status_code == 404:
+                    _LOGGER.debug("Audio alarm test endpoint not found (404)")
+                else:
+                    if error_msg:
+                        _LOGGER.debug("Audio alarm test returned status %d: %s", response.status_code, error_msg)
+                    else:
+                        _LOGGER.debug("Audio alarm test returned status %d", response.status_code)
             
             # If test endpoint doesn't work, try trigger endpoint
             url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm/trigger?format=json"
@@ -2790,14 +2891,21 @@ class HikvisionISAPI:
                 timeout=10
             )
             if response.status_code == 200:
-                _LOGGER.debug("Successfully triggered audio alarm test via trigger endpoint")
                 return True
-            elif response.status_code == 403:
-                _LOGGER.debug("Audio alarm trigger endpoint not accessible (403)")
-            elif response.status_code == 404:
-                _LOGGER.debug("Audio alarm trigger endpoint not found (404)")
             else:
-                _LOGGER.debug("Audio alarm trigger returned status %d", response.status_code)
+                error_msg = _extract_error_message(response)
+                if response.status_code == 403:
+                    if error_msg:
+                        _LOGGER.debug("Audio alarm trigger endpoint not accessible (403): %s", error_msg)
+                    else:
+                        _LOGGER.debug("Audio alarm trigger endpoint not accessible (403)")
+                elif response.status_code == 404:
+                    _LOGGER.debug("Audio alarm trigger endpoint not found (404)")
+                else:
+                    if error_msg:
+                        _LOGGER.debug("Audio alarm trigger returned status %d: %s", response.status_code, error_msg)
+                    else:
+                        _LOGGER.debug("Audio alarm trigger returned status %d", response.status_code)
             
             return False
         except Exception as e:
