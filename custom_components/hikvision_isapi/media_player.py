@@ -214,18 +214,25 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         # Use the resolved URL
                         # According to Home Assistant docs: files in /media/ are protected by authentication
                         # So we should download via HTTP with authentication, not read directly from filesystem
-                        media_url = resolved_media.url
-                        _LOGGER.debug("Processing media URL: %s", media_url)
+                        resolved_url = resolved_media.url
+                        _LOGGER.debug("Processing resolved media URL: %s", resolved_url)
                         
                         # Remove any query parameters
-                        if "?" in media_url:
-                            media_url = media_url.split("?")[0]
+                        if "?" in resolved_url:
+                            resolved_url = resolved_url.split("?")[0]
                         
-                        # Convert relative URLs to absolute URLs
-                        if media_url.startswith("/"):
-                            base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
-                            base_url = base_url.rstrip("/")
-                            media_url = f"{base_url}{media_url}"
+                        # Extract the path from the resolved URL (might be full URL or relative)
+                        from urllib.parse import urlparse
+                        parsed = urlparse(resolved_url)
+                        media_path = parsed.path  # This will be like "/media/local/filename.wav"
+                        
+                        # Always use internal URL for authenticated access
+                        # External URLs require authentication that async_get_clientsession doesn't provide
+                        # Internal URLs work with async_get_clientsession's automatic auth
+                        base_url = self.hass.config.internal_url or "http://localhost:8123"
+                        base_url = base_url.rstrip("/")
+                        media_url = f"{base_url}{media_path}"
+                        _LOGGER.debug("Using internal URL for media: %s (from resolved: %s)", media_url, resolved_url)
                         
                         if not media_url.startswith("http://") and not media_url.startswith("https://"):
                             _LOGGER.error("Invalid URL format: %s", media_url)
