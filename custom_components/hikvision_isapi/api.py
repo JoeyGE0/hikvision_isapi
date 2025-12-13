@@ -2855,8 +2855,21 @@ class HikvisionISAPI:
     def test_audio_alarm(self) -> bool:
         """Test/trigger audio alarm playback."""
         try:
-            # Try the test endpoint
-            url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm/test?format=json"
+            # Get current audio alarm config to get the audioID
+            current = self.get_audio_alarm()
+            if not current or "AudioAlarm" not in current:
+                _LOGGER.debug("Cannot test audio alarm - failed to get current configuration")
+                return False
+            
+            audio_alarm = current["AudioAlarm"]
+            # Use audioID if available, otherwise use alertAudioID
+            audio_id = audio_alarm.get("audioID") or audio_alarm.get("alertAudioID")
+            if not audio_id:
+                _LOGGER.debug("Cannot test audio alarm - no audioID found in configuration")
+                return False
+            
+            # The test endpoint requires the audioID in the path: /AudioAlarm/{audioID}/test
+            url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm/{audio_id}/test?format=json"
             response = requests.put(
                 url,
                 json={},
@@ -2880,32 +2893,6 @@ class HikvisionISAPI:
                         _LOGGER.debug("Audio alarm test returned status %d: %s", response.status_code, error_msg)
                     else:
                         _LOGGER.debug("Audio alarm test returned status %d", response.status_code)
-            
-            # If test endpoint doesn't work, try trigger endpoint
-            url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm/trigger?format=json"
-            response = requests.post(
-                url,
-                json={},
-                auth=(self.username, self.password),
-                verify=False,
-                timeout=10
-            )
-            if response.status_code == 200:
-                return True
-            else:
-                error_msg = _extract_error_message(response)
-                if response.status_code == 403:
-                    if error_msg:
-                        _LOGGER.debug("Audio alarm trigger endpoint not accessible (403): %s", error_msg)
-                    else:
-                        _LOGGER.debug("Audio alarm trigger endpoint not accessible (403)")
-                elif response.status_code == 404:
-                    _LOGGER.debug("Audio alarm trigger endpoint not found (404)")
-                else:
-                    if error_msg:
-                        _LOGGER.debug("Audio alarm trigger returned status %d: %s", response.status_code, error_msg)
-                    else:
-                        _LOGGER.debug("Audio alarm trigger returned status %d", response.status_code)
             
             return False
         except Exception as e:
