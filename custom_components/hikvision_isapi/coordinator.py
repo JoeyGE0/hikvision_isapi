@@ -81,6 +81,8 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             audio_alarm_data = await self.hass.async_add_executor_job(
                 self.api.get_audio_alarm
             )
+            if audio_alarm_data:
+                _LOGGER.debug("Retrieved audio alarm config: %s", audio_alarm_data.get("AudioAlarm", {}).get("audioClass", "unknown"))
             system_status = await self.hass.async_add_executor_job(
                 self.api.get_system_status
             )

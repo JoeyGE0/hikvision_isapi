@@ -2692,7 +2692,9 @@ class HikvisionISAPI:
                 _LOGGER.debug("Audio alarm endpoint not found (404) - feature may not be supported")
                 return None
             response.raise_for_status()
-            return json.loads(response.text)
+            data = json.loads(response.text)
+            _LOGGER.debug("Successfully retrieved audio alarm config: %s", data.get("AudioAlarm", {}).get("audioClass", "unknown"))
+            return data
         except Exception as e:
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
                 _LOGGER.debug("Failed to get audio alarm (camera may be restarting): %s", e)
@@ -2744,6 +2746,8 @@ class HikvisionISAPI:
                 _LOGGER.error("Access forbidden - user '%s' may not have required permissions (403)", self.username)
                 return False
             response.raise_for_status()
+            _LOGGER.debug("Successfully set audio alarm config (audioClass=%s, alertAudioID=%s, audioVolume=%s, alarmTimes=%s)",
+                         audio_class, alert_audio_id, audio_volume, alarm_times)
             return True
         except Exception as e:
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
@@ -2767,6 +2771,7 @@ class HikvisionISAPI:
                 timeout=10
             )
             if response.status_code == 200:
+                _LOGGER.debug("Successfully triggered audio alarm test via test endpoint")
                 return True
             elif response.status_code == 403:
                 _LOGGER.debug("Audio alarm test endpoint not accessible (403)")
@@ -2785,6 +2790,7 @@ class HikvisionISAPI:
                 timeout=10
             )
             if response.status_code == 200:
+                _LOGGER.debug("Successfully triggered audio alarm test via trigger endpoint")
                 return True
             elif response.status_code == 403:
                 _LOGGER.debug("Audio alarm trigger endpoint not accessible (403)")
