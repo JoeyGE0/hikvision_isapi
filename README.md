@@ -20,7 +20,7 @@
 
 > **Early Development**: This integration is in early development. There are likely bugs and it's only been tested on DS-2CD2387G3 (ColorVu G3). Other models haven't been tested.
 
-> **Disclaimer**: mostly written with Cursor AI. I have no clue what I'm doing - help is appreciated
+> **Disclaimer**: mostly written with Cursor AI. I have no clue what I'm doing - help is appreciated 
 
 ### Known Issues
 

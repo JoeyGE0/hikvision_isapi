@@ -1,0 +1,6 @@
+isapi.pdf
+isapi.text
+__pycache__/
+camera_capabilities_*.json
+*.json
+

@@ -72,6 +72,12 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             white_light_time = await self.hass.async_add_executor_job(
                 self.api.get_white_light_time
             )
+            color_data = await self.hass.async_add_executor_job(
+                self.api.get_color
+            )
+            sharpness_data = await self.hass.async_add_executor_job(
+                self.api.get_sharpness
+            )
             system_status = await self.hass.async_add_executor_job(
                 self.api.get_system_status
             )
@@ -99,6 +105,8 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "region_entrance": region_entrance,
                 "region_exiting": region_exiting,
                 "white_light_time": white_light_time,
+                "color": color_data,
+                "sharpness": sharpness_data,
                 "system_status": system_status,
                 "streaming_status": streaming_status,
                 "alarm_input": alarm_input,

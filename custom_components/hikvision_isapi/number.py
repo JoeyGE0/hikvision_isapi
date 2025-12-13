@@ -39,6 +39,10 @@ async def async_setup_entry(
         HikvisionMotionSensitivityNumber(coordinator, api, entry, host, device_name),
         HikvisionMotionStartTriggerTimeNumber(coordinator, api, entry, host, device_name),
         HikvisionMotionEndTriggerTimeNumber(coordinator, api, entry, host, device_name),
+        HikvisionBrightnessNumber(coordinator, api, entry, host, device_name),
+        HikvisionContrastNumber(coordinator, api, entry, host, device_name),
+        HikvisionSaturationNumber(coordinator, api, entry, host, device_name),
+        HikvisionSharpnessNumber(coordinator, api, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -919,6 +923,293 @@ class HikvisionMotionEndTriggerTimeNumber(NumberEntity):
             await self.coordinator.async_request_refresh()
             if (self.coordinator.data and 
                 self.coordinator.data.get("motion", {}).get("endTriggerTime") == int(value)):
+                self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionBrightnessNumber(NumberEntity):
+    """Number entity for image brightness."""
+
+    _attr_unique_id = "hikvision_brightness"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:brightness-6"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the number entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Brightness"
+        self._attr_unique_id = f"{host}_brightness"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        if not self.available:
+            return None
+        if self.coordinator.data and "color" in self.coordinator.data:
+            brightness = self.coordinator.data["color"].get("brightness")
+            if brightness is not None:
+                return float(brightness)
+        return None
+
+    async def async_set_native_value(self, value: float):
+        """Set the value."""
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+        
+        success = await self.hass.async_add_executor_job(
+            self.api.set_brightness, int(value)
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+            if (self.coordinator.data and 
+                self.coordinator.data.get("color", {}).get("brightness") == int(value)):
+                self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionContrastNumber(NumberEntity):
+    """Number entity for image contrast."""
+
+    _attr_unique_id = "hikvision_contrast"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:contrast"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the number entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Contrast"
+        self._attr_unique_id = f"{host}_contrast"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        if not self.available:
+            return None
+        if self.coordinator.data and "color" in self.coordinator.data:
+            contrast = self.coordinator.data["color"].get("contrast")
+            if contrast is not None:
+                return float(contrast)
+        return None
+
+    async def async_set_native_value(self, value: float):
+        """Set the value."""
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+        
+        success = await self.hass.async_add_executor_job(
+            self.api.set_contrast, int(value)
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+            if (self.coordinator.data and 
+                self.coordinator.data.get("color", {}).get("contrast") == int(value)):
+                self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionSaturationNumber(NumberEntity):
+    """Number entity for image saturation."""
+
+    _attr_unique_id = "hikvision_saturation"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:palette"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the number entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Saturation"
+        self._attr_unique_id = f"{host}_saturation"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        if not self.available:
+            return None
+        if self.coordinator.data and "color" in self.coordinator.data:
+            saturation = self.coordinator.data["color"].get("saturation")
+            if saturation is not None:
+                return float(saturation)
+        return None
+
+    async def async_set_native_value(self, value: float):
+        """Set the value."""
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+        
+        success = await self.hass.async_add_executor_job(
+            self.api.set_saturation, int(value)
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+            if (self.coordinator.data and 
+                self.coordinator.data.get("color", {}).get("saturation") == int(value)):
+                self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class HikvisionSharpnessNumber(NumberEntity):
+    """Number entity for image sharpness."""
+
+    _attr_unique_id = "hikvision_sharpness"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:image-filter-center-focus"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the number entity."""
+        self.coordinator = coordinator
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Sharpness"
+        self._attr_unique_id = f"{host}_sharpness"
+        self._optimistic_value = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        
+        if not self.available:
+            return None
+        if self.coordinator.data and "sharpness" in self.coordinator.data:
+            sharpness = self.coordinator.data["sharpness"]
+            if sharpness is not None:
+                return float(sharpness)
+        return None
+
+    async def async_set_native_value(self, value: float):
+        """Set the value."""
+        self._optimistic_value = float(value)
+        self.async_write_ha_state()
+        
+        success = await self.hass.async_add_executor_job(
+            self.api.set_sharpness, int(value)
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+            if self.coordinator.data and self.coordinator.data.get("sharpness") == int(value):
                 self._optimistic_value = None
         else:
             self._optimistic_value = None

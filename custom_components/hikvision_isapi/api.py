@@ -546,6 +546,233 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set IR sensitivity: %s", e)
             return False
 
+    def get_color(self) -> dict:
+        """Get color settings (brightness, contrast, saturation)."""
+        try:
+            xml = self._get("/color")
+            result = {}
+            
+            brightness = xml.find(f".//{XML_NS}brightnessLevel")
+            if brightness is not None:
+                result["brightness"] = int(brightness.text.strip())
+            
+            contrast = xml.find(f".//{XML_NS}contrastLevel")
+            if contrast is not None:
+                result["contrast"] = int(contrast.text.strip())
+            
+            saturation = xml.find(f".//{XML_NS}saturationLevel")
+            if saturation is not None:
+                result["saturation"] = int(saturation.text.strip())
+            
+            return result
+        except Exception as e:
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get color settings (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get color settings: %s", e)
+            return {}
+
+    def set_brightness(self, brightness: int) -> bool:
+        """Set brightness level (0-100)."""
+        try:
+            # Get current settings first
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace brightnessLevel value
+            xml_str = re.sub(
+                r'<brightnessLevel>.*?</brightnessLevel>',
+                f'<brightnessLevel>{brightness}</brightnessLevel>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set brightness: %s", e)
+            return False
+
+    def set_contrast(self, contrast: int) -> bool:
+        """Set contrast level (0-100)."""
+        try:
+            # Get current settings first
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace contrastLevel value
+            xml_str = re.sub(
+                r'<contrastLevel>.*?</contrastLevel>',
+                f'<contrastLevel>{contrast}</contrastLevel>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set contrast: %s", e)
+            return False
+
+    def set_saturation(self, saturation: int) -> bool:
+        """Set saturation level (0-100)."""
+        try:
+            # Get current settings first
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace saturationLevel value
+            xml_str = re.sub(
+                r'<saturationLevel>.*?</saturationLevel>',
+                f'<saturationLevel>{saturation}</saturationLevel>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set saturation: %s", e)
+            return False
+
+    def get_sharpness(self) -> Optional[int]:
+        """Get sharpness level (0-100)."""
+        try:
+            xml = self._get("")
+            sharpness_elem = xml.find(f".//{XML_NS}Sharpness")
+            if sharpness_elem is not None:
+                level_elem = sharpness_elem.find(f".//{XML_NS}SharpnessLevel")
+                if level_elem is not None and level_elem.text:
+                    return int(level_elem.text.strip())
+            return None
+        except Exception as e:
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get sharpness (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get sharpness: %s", e)
+            return None
+
+    def set_sharpness(self, sharpness: int) -> bool:
+        """Set sharpness level (0-100)."""
+        try:
+            # Get current settings first
+            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            
+            # Replace SharpnessLevel value
+            xml_str = re.sub(
+                r'<SharpnessLevel>.*?</SharpnessLevel>',
+                f'<SharpnessLevel>{sharpness}</SharpnessLevel>',
+                xml_str
+            )
+            
+            # PUT updated XML
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set sharpness: %s", e)
+            return False
+
     def set_ircut_filter_time(self, filter_time: int) -> bool:
         """Set IR filter time (5-120 seconds)."""
         xml_data = f"<IrcutFilter><nightToDayFilterTime>{filter_time}</nightToDayFilterTime></IrcutFilter>"
