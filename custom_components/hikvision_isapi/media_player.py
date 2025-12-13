@@ -433,11 +433,14 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             return None
     
     def _send_audio_stream(self, ulaw_data: bytes):
-        """Send audio stream to camera using HTTP chunked transfer encoding.
+        """Send audio data to camera.
         
-        Uses a single PUT request with Transfer-Encoding: chunked to stream audio data
-        at the correct rate (8000 bytes/sec for G.711ulaw). This allows for live streaming
-        and future features like start/stop controls.
+        NOTE: Camera doesn't support HTTP chunked transfer encoding or multiple requests.
+        Must send all audio data in a single PUT request with Content-Length header.
+        This matches how play_test_tone() works and what the ISAPI PDF example shows.
+        
+        For future streaming support, we may need to investigate how Frigate does it,
+        or use a different approach (e.g., WebSocket or RTSP audio streaming).
         """
         session_id = None
         try:
@@ -457,93 +460,36 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             endpoint = f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/audioData?sessionId={session_id}"
             _LOGGER.debug("Using audioData endpoint: %s", endpoint)
             
-            # Chunk size: 160 bytes = 20ms of audio at 8kHz (8000 bytes/sec)
-            # G.711ulaw: 1 byte per sample, 8000 samples/sec = 8000 bytes/sec
-            # 160 bytes / 8000 bytes/sec = 0.02 seconds = 20ms per chunk
-            chunk_size = 160
-            sleep_time = 0.02  # 20ms delay to maintain 8000 bytes/sec rate
+            _LOGGER.info("Sending %d bytes of audio (%.2f seconds)", 
+                        len(ulaw_data), len(ulaw_data) / 8000.0)
+            
+            # Send all audio data in one request (matches play_test_tone() approach)
+            # Camera expects Content-Length header, not chunked transfer encoding
+            response = requests.put(
+                endpoint,
+                auth=(self.api.username, self.api.password),
+                data=ulaw_data,
+                headers={"Content-Type": "application/octet-stream"},
+                verify=False,
+                timeout=30  # Longer timeout for large files
+            )
+            
+            if response.status_code == 200:
+                _LOGGER.info("Audio sent successfully (status 200)")
+            else:
+                error_text = response.text[:200] if response.text else 'No response body'
+                _LOGGER.warning("Camera returned status %d: %s", response.status_code, error_text)
+            
+            # Small delay before closing session to let camera process
             import time
-            
-            # Generator function to yield chunks with proper timing
-            def chunk_generator():
-                """Generator that yields audio chunks with proper timing for streaming."""
-                total_chunks = (len(ulaw_data) + chunk_size - 1) // chunk_size
-                _LOGGER.info("Streaming %d bytes in %d chunks (%.2f seconds of audio)", 
-                            len(ulaw_data), total_chunks, len(ulaw_data) / 8000.0)
-                
-                sent_bytes = 0
-                for i in range(0, len(ulaw_data), chunk_size):
-                    chunk = ulaw_data[i:i + chunk_size]
-                    
-                    # Pad chunk to exact size if needed (last chunk might be smaller)
-                    if len(chunk) < chunk_size:
-                        chunk = chunk + (b'\x7F' * (chunk_size - len(chunk)))  # 0x7F is silence in ulaw
-                    
-                    yield chunk
-                    sent_bytes += len(chunk)
-                    
-                    # Log progress every second (50 chunks)
-                    if (i // chunk_size) % 50 == 0 and i > 0:
-                        _LOGGER.debug("Streamed %d bytes (%.1f%%)", sent_bytes, 
-                                     (sent_bytes / len(ulaw_data)) * 100)
-                    
-                    # Wait 20ms before next chunk to maintain proper playback rate
-                    # Only sleep if not the last chunk
-                    if i + chunk_size < len(ulaw_data):
-                        time.sleep(sleep_time)
-                
-                _LOGGER.info("Audio streaming complete: sent %d bytes", sent_bytes)
-            
-            # Create a session for persistent connection
-            session = requests.Session()
-            session.auth = (self.api.username, self.api.password)
-            session.verify = False
-            
-            # Send audio using chunked transfer encoding in a single request
-            # Transfer-Encoding: chunked allows streaming without Content-Length
-            try:
-                response = session.put(
-                    endpoint,
-                    data=chunk_generator(),
-                    headers={
-                        "Content-Type": "application/octet-stream",
-                        "Transfer-Encoding": "chunked"  # Enable HTTP chunked transfer encoding
-                    },
-                    timeout=30,  # Longer timeout for streaming (allows time for all chunks)
-                    stream=True  # Don't wait for response body immediately
-                )
-                
-                # Check status code
-                status_code = response.status_code
-                if status_code == 200:
-                    _LOGGER.info("Audio stream sent successfully (status 200)")
-                else:
-                    # Try to read error response
-                    error_text = 'No response body'
-                    try:
-                        if response.headers.get('Content-Length', '0') != '0':
-                            error_text = response.text[:200]
-                    except:
-                        pass
-                    _LOGGER.warning("Camera returned status %d: %s", status_code, error_text)
-                
-                # Close response
-                response.close()
-                
-            except requests.exceptions.Timeout:
-                _LOGGER.warning("Timeout during audio streaming (camera may still be processing)")
-            except requests.exceptions.HTTPError as e:
-                _LOGGER.error("HTTP error during audio streaming: %s", e)
-            except Exception as e:
-                _LOGGER.error("Error during audio streaming: %s", e, exc_info=True)
-            finally:
-                session.close()
-            
-            # Small delay before closing session to let camera process final chunks
             time.sleep(0.1)
                 
+        except requests.exceptions.Timeout:
+            _LOGGER.warning("Timeout sending audio (camera may still be processing)")
+        except requests.exceptions.HTTPError as e:
+            _LOGGER.error("HTTP error sending audio: %s", e)
         except Exception as e:
-            _LOGGER.error("Failed to send audio stream: %s", e)
+            _LOGGER.error("Failed to send audio stream: %s", e, exc_info=True)
         finally:
             # Always close the session
             if session_id:
