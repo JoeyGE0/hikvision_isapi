@@ -208,14 +208,9 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 try:
                     resolved_media = await async_resolve_media(self.hass, media_id)
                     if resolved_media and resolved_media.url:
-                        _LOGGER.info("Resolved media source: %s -> %s (mime: %s)", 
-                                   media_id, resolved_media.url, getattr(resolved_media, 'mime_type', 'unknown'))
-                        
-                        # Use the resolved URL
-                        # According to Home Assistant docs: files in /media/ are protected by authentication
-                        # So we should download via HTTP with authentication, not read directly from filesystem
                         resolved_url = resolved_media.url
-                        _LOGGER.debug("Processing resolved media URL: %s", resolved_url)
+                        _LOGGER.info("Resolved media source: %s -> %s (mime: %s)", 
+                                   media_id, resolved_url, getattr(resolved_media, 'mime_type', 'unknown'))
                         
                         # Remove any query parameters
                         if "?" in resolved_url:
@@ -226,16 +221,19 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         parsed = urlparse(resolved_url)
                         media_path = parsed.path  # This will be like "/media/local/filename.wav"
                         
+                        _LOGGER.info("Parsed URL - scheme: %s, netloc: %s, path: %s", 
+                                   parsed.scheme, parsed.netloc, media_path)
+                        
                         # Always use localhost for authenticated access (we're running inside Home Assistant)
                         # External URLs require authentication that async_get_clientsession doesn't provide
-                        # Using localhost ensures we're accessing the internal server
                         if not media_path:
                             _LOGGER.error("Could not extract path from resolved URL: %s", resolved_url)
                             return None
                         
                         # Use localhost directly - we're running inside Home Assistant
                         media_url = f"http://localhost:8123{media_path}"
-                        _LOGGER.info("Using localhost URL for media: %s (extracted from resolved: %s)", media_url, resolved_url)
+                        _LOGGER.info("Using localhost URL for media: %s (extracted path: %s from resolved: %s)", 
+                                   media_url, media_path, resolved_url)
                         
                         if not media_url.startswith("http://") and not media_url.startswith("https://"):
                             _LOGGER.error("Invalid URL format: %s", media_url)
