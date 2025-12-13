@@ -443,7 +443,8 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.info("Opened audio session: %s", session_id)
             
             # Use the audioData endpoint with PUT
-            endpoint = f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/audioData"
+            # According to ISAPI PDF: sessionId is a query parameter (required for multi-channel, optional for single channel)
+            endpoint = f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/audioData?sessionId={session_id}"
             
             # Chunk size: 160 bytes = 20ms of audio at 8kHz (8000 bytes/sec)
             # G.711ulaw: 1 byte per sample, 8000 samples/sec = 8000 bytes/sec
@@ -472,10 +473,11 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 
                 try:
                     # Use stream=True to not block on response, short timeout
-                    # No Content-Type header - camera seems to prefer raw data
+                    # According to ISAPI PDF: Content-Type should be application/octet-stream
                     response = session.put(
                         endpoint,
                         data=chunk,
+                        headers={"Content-Type": "application/octet-stream"},
                         timeout=0.3,  # Short timeout - timeouts are OK, camera is processing
                         stream=True  # Don't read response immediately
                     )

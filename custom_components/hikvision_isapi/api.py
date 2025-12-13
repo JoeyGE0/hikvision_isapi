@@ -1414,7 +1414,8 @@ class HikvisionISAPI:
             # Step 5: Send all audio in one request
             _LOGGER.info("Sending audio data to camera...")
             
-            endpoint = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/audioData"
+            # According to ISAPI PDF: sessionId is a query parameter (required for multi-channel, optional for single channel)
+            endpoint = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/audioData?sessionId={session_id}"
             response = requests.put(
                 endpoint,
                 auth=(self.username, self.password),
