@@ -10,6 +10,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaType,
     BrowseMedia,
+    async_process_play_media_url,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -208,43 +209,24 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 try:
                     resolved_media = await async_resolve_media(self.hass, media_id)
                     if resolved_media and resolved_media.url:
-                        resolved_url = resolved_media.url
-                        _LOGGER.info("Resolved media source: %s -> %s (mime: %s)", 
-                                   media_id, resolved_url, getattr(resolved_media, 'mime_type', 'unknown'))
-                        
-                        # Remove any query parameters
-                        if "?" in resolved_url:
-                            resolved_url = resolved_url.split("?")[0]
-                        
-                        # Extract the path from the resolved URL (might be full URL or relative)
-                        from urllib.parse import urlparse
-                        parsed = urlparse(resolved_url)
-                        media_path = parsed.path  # This will be like "/media/local/filename.wav"
-                        
-                        _LOGGER.info("Parsed URL - scheme: %s, netloc: %s, path: %s", 
-                                   parsed.scheme, parsed.netloc, media_path)
-                        
-                        # Always use localhost for authenticated access (we're running inside Home Assistant)
-                        # External URLs require authentication that async_get_clientsession doesn't provide
-                        if not media_path:
-                            _LOGGER.error("Could not extract path from resolved URL: %s", resolved_url)
-                            return None
-                        
-                        # Use localhost directly - we're running inside Home Assistant
-                        media_url = f"http://localhost:8123{media_path}"
-                        _LOGGER.info("Using localhost URL for media: %s (extracted path: %s from resolved: %s)", 
-                                   media_url, media_path, resolved_url)
+                        # Use Home Assistant's async_process_play_media_url to process the URL
+                        # This is what Home Assistant uses internally (see http.py line 60-64)
+                        # It handles authentication and URL conversion properly
+                        media_url = async_process_play_media_url(
+                            self.hass, resolved_media.url, allow_relative_url=True
+                        )
+                        _LOGGER.info("Resolved media source: %s -> %s (processed: %s, mime: %s)", 
+                                   media_id, resolved_media.url, media_url, getattr(resolved_media, 'mime_type', 'unknown'))
                         
                         if not media_url.startswith("http://") and not media_url.startswith("https://"):
-                            _LOGGER.error("Invalid URL format: %s", media_url)
+                            _LOGGER.error("Invalid URL format after processing: %s", media_url)
                             return None
                         
                         # Download via HTTP with Home Assistant authentication
-                        # Files in /media/ require authentication (unlike www/)
-                        # async_get_clientsession automatically includes auth cookies for internal URLs
+                        # async_process_play_media_url handles authentication properly
                         session = async_get_clientsession(self.hass)
                         try:
-                            _LOGGER.info("Downloading media via HTTP (with auth): %s", media_url)
+                            _LOGGER.info("Downloading media via HTTP: %s", media_url)
                             async with session.get(media_url, timeout=30, allow_redirects=True) as response:
                                 response.raise_for_status()
                                 data = await response.read()
@@ -252,8 +234,6 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                                 return data
                         except Exception as e:
                             _LOGGER.error("Failed to download media from %s: %s", media_url, e, exc_info=True)
-                            # If HTTP download fails, log the error but don't try filesystem access
-                            # as /media/ files require authentication
                             return None
                     else:
                         _LOGGER.error("Failed to resolve media source URL")
