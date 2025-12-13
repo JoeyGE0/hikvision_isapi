@@ -401,17 +401,19 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 if chunk_id == b'data':
                     # Found data chunk - extract raw audio
                     data_start = offset + 8
-                    data_end = data_start + chunk_size
-                    if data_end > len(wav_data):
+                    
+                    # Validate chunk size - if it's unreasonably large or extends beyond file, use available data
+                    if chunk_size > len(wav_data) or (data_start + chunk_size) > len(wav_data):
                         # WAV header says there's more data than exists - file might be truncated or header is wrong
-                        expected_bytes = chunk_size
                         available_bytes = len(wav_data) - data_start
                         _LOGGER.warning(
                             "WAV file data chunk header claims %d bytes, but only %d bytes available in file. "
                             "Using available data (file may be truncated or header incorrect).",
-                            expected_bytes, available_bytes
+                            chunk_size, available_bytes
                         )
                         data_end = len(wav_data)
+                    else:
+                        data_end = data_start + chunk_size
                     
                     raw_audio = wav_data[data_start:data_end]
                     _LOGGER.info("Extracted %d bytes of raw G.711ulaw audio from WAV file", len(raw_audio))
@@ -481,25 +483,37 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 
                 try:
                     # According to ISAPI PDF: Content-Type should be application/octet-stream
+                    # Use stream=True to avoid waiting for response body (camera may not send one immediately)
                     response = session.put(
                         endpoint,
                         data=chunk,
                         headers={"Content-Type": "application/octet-stream"},
-                        timeout=2.0,  # Increased timeout to see actual responses
-                        stream=False  # Read response to check for errors
+                        timeout=0.5,  # Short timeout - camera processes audio, doesn't need to respond immediately
+                        stream=True  # Don't wait for response body
                     )
                     
-                    # Check response status - camera should return 200 OK for each chunk
-                    if response.status_code != 200:
+                    # Check status code from headers (don't read body - camera may not send one)
+                    status_code = response.status_code
+                    if status_code != 200:
+                        # Try to read error response if available (but don't wait long)
+                        error_text = 'No response body'
+                        try:
+                            # Only try to read if response has content
+                            if response.headers.get('Content-Length', '0') != '0':
+                                error_text = response.text[:200]
+                        except:
+                            pass
                         _LOGGER.warning(
                             "Camera returned status %d for audio chunk at byte %d: %s",
-                            response.status_code, sent_bytes, response.text[:200]
+                            status_code, sent_bytes, error_text
                         )
                         # Continue anyway - might still work
                     elif i == 0:
                         # Log success on first chunk to confirm endpoint is working
                         _LOGGER.info("First audio chunk accepted by camera (status 200)")
                     
+                    # Close response immediately to free connection (don't read body)
+                    response.close()
                     sent_bytes += len(chunk)
                     
                     # Log progress every second (50 chunks)
