@@ -261,9 +261,14 @@ class EventNotificationsView(HomeAssistantView):
             # Handle duration events (version 2.0 notifications)
             # When eventType is "duration" or empty, the actual event type is in DurationList
             if not event_id or event_id == "duration":
-                # Try with namespace first
+                # Check if DurationList exists at all (try multiple namespaces)
+                ISAPI_NS = "{http://www.isapi.org/ver20/XMLSchema}"
+                duration_list_exists = False
+                
+                # Try Hikvision namespace
                 duration = alert.find(f".//{XML_NS}DurationList/{XML_NS}Duration")
                 if duration is not None:
+                    duration_list_exists = True
                     relation_event = duration.find(f"{XML_NS}relationEvent")
                     if relation_event is None:
                         relation_event = duration.find(".//relationEvent")
@@ -271,10 +276,23 @@ class EventNotificationsView(HomeAssistantView):
                         event_id = relation_event.text.strip().lower()
                         _LOGGER.info("Extracted event type from DurationList: %s", event_id)
                 
+                # Try ISAPI namespace (some cameras use this)
+                if not event_id or event_id == "duration":
+                    duration = alert.find(f".//{ISAPI_NS}DurationList/{ISAPI_NS}Duration")
+                    if duration is not None:
+                        duration_list_exists = True
+                        relation_event = duration.find(f"{ISAPI_NS}relationEvent")
+                        if relation_event is None:
+                            relation_event = duration.find(".//relationEvent")
+                        if relation_event is not None and relation_event.text:
+                            event_id = relation_event.text.strip().lower()
+                            _LOGGER.info("Extracted event type from DurationList (ISAPI namespace): %s", event_id)
+                
                 # Try without namespace if still not found
                 if not event_id or event_id == "duration":
                     duration = alert.find(".//DurationList/Duration")
                     if duration is not None:
+                        duration_list_exists = True
                         relation_event = duration.find("relationEvent")
                         if relation_event is None:
                             relation_event = duration.find(".//relationEvent")
@@ -283,10 +301,15 @@ class EventNotificationsView(HomeAssistantView):
                             _LOGGER.info("Extracted event type from DurationList (no namespace): %s", event_id)
                 
                 # If we still can't extract the event type, skip this notification
-                # This happens when DurationList exists but relationEvent is missing/invalid
                 if not event_id or event_id == "duration":
-                    _LOGGER.debug("Cannot extract event type from DurationList, skipping notification")
-                    raise ValueError("Cannot extract event type from DurationList")
+                    if duration_list_exists:
+                        # DurationList exists but relationEvent is missing - log as warning
+                        _LOGGER.warning("Cannot extract event type from DurationList: DurationList exists but relationEvent is missing")
+                        raise ValueError("Cannot extract event type from DurationList: relationEvent missing")
+                    else:
+                        # DurationList doesn't exist at all - expected for some cameras, log at debug
+                        _LOGGER.debug("Skipping duration event: DurationList element not found (expected for some camera notifications)")
+                        raise ValueError("Cannot extract event type from DurationList: DurationList not found")
             
             # Handle alternate event type mapping
             if EVENTS_ALTERNATE_ID.get(event_id):
@@ -361,8 +384,12 @@ class EventNotificationsView(HomeAssistantView):
                 active_state=active_state,
             )
         except Exception as e:
-            # DurationList errors are expected - log as warning with XML detail
+            # DurationList errors - handle differently based on whether DurationList exists
             if "Cannot extract event type from DurationList" in str(e):
+                # If DurationList doesn't exist, this is expected - already logged at debug, just re-raise
+                if "DurationList not found" in str(e):
+                    raise
+                # Otherwise DurationList exists but relationEvent is missing - log with detail
                 # Try to extract and show DurationList section specifically
                 try:
                     root = ET.fromstring(xml)
@@ -388,18 +415,11 @@ class EventNotificationsView(HomeAssistantView):
                             event_type_elem = alert.find(".//eventType")
                         event_type = event_type_elem.text if event_type_elem is not None and event_type_elem.text else "missing"
                         _LOGGER.warning(
-                            "Cannot extract event type from DurationList (expected for some camera notifications). "
+                            "Cannot extract event type from DurationList: DurationList exists but relationEvent is missing. "
                             "eventType=%s, DurationList XML: %s",
                             event_type, duration_xml
                         )
-                    else:
-                        # DurationList not found at all
-                        alert_xml = ET.tostring(alert, encoding='unicode')[:800]
-                        _LOGGER.warning(
-                            "Cannot extract event type from DurationList - DurationList element not found. "
-                            "Alert XML (first 800 chars): %s",
-                            alert_xml
-                        )
+                    # If duration_list is None, this shouldn't happen here (should be caught earlier)
                 except Exception as parse_err:
                     xml_snippet = xml[:800] if len(xml) > 800 else xml
                     _LOGGER.warning(
