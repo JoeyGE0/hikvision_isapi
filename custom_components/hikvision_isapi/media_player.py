@@ -207,14 +207,16 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             # Handle media-source IDs first (includes TTS and local media)
             if is_media_source_id(media_id):
                 try:
-                    resolved_media = await async_resolve_media(self.hass, media_id)
+                    # Pattern from Home Assistant Cast and Sonos integrations:
+                    # 1. Resolve media with entity_id (for proper URL generation)
+                    # 2. Process URL with async_process_play_media_url
+                    resolved_media = await async_resolve_media(self.hass, media_id, self.entity_id)
                     if resolved_media and resolved_media.url:
                         # Use Home Assistant's async_process_play_media_url to process the URL
-                        # This is what Home Assistant uses internally (see http.py line 60-64)
+                        # This is what Cast and Sonos integrations use (see cast/media_player.py and sonos/media_player.py)
                         # It handles authentication and URL conversion properly
-                        media_url = async_process_play_media_url(
-                            self.hass, resolved_media.url, allow_relative_url=True
-                        )
+                        # Default allow_relative_url=False converts relative URLs to absolute (needed for downloading)
+                        media_url = async_process_play_media_url(self.hass, resolved_media.url)
                         _LOGGER.info("Resolved media source: %s -> %s (processed: %s, mime: %s)", 
                                    media_id, resolved_media.url, media_url, getattr(resolved_media, 'mime_type', 'unknown'))
                         
