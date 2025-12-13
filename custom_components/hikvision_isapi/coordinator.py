@@ -78,6 +78,9 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             sharpness_data = await self.hass.async_add_executor_job(
                 self.api.get_sharpness
             )
+            audio_alarm_data = await self.hass.async_add_executor_job(
+                self.api.get_audio_alarm
+            )
             system_status = await self.hass.async_add_executor_job(
                 self.api.get_system_status
             )
@@ -107,6 +110,7 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "white_light_time": white_light_time,
                 "color": color_data,
                 "sharpness": sharpness_data,
+                "audio_alarm": audio_alarm_data.get("AudioAlarm") if audio_alarm_data else None,
                 "system_status": system_status,
                 "streaming_status": streaming_status,
                 "alarm_input": alarm_input,

@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import re
 import requests
+import json
 import xml.etree.ElementTree as ET
 from typing import Optional
 
@@ -1983,7 +1984,7 @@ class HikvisionISAPI:
                         enabled = child
                         break
             if enabled is not None and enabled.text:
-                result["enabled"] = enabled.text.strip().lower() == "true"
+                    result["enabled"] = enabled.text.strip().lower() == "true"
             else:
                 _LOGGER.warning("LineDetection enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
@@ -2042,7 +2043,7 @@ class HikvisionISAPI:
             # The root element is SceneChangeDetection, so enabled is a direct child
             enabled = xml.find(f".//{XML_NS}enabled")
             if enabled is not None and enabled.text:
-                result["enabled"] = enabled.text.strip().lower() == "true"
+                    result["enabled"] = enabled.text.strip().lower() == "true"
             else:
                 _LOGGER.warning("SceneChangeDetection enabled element not found. Root tag: %s, XML: %s", xml.tag, ET.tostring(xml, encoding='unicode')[:500])
             return result
@@ -2671,3 +2672,131 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.warning("Failed to get supported events from Event/triggers: %s", e)
             return events
+
+    def get_audio_alarm(self) -> Optional[dict]:
+        """Get audio alarm configuration."""
+        try:
+            url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm?format=json"
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                _LOGGER.debug("Audio alarm endpoint not accessible (403) - may require permissions")
+                return None
+            elif response.status_code == 404:
+                _LOGGER.debug("Audio alarm endpoint not found (404) - feature may not be supported")
+                return None
+            response.raise_for_status()
+            return json.loads(response.text)
+        except Exception as e:
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get audio alarm (camera may be restarting): %s", e)
+            elif isinstance(e, AuthenticationError):
+                raise
+            else:
+                _LOGGER.debug("Failed to get audio alarm: %s", e)
+            return None
+
+    def set_audio_alarm(self, audio_class: Optional[str] = None, alert_audio_id: Optional[int] = None,
+                        audio_volume: Optional[int] = None, alarm_times: Optional[int] = None) -> bool:
+        """Set audio alarm configuration."""
+        try:
+            # Get current config first
+            current = self.get_audio_alarm()
+            if not current or "AudioAlarm" not in current:
+                _LOGGER.error("Cannot set audio alarm - failed to get current configuration")
+                return False
+
+            audio_alarm = current["AudioAlarm"].copy()
+
+            # Update only provided values
+            if audio_class is not None:
+                audio_alarm["audioClass"] = audio_class
+            if alert_audio_id is not None:
+                audio_alarm["alertAudioID"] = alert_audio_id
+                # If setting alertAudioID, ensure audioClass is "alertAudio" (required for alertAudioID to work)
+                if audio_class != "alertAudio" and audio_alarm.get("audioClass") != "alertAudio":
+                    audio_alarm["audioClass"] = "alertAudio"
+                # Also update audioID when using alertAudio
+                audio_alarm["audioID"] = alert_audio_id
+            if audio_volume is not None:
+                audio_alarm["audioVolume"] = audio_volume
+            if alarm_times is not None:
+                audio_alarm["alarmTimes"] = alarm_times
+
+            # PUT updated config
+            url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm?format=json"
+            response = requests.put(
+                url,
+                json={"AudioAlarm": audio_alarm},
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=5
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                _LOGGER.error("Access forbidden - user '%s' may not have required permissions (403)", self.username)
+                return False
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.error("Failed to set audio alarm (camera may be restarting): %s", e)
+            elif isinstance(e, AuthenticationError):
+                raise
+            else:
+                _LOGGER.error("Failed to set audio alarm: %s", e)
+            return False
+
+    def test_audio_alarm(self) -> bool:
+        """Test/trigger audio alarm playback."""
+        try:
+            # Try the test endpoint
+            url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm/test?format=json"
+            response = requests.put(
+                url,
+                json={},
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=10
+            )
+            if response.status_code == 200:
+                return True
+            elif response.status_code == 403:
+                _LOGGER.debug("Audio alarm test endpoint not accessible (403)")
+            elif response.status_code == 404:
+                _LOGGER.debug("Audio alarm test endpoint not found (404)")
+            else:
+                _LOGGER.debug("Audio alarm test returned status %d", response.status_code)
+            
+            # If test endpoint doesn't work, try trigger endpoint
+            url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm/trigger?format=json"
+            response = requests.post(
+                url,
+                json={},
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=10
+            )
+            if response.status_code == 200:
+                return True
+            elif response.status_code == 403:
+                _LOGGER.debug("Audio alarm trigger endpoint not accessible (403)")
+            elif response.status_code == 404:
+                _LOGGER.debug("Audio alarm trigger endpoint not found (404)")
+            else:
+                _LOGGER.debug("Audio alarm trigger returned status %d", response.status_code)
+            
+            return False
+        except Exception as e:
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.warning("Failed to test audio alarm (timeout): %s", e)
+            else:
+                _LOGGER.debug("Failed to test audio alarm: %s", e)
+            return False

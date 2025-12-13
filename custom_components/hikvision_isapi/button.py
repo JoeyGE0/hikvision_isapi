@@ -26,6 +26,7 @@ async def async_setup_entry(
     entities = [
         HikvisionRestartButton(api, entry, host, device_name),
         HikvisionTestToneButton(api, entry, host, device_name),
+        HikvisionTestAudioAlarmButton(api, entry, host, device_name),
     ]
 
     async_add_entities(entities)
@@ -94,4 +95,37 @@ class HikvisionTestToneButton(ButtonEntity):
             _LOGGER.info("Test tone played successfully")
         else:
             _LOGGER.error("Failed to play test tone")
+
+
+class HikvisionTestAudioAlarmButton(ButtonEntity):
+    """Button entity for testing audio alarm playback."""
+
+    _attr_unique_id = "hikvision_test_audio_alarm_button"
+    _attr_icon = "mdi:alarm"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+        """Initialize the button."""
+        self.api = api
+        self._host = host
+        self._entry = entry
+        self._attr_name = f"{device_name} Test Audio Alarm"
+        self._attr_unique_id = f"{host}_test_audio_alarm_button"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+        )
+
+    async def async_press(self) -> None:
+        """Handle the button press."""
+        _LOGGER.info("Test audio alarm button pressed for %s", self._host)
+        success = await self.hass.async_add_executor_job(self.api.test_audio_alarm)
+        if success:
+            _LOGGER.info("Audio alarm test triggered successfully")
+        else:
+            _LOGGER.warning("Failed to trigger audio alarm test - endpoint may not be available")
 

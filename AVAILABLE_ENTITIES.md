@@ -681,6 +681,113 @@ These events are available but may not be implemented yet:
    - Endpoint: Check Event/triggers
    - Notes: Binary sensor for storage-related events.
 
+### Cloud/Platform Services (Switch & Sensor Entities)
+
+1. **Hik-Connect Enable** (`/ISAPI/System/Network/Platform` or similar)
+
+   - **Entity Type:** `switch`
+   - **Enabled by default:** NO
+   - **Current State:** Need to verify (from UI: enabled)
+   - Options: **on, off** (true/false)
+   - Endpoint: Need to discover (likely `/ISAPI/System/Network/Platform` or `/ISAPI/System/ThirdParty/Cloud` or similar)
+   - XML path: Need to verify (likely `Platform.enabled` or `HikConnect.enabled`)
+   - Notes: Enables/disables Hik-Connect cloud service. Requires internet access. Based on UI showing enable toggle.
+
+2. **Hik-Connect Connection Status** (`/ISAPI/System/Network/Platform/status` or similar)
+
+   - **Entity Type:** `sensor` (read-only)
+   - **Enabled by default:** YES
+   - **Current State:** Need to verify (from UI: "Offline" with error code 11)
+   - Values: **Online, Offline, Error** (or similar status values)
+   - Endpoint: Need to discover (likely `/ISAPI/System/Network/Platform/status` or similar)
+   - XML path: Need to verify (likely `Platform.status` or `HikConnect.registrationStatus`)
+   - Notes: Shows Hik-Connect registration status. Shows "Offline" with error code" when registration fails. May include error codes for troubleshooting.
+
+### Audible Alarm Output (Switch, Select, Number Entities)
+
+**Note:** Endpoints for audible alarm output configuration were not found in standard ISAPI locations. The camera supports audio output (`audioOutputNums: 1` in capabilities), and `/ISAPI/System/Audio/channels/1` exists, but the specific audible alarm output configuration endpoint needs discovery.
+
+1. **Audible Alarm Output Enable** (endpoint to be discovered)
+
+   - **Entity Type:** `switch`
+   - **Enabled by default:** NO
+   - Options: **on, off** (true/false)
+   - Endpoint: Need to discover (may be `/ISAPI/System/Audio/channels/1/alarmOutput` or similar)
+   - XML path: Need to verify
+   - Notes: Enables/disables audible alarm output. Based on UI showing audible alarm output configuration.
+
+2. **Audio Type** (select)
+
+   - **Entity Type:** `select`
+   - **Enabled by default:** NO
+   - **Current State:** `audioClass: "alertAudio"`
+   - Options: **"alertAudio", "promptAudio", "customAudio"** (default: "alertAudio")
+   - Endpoint: ✅ **`/ISAPI/Event/triggers/notifications/AudioAlarm?format=json`**
+   - JSON path: `AudioAlarm.audioClass`
+   - Notes: Selects type of audio class for alarm output. When "alertAudio", uses `alertAudioID`. When "customAudio", uses `customAudioID` (1-3).
+
+3. **Warning Sound** (select)
+
+   - **Entity Type:** `select`
+   - **Enabled by default:** NO
+   - **Current State:** `alertAudioID: 6` ("Attention please.The area is under surveillance")
+   - Options: **11 options available** (from capabilities - AlertAudioTypeListCap):
+     - 1: "Siren"
+     - 2: "Warning,this is a restricted area"
+     - 3: "Warning,this is a restricted area,please keep away"
+     - 4: "Warning,this is a no-parking zone"
+     - 5: "Warning,this is a no-parking zone,please keep away"
+     - 6: "Attention please.The area is under surveillance" (current)
+     - 7: "Welcome,Please notice that the area is under surveillance"
+     - 8: "Welcome"
+     - 9: "Danger!Please keep away"
+     - 10: "(Siren)&Danger,please keep away"
+     - 11: "Audio Warning"
+   - Endpoint: ✅ **`/ISAPI/Event/triggers/notifications/AudioAlarm?format=json`**
+   - JSON path: `AudioAlarm.alertAudioID` (for alertAudio class)
+   - Notes: Selects specific warning sound/message to play (for alertAudio class). Also supports `audioClass` with options: "alertAudio", "promptAudio", "customAudio".
+
+4. **Alarm Times** (number)
+
+   - **Entity Type:** `number`
+   - **Enabled by default:** NO
+   - **Current State:** `alarmTimes: 2`
+   - Range: **1-50** (default: 5)
+   - Endpoint: ✅ **`/ISAPI/Event/triggers/notifications/AudioAlarm?format=json`**
+   - JSON path: `AudioAlarm.alarmTimes`
+   - Notes: Number of times to repeat the alarm audio.
+
+5. **Loudspeaker Volume** (number)
+
+   - **Entity Type:** `number`
+   - **Enabled by default:** NO
+   - **Current State:** `audioVolume: 100`
+   - Range: **1-100** (default: 100)
+   - Endpoint: ✅ **`/ISAPI/Event/triggers/notifications/AudioAlarm?format=json`**
+   - JSON path: `AudioAlarm.audioVolume`
+   - Notes: Volume level for loudspeaker output (1-100%).
+
+6. **Arming Schedule** (complex schedule entity)
+
+   - **Entity Type:** Complex schedule (weekly time ranges)
+   - **Enabled by default:** NO
+   - **Current State:** Empty schedule (all days have empty TimeRange arrays)
+   - Options: Weekly schedule grid (Mon-Sun, 00:00-24:00)
+   - Endpoint: ✅ **`/ISAPI/Event/triggers/notifications/AudioAlarm?format=json`**
+   - JSON path: `AudioAlarm.TimeRangeList[]` (array of week objects with TimeRange arrays)
+   - Structure: `TimeRangeList[].week` (1-7), `TimeRangeList[].TimeRange[]` (array of time ranges with beginTime/endTime)
+   - Notes: Schedule when audible alarm output is active. Weekly grid with hour-by-hour control. Max 8 time ranges per day.
+
+**Discovery Status:**
+
+- ✅ **FOUND:** `/ISAPI/Event/triggers/notifications/AudioAlarm?format=json` - Main configuration endpoint
+- ✅ **FOUND:** `/ISAPI/Event/triggers/notifications/AudioAlarm/capabilities?format=json` - Capabilities endpoint (shows all options and ranges)
+- ✅ **FOUND:** `/ISAPI/Event/triggers/notifications/AudioAlarm/customAudioInfo?format=json` - Custom audio info (currently empty)
+- ✅ **FOUND:** Camera supports audio output (`audioOutputNums: 1` in capabilities)
+- ✅ **FOUND:** All configuration options, ranges, and current values confirmed
+- ✅ **FOUND:** Supports custom audio uploads (`isSupportCustomAudio: true`)
+- ✅ **FOUND:** Supports audio testing (`isSupportAudioTest: true`)
+
 ## 📋 Implementation Priority
 
 ### High Priority (Most Useful) - Ready to Implement
@@ -692,10 +799,12 @@ These events are available but may not be implemented yet:
 
 ### Medium Priority
 
-1. **IR Cut Filter settings** - Day/night mode controls
-2. **Anti-Banding** - Flicker reduction switch
-3. **System status sensors** - Disk, network, etc.
-4. **IO status sensors** - Monitor IO port states
+1. **Hik-Connect controls** - Enable/disable cloud service and connection status (endpoints need discovery)
+2. **Audible Alarm Output** - Audio alarm configuration (endpoints need discovery - may not be exposed via ISAPI)
+3. **IR Cut Filter settings** - Day/night mode controls
+4. **Anti-Banding** - Flicker reduction switch
+5. **System status sensors** - Disk, network, etc.
+6. **IO status sensors** - Monitor IO port states
 
 ### Low Priority
 
@@ -728,6 +837,18 @@ These events are available but may not be implemented yet:
 
 ### Still Needs Verification
 
+- **Hik-Connect endpoints** - Need to discover exact ISAPI endpoints for:
+  - Enable/disable switch (`/ISAPI/System/Network/Platform` or similar)
+  - Connection status sensor (`/ISAPI/System/Network/Platform/status` or similar)
+  - Server IP address configuration (if needed)
+- **Audible Alarm Output endpoints** - Need to discover exact ISAPI endpoints for:
+  - Enable/disable switch
+  - Audio Type select
+  - Warning Sound select
+  - Alarm Times number
+  - Loudspeaker Volume number
+  - Arming Schedule configuration
+  - **Note:** `/ISAPI/System/Audio/channels/1` exists but doesn't contain alarm output config. May be configured via Event/triggers or web UI only.
 - **Backlight Mode options** - UI shows Off, BLC, WDR, Auto WDR, HLC but API structure needs verification (may be separate BLC/HLC elements)
 - **WDR Mode options** - Current is "auto", need to check capabilities for all options
 - **Noise Reduction Mode options** - Current is "general", need to verify all options (UI shows Off, Normal Mode, Expert Mode)
