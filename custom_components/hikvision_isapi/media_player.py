@@ -226,13 +226,16 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         parsed = urlparse(resolved_url)
                         media_path = parsed.path  # This will be like "/media/local/filename.wav"
                         
-                        # Always use internal URL for authenticated access
+                        # Always use localhost for authenticated access (we're running inside Home Assistant)
                         # External URLs require authentication that async_get_clientsession doesn't provide
-                        # Internal URLs work with async_get_clientsession's automatic auth
-                        base_url = self.hass.config.internal_url or "http://localhost:8123"
-                        base_url = base_url.rstrip("/")
-                        media_url = f"{base_url}{media_path}"
-                        _LOGGER.debug("Using internal URL for media: %s (from resolved: %s)", media_url, resolved_url)
+                        # Using localhost ensures we're accessing the internal server
+                        if not media_path:
+                            _LOGGER.error("Could not extract path from resolved URL: %s", resolved_url)
+                            return None
+                        
+                        # Use localhost directly - we're running inside Home Assistant
+                        media_url = f"http://localhost:8123{media_path}"
+                        _LOGGER.info("Using localhost URL for media: %s (extracted from resolved: %s)", media_url, resolved_url)
                         
                         if not media_url.startswith("http://") and not media_url.startswith("https://"):
                             _LOGGER.error("Invalid URL format: %s", media_url)
