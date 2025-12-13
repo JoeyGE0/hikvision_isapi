@@ -208,49 +208,95 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 try:
                     resolved_media = await async_resolve_media(self.hass, media_id)
                     if resolved_media and resolved_media.url:
-                        _LOGGER.info("Resolved media source: %s -> %s", media_id, resolved_media.url)
+                        _LOGGER.info("Resolved media source: %s -> %s (mime: %s)", 
+                                   media_id, resolved_media.url, getattr(resolved_media, 'mime_type', 'unknown'))
                         
                         # Use the resolved URL - for local media, read directly from filesystem
                         media_url = resolved_media.url
+                        _LOGGER.debug("Processing media URL: %s", media_url)
                         
                         # Remove any query parameters
                         if "?" in media_url:
                             media_url = media_url.split("?")[0]
                         
-                        # For local media files, read directly from filesystem (no auth needed)
-                        # Home Assistant serves local media from /media/local/ which maps to www/ directory
-                        if media_url.startswith("/media/local/"):
-                            import os
+                        # Check if this is a local media file
+                        # Home Assistant serves local media from /media/ or /media/local/ which maps to www/ directory
+                        # The URL might be:
+                        # - /media/filename.wav (relative)
+                        # - /media/local/filename.wav (relative)
+                        # - http://localhost:8123/media/filename.wav (full URL)
+                        # - http://localhost:8123/media/local/filename.wav (full URL)
+                        
+                        import os
+                        from urllib.parse import urlparse
+                        
+                        # Extract /media/ path from URL (handles both relative and absolute URLs)
+                        # Home Assistant can use either /media/ or /media/local/ - both map to www/
+                        media_local_path = None
+                        if "/media/" in media_url:
+                            # Extract path from URL
+                            if media_url.startswith("http://") or media_url.startswith("https://"):
+                                # Full URL - parse it
+                                parsed = urlparse(media_url)
+                                media_local_path = parsed.path
+                            else:
+                                # Relative URL
+                                media_local_path = media_url
                             
-                            def read_media_file():
-                                config_dir = self.hass.config.config_dir
-                                # Extract path after /media/local/
-                                media_path = media_url.replace("/media/local/", "").lstrip("/")
-                                # Home Assistant serves /media/local/ from www/ directory
-                                file_path = os.path.join(config_dir, "www", media_path)
-                                
-                                # Normalize path to prevent directory traversal
-                                file_path = os.path.normpath(file_path)
-                                www_dir = os.path.normpath(os.path.join(config_dir, "www"))
-                                
-                                # Security check: ensure file is within www directory
-                                if not file_path.startswith(www_dir):
-                                    _LOGGER.error("Invalid media path (security check failed): %s", file_path)
+                            # Handle both /media/ and /media/local/ paths
+                            if media_local_path and (media_local_path.startswith("/media/") or media_local_path.startswith("/media/local/")):
+                                def read_media_file():
+                                    config_dir = self.hass.config.config_dir
+                                    
+                                    # Extract path after /media/ or /media/local/
+                                    # Both map to www/ directory
+                                    if media_local_path.startswith("/media/local/"):
+                                        media_path = media_local_path.replace("/media/local/", "").lstrip("/")
+                                    elif media_local_path.startswith("/media/"):
+                                        media_path = media_local_path.replace("/media/", "").lstrip("/")
+                                    else:
+                                        _LOGGER.error("Unexpected media path format: %s", media_local_path)
+                                        return None
+                                    
+                                    # Home Assistant serves /media/ from www/ directory
+                                    file_path = os.path.join(config_dir, "www", media_path)
+                                    
+                                    # Normalize path to prevent directory traversal
+                                    file_path = os.path.normpath(file_path)
+                                    www_dir = os.path.normpath(os.path.join(config_dir, "www"))
+                                    
+                                    # Security check: ensure file is within www directory
+                                    if not file_path.startswith(www_dir):
+                                        _LOGGER.error("Invalid media path (security check failed): %s", file_path)
+                                        return None
+                                    
+                                    _LOGGER.debug("Looking for media file at: %s (www dir: %s)", file_path, www_dir)
+                                    
+                                    if os.path.exists(file_path) and os.path.isfile(file_path):
+                                        _LOGGER.info("Reading media file: %s", file_path)
+                                        with open(file_path, 'rb') as f:
+                                            return f.read()
+                                    
+                                    # File not found - list directory to help debug
+                                    www_path = os.path.dirname(file_path)
+                                    if os.path.exists(www_path):
+                                        try:
+                                            files = os.listdir(www_path)
+                                            _LOGGER.warning("Media file not found at: %s. Files in directory: %s", file_path, files)
+                                        except Exception:
+                                            _LOGGER.error("Media file not found at: %s", file_path)
+                                    else:
+                                        _LOGGER.error("Media file not found at: %s (directory doesn't exist)", file_path)
                                     return None
                                 
-                                if os.path.exists(file_path) and os.path.isfile(file_path):
-                                    _LOGGER.info("Reading media file: %s", file_path)
-                                    with open(file_path, 'rb') as f:
-                                        return f.read()
-                                _LOGGER.error("Media file not found at: %s", file_path)
-                                return None
-                            
-                            file_data = await self.hass.async_add_executor_job(read_media_file)
-                            if file_data:
-                                return file_data
-                            return None
+                                file_data = await self.hass.async_add_executor_job(read_media_file)
+                                if file_data:
+                                    return file_data
+                                # File not found locally, try downloading via HTTP as fallback
+                                _LOGGER.info("File not found locally, trying to download via HTTP: %s", media_url)
                         
                         # For other URLs (TTS, external, etc), use HTTP
+                        # Also use HTTP as fallback if local file wasn't found
                         if media_url.startswith("/"):
                             base_url = self.hass.config.internal_url or self.hass.config.external_url or "http://localhost:8123"
                             base_url = base_url.rstrip("/")
@@ -263,11 +309,14 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                         # Download via HTTP
                         session = async_get_clientsession(self.hass)
                         try:
+                            _LOGGER.info("Downloading media via HTTP: %s", media_url)
                             async with session.get(media_url, timeout=30) as response:
                                 response.raise_for_status()
-                                return await response.read()
+                                data = await response.read()
+                                _LOGGER.info("Successfully downloaded %d bytes from %s", len(data), media_url)
+                                return data
                         except Exception as e:
-                            _LOGGER.error("Failed to download media: %s", e)
+                            _LOGGER.error("Failed to download media from %s: %s", media_url, e)
                             return None
                     else:
                         _LOGGER.error("Failed to resolve media source URL")
