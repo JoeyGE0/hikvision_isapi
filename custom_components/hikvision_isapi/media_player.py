@@ -328,8 +328,17 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("File too small to be valid audio")
             return None
         
+        # Debug: Log file header to understand what we're dealing with
+        _LOGGER.debug("File header: first 12 bytes = %s", audio_data[:12].hex())
+        _LOGGER.debug("File header as text: %r", audio_data[:12])
+        
         # Check if it's a WAV file (starts with "RIFF" and "WAVE")
-        if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
+        is_rif = audio_data[:4] == b'RIFF'
+        is_wav = len(audio_data) >= 12 and audio_data[8:12] == b'WAVE'
+        _LOGGER.debug("WAV detection: RIFF=%s, WAVE=%s", is_rif, is_wav)
+        
+        if is_rif and is_wav:
+            _LOGGER.info("Detected WAV file, parsing...")
             result = self._extract_ulaw_from_wav(audio_data)
             if result is not None:
                 return result
