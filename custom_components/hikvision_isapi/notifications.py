@@ -317,15 +317,16 @@ class EventNotificationsView(HomeAssistantView):
                 event_id = EVENTS_ALTERNATE_ID[event_id]
                 _LOGGER.debug("Mapped event type %s -> %s", original_id, event_id)
             
-            channel_id_elem = alert.find(f".//{XML_NS}channelID")
-            if channel_id_elem is None:
-                channel_id_elem = alert.find(f".//{XML_NS}dynChannelID")
-            channel_id = int(channel_id_elem.text.strip()) if channel_id_elem is not None else 0
+            # Prefer dynChannelID over channelID (dynChannelID indicates proxied event from NVR camera)
+            channel_id_elem = alert.find(f".//{XML_NS}dynChannelID")
+            if channel_id_elem is None or not channel_id_elem.text:
+                channel_id_elem = alert.find(f".//{XML_NS}channelID")
+            channel_id = int(channel_id_elem.text.strip()) if channel_id_elem is not None and channel_id_elem.text else 0
             
-            # Get IO port ID (check both inputIOPortID and dynInputIOPortID)
-            io_port_id_elem = alert.find(f".//{XML_NS}inputIOPortID")
+            # Get IO port ID - prefer dynInputIOPortID over inputIOPortID (dynInputIOPortID indicates proxied event)
+            io_port_id_elem = alert.find(f".//{XML_NS}dynInputIOPortID")
             if io_port_id_elem is None or not io_port_id_elem.text:
-                io_port_id_elem = alert.find(f".//{XML_NS}dynInputIOPortID")
+                io_port_id_elem = alert.find(f".//{XML_NS}inputIOPortID")
             io_port_id = int(io_port_id_elem.text.strip()) if io_port_id_elem is not None and io_port_id_elem.text else 0
             
             # Get serial number or MAC address

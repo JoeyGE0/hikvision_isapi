@@ -65,6 +65,16 @@ async def async_setup_entry(
             
             # Only create entity if event matches this camera's channel_id
             if event.channel_id == camera_id:
+                # Build unique_id for channel-specific events (must match notifications.py format)
+                # Format: {device_name_slug}_{channel_id}_{event_id}
+                device_id_param = f"_{event.channel_id}" if event.channel_id != 0 else ""
+                io_port_id_param = ""  # Non-I/O events don't include io_port_id
+                unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event.id}"
+                
+                # Update event's unique_id if not already set
+                if not event.unique_id:
+                    event.unique_id = unique_id
+                
                 entities.append(
                     EventBinarySensor(
                         coordinator,
@@ -86,7 +96,12 @@ async def async_setup_entry(
         if event.channel_id == 0:
             # Build unique_id for channel 0 events
             device_id_param = ""  # No channel_id for device-level events
-            io_port_id_param = f"_{event.io_port_id}" if event.io_port_id != 0 else ""
+            # For I/O events: always include io_port_id (even if 0) to match notifications.py format
+            # For other events: don't include io_port_id (should be 0 anyway)
+            if event.id == EVENT_IO:
+                io_port_id_param = f"_{event.io_port_id}"  # I/O events always include io_port_id
+            else:
+                io_port_id_param = ""  # Non-I/O events don't include io_port_id
             unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event.id}"
             
             # Update event's unique_id if not already set
@@ -137,6 +152,18 @@ class EventBinarySensor(BinarySensorEntity):
         self.event = event
         
         # Set entity_id and unique_id
+        # Ensure unique_id is set (should be set before creating entity, but check for safety)
+        if not event.unique_id:
+            # Fallback: build unique_id if somehow not set (must match notifications.py format)
+            device_name_slug = slugify(device_name.lower())
+            if event.id == EVENT_IO:
+                device_id_param = ""
+                io_port_id_param = f"_{event.io_port_id}"  # I/O events always include io_port_id
+            else:
+                device_id_param = f"_{event.channel_id}" if event.channel_id != 0 else ""
+                io_port_id_param = ""  # Non-I/O events don't include io_port_id
+            event.unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{event.id}"
+        
         self.entity_id = ENTITY_ID_FORMAT.format(event.unique_id)
         self._attr_unique_id = event.unique_id  # Store just the identifier, not full entity_id
         

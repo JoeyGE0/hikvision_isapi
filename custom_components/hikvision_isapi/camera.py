@@ -81,7 +81,7 @@ class HikvisionCamera(Camera):
         self._host = host
         self._entry = entry
         self._camera_id = camera_id
-        self.stream = stream
+        self._stream_info = stream  # Use _stream_info to avoid conflicts with Home Assistant's stream property
         
         # Only enable stream feature if we have a stream configured
         if stream:
@@ -115,9 +115,40 @@ class HikvisionCamera(Camera):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        # Get device data to check if this is an NVR camera
+        data = self.coordinator.hass.data[DOMAIN][self._entry.entry_id]
+        device_info = data["device_info"]
+        cameras = data.get("cameras", [])
+        capabilities = data.get("capabilities", {})
+        is_nvr = capabilities.get("is_nvr", False)
+        nvr_device_identifier = data.get("nvr_device_identifier", self._host)
+        
+        # Find camera info to get serial number
+        camera_info = None
+        for cam in cameras:
+            if cam.get("id") == self._camera_id:
+                camera_info = cam
+                break
+        
+        # Use camera serial if available (NVR), otherwise device serial/host
+        if camera_info and camera_info.get("serial_no"):
+            device_identifier = camera_info["serial_no"]
+        else:
+            device_identifier = device_info.get("serialNumber") or self._host
+        
+        device_info_dict = {
+            "identifiers": {(DOMAIN, device_identifier)},
+            "manufacturer": device_info.get("manufacturer", "Hikvision").title(),
+            "model": camera_info.get("model") if camera_info else device_info.get("model", "Hikvision Camera"),
+            "name": self._attr_name.replace(" Main", "").replace(" Snapshot", ""),
+            "sw_version": camera_info.get("firmware") if camera_info else device_info.get("firmwareVersion"),
+        }
+        
+        # Add via_device for NVR cameras (camera_id > 0 on NVR)
+        if is_nvr and self._camera_id > 0 and nvr_device_identifier:
+            device_info_dict["via_device"] = (DOMAIN, nvr_device_identifier)
+        
+        return DeviceInfo(**device_info_dict)
 
     @property
     def available(self) -> bool:
@@ -126,9 +157,19 @@ class HikvisionCamera(Camera):
 
     async def stream_source(self) -> str | None:
         """Return the source of the stream."""
-        if self.stream:
+        if self._stream_info:
+            # Get camera IP for proxied cameras
+            data = self.coordinator.hass.data[DOMAIN][self._entry.entry_id]
+            cameras = data.get("cameras", [])
+            camera_info = None
+            for cam in cameras:
+                if cam.get("id") == self._camera_id:
+                    camera_info = cam
+                    break
+            camera_ip = camera_info.get("ip_addr") if camera_info else None
+            
             return await self.hass.async_add_executor_job(
-                self.api.get_stream_source, self.stream["id"]
+                self.api.get_stream_source, self._stream_info["id"], camera_ip
             )
         return None
 
@@ -137,15 +178,25 @@ class HikvisionCamera(Camera):
     ) -> bytes | None:
         """Return a still image response from the camera."""
         try:
-            if self.stream:
+            # Check if this camera is proxied (NVR camera)
+            data = self.coordinator.hass.data[DOMAIN][self._entry.entry_id]
+            cameras = data.get("cameras", [])
+            camera_info = None
+            for cam in cameras:
+                if cam.get("id") == self._camera_id:
+                    camera_info = cam
+                    break
+            use_proxy_url = camera_info and camera_info.get("connection_type") == "proxied"
+            
+            if self._stream_info:
                 # Use stream-specific snapshot
                 image = await self.hass.async_add_executor_job(
-                    self.api.get_snapshot, self._camera_id, self.stream["id"]
+                    self.api.get_snapshot, self._camera_id, self._stream_info["id"], use_proxy_url
                 )
             else:
                 # Fallback to old method
                 image = await self.hass.async_add_executor_job(
-                    self.api.get_snapshot, self._camera_id
+                    self.api.get_snapshot, self._camera_id, None, use_proxy_url
                 )
             return image
         except Exception as e:
