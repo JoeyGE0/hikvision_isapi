@@ -210,7 +210,7 @@ def _get_endpoints_info(api, hass) -> dict[str, Any]:
                 "capabilities": "/ISAPI/System/capabilities",
                 "two_way_audio": f"/ISAPI/System/TwoWayAudio/channels/{api.channel}",
                 "supplement_light": f"/ISAPI/Image/channels/{api.channel}/supplementLight",
-                "ircut_filter": f"/ISAPI/Image/channels/{api.channel}/ircutFilter",
+                "ircut_filter": f"/ISAPI/Image/channels/{api.channel}/IrcutFilter",
                 "color_settings": f"/ISAPI/Image/channels/{api.channel}/color",
                 "sharpness": f"/ISAPI/Image/channels/{api.channel}/sharpness",
                 "motion_detection": f"/ISAPI/Smart/Image/{api.channel}/motionDetection",
