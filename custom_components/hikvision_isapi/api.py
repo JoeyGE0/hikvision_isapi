@@ -14,7 +14,12 @@ XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
 
 
 def _extract_error_message(response) -> str:
-    """Extract error message from camera response (XML or JSON)."""
+    """Extract error message from camera response (XML or JSON).
+    
+    Camera returns errors in different formats:
+    - JSON: {"statusString": "...", "errorMsg": "...", "subStatusCode": "..."}
+    - XML: <ResponseStatus><statusString>...</statusString><description>...</description></ResponseStatus>
+    """
     try:
         text = response.text
         if not text:
@@ -23,42 +28,48 @@ def _extract_error_message(response) -> str:
         # Try JSON first
         try:
             data = json.loads(text)
-            # Check common JSON error fields (statusString is user-friendly summary, errorMsg is detailed)
             if isinstance(data, dict):
-                status_string = data.get("ResponseStatus", {}).get("statusString") or data.get("statusString") or ""
+                # JSON format: statusString, errorMsg, subStatusCode are at root level
+                status_string = data.get("statusString") or data.get("ResponseStatus", {}).get("statusString") or ""
                 error_msg = data.get("errorMsg") or ""
+                sub_status = data.get("subStatusCode") or ""
                 
-                # Prefer statusString if it's meaningful, otherwise use errorMsg
+                # Build error message
+                parts = []
                 if status_string and status_string.strip():
-                    # If we also have errorMsg, try to find a relevant part
-                    if error_msg:
-                        # Look for common error patterns in errorMsg
-                        error_parts = [e.strip() for e in error_msg.split(";") if e.strip()]
-                        # Filter for relevant errors (not just technical details)
-                        relevant_errors = []
-                        for e in error_parts:
-                            e_lower = e.lower()
-                            # Check for specific patterns
-                            if "remain_path=audiodata" in e_lower or "remain_path=audio" in e_lower:
-                                relevant_errors.append("Two-way audio is in progress")
-                            elif any(keyword in e_lower for keyword in [
-                                "two-way audio", "busy", "in progress", 
-                                "not support", "not allowed", "permission", "forbidden"
-                            ]):
-                                relevant_errors.append(e)
-                        
-                        if relevant_errors:
-                            return f"{status_string}: {relevant_errors[0]}"
-                    return status_string
-                elif error_msg and error_msg.strip():
-                    # Clean up errorMsg - it can be very long with multiple errors separated by semicolons
-                    errors = [e.strip() for e in error_msg.split(";") if e.strip()]
-                    if errors:
-                        # Return first error, or first 200 chars if single long error
-                        result = errors[0] if len(errors[0]) < 200 else errors[0][:200]
-                        if len(errors) > 1:
-                            result += f" (+{len(errors)-1} more)"
-                        return result
+                    parts.append(status_string.strip())
+                
+                # Process errorMsg - it often contains detailed info like "remain_path=open"
+                if error_msg and error_msg.strip():
+                    # Parse errorMsg (often semicolon-separated)
+                    error_parts = [e.strip() for e in error_msg.split(";") if e.strip()]
+                    # Look for meaningful parts
+                    for e in error_parts:
+                        e_lower = e.lower()
+                        # Map common patterns to user-friendly messages
+                        if "remain_path=audiodata" in e_lower or "remain_path=audio" in e_lower:
+                            parts.append("Two-way audio is in progress")
+                        elif "remain_path=open" in e_lower:
+                            parts.append("Two-way audio session already open")
+                        elif "audioid is 0" in e_lower or "audioid=0" in e_lower:
+                            parts.append("Invalid audio ID")
+                        elif any(keyword in e_lower for keyword in [
+                            "two-way audio", "busy", "in progress", 
+                            "not support", "not allowed", "permission", "forbidden"
+                        ]):
+                            parts.append(e)
+                    
+                    # If no patterns matched, use first error part
+                    if not any("Two-way audio" in p or "Invalid audio" in p for p in parts):
+                        if error_parts:
+                            parts.append(error_parts[0])
+                
+                # Add subStatusCode for context if different from statusString
+                if sub_status and sub_status not in status_string.lower():
+                    parts.append(f"({sub_status})")
+                
+                if parts:
+                    return ": ".join(parts)
                 
                 # Fallback to other fields
                 other_msg = data.get("errorMessage") or data.get("message") or data.get("error") or ""
@@ -72,6 +83,42 @@ def _extract_error_message(response) -> str:
             root = ET.fromstring(text)
             # Check common XML error elements
             for ns in [XML_NS, "{http://www.isapi.org/ver20/XMLSchema}", ""]:
+                # Look for ResponseStatus element
+                response_status = root.find(f".//{ns}ResponseStatus")
+                if response_status is not None:
+                    parts = []
+                    
+                    # Get statusString
+                    status_string = response_status.find(f".//{ns}statusString")
+                    if status_string is not None and status_string.text:
+                        parts.append(status_string.text.strip())
+                    
+                    # Get description (often has detailed error like "remain_path=open")
+                    description = response_status.find(f".//{ns}description")
+                    if description is not None and description.text:
+                        desc_text = description.text.strip()
+                        # Parse description for meaningful parts
+                        if "remain_path=audiodata" in desc_text.lower() or "remain_path=audio" in desc_text.lower():
+                            parts.append("Two-way audio is in progress")
+                        elif "remain_path=open" in desc_text.lower():
+                            parts.append("Two-way audio session already open")
+                        elif any(keyword in desc_text.lower() for keyword in ["twoway", "two-way"]):
+                            parts.append("Two-way audio error")
+                        # If description is short and meaningful, include it
+                        elif len(desc_text) < 100 and desc_text:
+                            parts.append(desc_text)
+                    
+                    # Get subStatusCode for context
+                    sub_status = response_status.find(f".//{ns}subStatusCode")
+                    if sub_status is not None and sub_status.text:
+                        sub_text = sub_status.text.strip()
+                        if sub_text and sub_text not in " ".join(parts).lower():
+                            parts.append(f"({sub_text})")
+                    
+                    if parts:
+                        return ": ".join(parts)
+                
+                # Fallback: check for statusString or errorMessage directly
                 status_string = root.find(f".//{ns}statusString")
                 if status_string is not None and status_string.text:
                     return status_string.text.strip()
