@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hikvision Audio Converter - G.711ulaw WAV</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9ff;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #e8ebff;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            color: #667eea;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .upload-hint {
+            color: #999;
+            font-size: 14px;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f2ff;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .file-info.show {
+            display: block;
+        }
+
+        .file-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .file-size {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .convert-btn {
+            width: 100%;
+            padding: 15px;
+            margin-top: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            display: none;
+        }
+
+        .convert-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .convert-btn:active {
+            transform: translateY(0);
+        }
+
+        .convert-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .progress {
+            margin-top: 20px;
+            display: none;
+        }
+
+        .progress.show {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .progress-text {
+            margin-top: 10px;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .specs {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9ff;
+            border-radius: 10px;
+        }
+
+        .specs-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .specs-list {
+            list-style: none;
+            color: #666;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+
+        .specs-list li:before {
+            content: "✓ ";
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .error {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fee;
+            border: 1px solid #fcc;
+            border-radius: 10px;
+            color: #c33;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .success {
+            margin-top: 20px;
+            padding: 15px;
+            background: #efe;
+            border: 1px solid #cfc;
+            border-radius: 10px;
+            color: #3c3;
+            display: none;
+        }
+
+        .success.show {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎵 Hikvision Audio Converter</h1>
+        <p class="subtitle">Convert audio files to G.711ulaw WAV format (8kHz, mono)</p>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">Drop audio file here or click to browse</div>
+            <div class="upload-hint">Supports: MP3, WAV, M4A, OGG, FLAC, and more</div>
+            <input type="file" id="fileInput" accept="audio/*">
+        </div>
+
+        <div class="file-info" id="fileInfo">
+            <div class="file-name" id="fileName"></div>
+            <div class="file-size" id="fileSize"></div>
+        </div>
+
+        <button class="convert-btn" id="convertBtn">Convert to G.711ulaw WAV</button>
+
+        <div class="progress" id="progress">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-text" id="progressText">0%</div>
+        </div>
+
+        <div class="error" id="error"></div>
+        <div class="success" id="success"></div>
+
+        <div class="specs">
+            <div class="specs-title">Output Format Specifications:</div>
+            <ul class="specs-list">
+                <li>Codec: G.711ulaw (μ-law)</li>
+                <li>Sample Rate: 8000 Hz</li>
+                <li>Channels: Mono (1 channel)</li>
+                <li>Format: WAV container</li>
+                <li>Bit Depth: 8-bit (G.711ulaw standard)</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // G.711ulaw encoder
+        function linearToUlaw(sample) {
+            const BIAS = 0x84;
+            const CLIP = 32635;
+
+            let sign = (sample >> 8) & 0x80;
+            if (sign) sample = -sample;
+            if (sample > CLIP) sample = CLIP;
+            sample += BIAS;
+
+            let exponent = 7;
+            for (let exp = 0; exp < 8; exp++) {
+                if (sample > (expTab[exp] << 3) + BIAS) {
+                    exponent = exp;
+                    break;
+                }
+            }
+
+            let mantissa = (sample >> (exponent + 3)) & 0x0F;
+            return ~(sign | (exponent << 4) | mantissa);
+        }
+
+        const expTab = [0, 132, 396, 924, 1980, 4092, 8316, 16764];
+
+        // WAV file writer
+        function createWavFile(audioData) {
+            const dataLength = audioData.length;
+            const fileLength = 36 + dataLength;
+
+            const buffer = new ArrayBuffer(44 + dataLength);
+            const view = new DataView(buffer);
+
+            // RIFF header
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, fileLength, true);
+            writeString(view, 8, 'WAVE');
+
+            // fmt chunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 18, true); // fmt chunk size
+            view.setUint16(20, 0x0007, true); // G.711ulaw format code
+            view.setUint16(22, 1, true); // channels: 1 (mono)
+            view.setUint32(24, 8000, true); // sample rate: 8000 Hz
+            view.setUint32(28, 8000, true); // byte rate: 8000 bytes/sec
+            view.setUint16(32, 1, true); // block align: 1 byte
+            view.setUint16(34, 8, true); // bits per sample: 8
+
+            // data chunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataLength, true);
+
+            // audio data
+            const dataView = new Uint8Array(buffer, 44);
+            dataView.set(audioData);
+
+            return buffer;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        // Main conversion function
+        async function convertAudio(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        const arrayBuffer = e.target.result;
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                        updateProgress(10, 'Decoding audio...');
+
+                        // Decode audio file
+                        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                        updateProgress(30, 'Resampling to 8kHz...');
+
+                        // Resample to 8000 Hz and convert to mono
+                        const sourceSampleRate = audioBuffer.sampleRate;
+                        const targetSampleRate = 8000;
+                        const sourceLength = audioBuffer.length;
+                        const targetLength = Math.floor(sourceLength * targetSampleRate / sourceSampleRate);
+
+                        // Get mono channel (average if stereo)
+                        const sourceData = audioBuffer.numberOfChannels > 1
+                            ? mixChannels(audioBuffer.getChannelData(0), audioBuffer.getChannelData(1))
+                            : audioBuffer.getChannelData(0);
+
+                        updateProgress(50, 'Resampling audio...');
+
+                        // Resample using linear interpolation
+                        const resampled = new Float32Array(targetLength);
+                        for (let i = 0; i < targetLength; i++) {
+                            const srcIndex = (i * sourceSampleRate) / targetSampleRate;
+                            const index = Math.floor(srcIndex);
+                            const fraction = srcIndex - index;
+
+                            if (index + 1 < sourceLength) {
+                                resampled[i] = sourceData[index] * (1 - fraction) + sourceData[index + 1] * fraction;
+                            } else {
+                                resampled[i] = sourceData[Math.min(index, sourceLength - 1)];
+                            }
+                        }
+
+                        updateProgress(70, 'Encoding to G.711ulaw...');
+
+                        // Convert to G.711ulaw
+                        const ulawData = new Uint8Array(targetLength);
+                        for (let i = 0; i < targetLength; i++) {
+                            const sample = Math.max(-1, Math.min(1, resampled[i]));
+                            const linear = Math.floor(sample * 32767);
+                            ulawData[i] = linearToUlaw(linear);
+                        }
+
+                        updateProgress(90, 'Creating WAV file...');
+
+                        // Create WAV file
+                        const wavBuffer = createWavFile(ulawData);
+
+                        updateProgress(100, 'Complete!');
+
+                        resolve(wavBuffer);
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function mixChannels(left, right) {
+            const mixed = new Float32Array(left.length);
+            for (let i = 0; i < left.length; i++) {
+                mixed[i] = (left[i] + right[i]) / 2;
+            }
+            return mixed;
+        }
+
+        // UI elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const convertBtn = document.getElementById('convertBtn');
+        const progress = document.getElementById('progress');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const errorDiv = document.getElementById('error');
+        const successDiv = document.getElementById('success');
+
+        let selectedFile = null;
+
+        function updateProgress(percent, text) {
+            progressFill.style.width = percent + '%';
+            progressText.textContent = text || percent + '%';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.classList.add('show');
+            successDiv.classList.remove('show');
+        }
+
+        function hideError() {
+            errorDiv.classList.remove('show');
+        }
+
+        function showSuccess(message) {
+            successDiv.textContent = message;
+            successDiv.classList.add('show');
+            errorDiv.classList.remove('show');
+        }
+
+        function hideSuccess() {
+            successDiv.classList.remove('show');
+        }
+
+        // File selection handlers
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            if (!file.type.startsWith('audio/') && !file.name.match(/\.(mp3|wav|m4a|ogg|flac|aac|wma)$/i)) {
+                showError('Please select an audio file');
+                return;
+            }
+
+            selectedFile = file;
+            fileName.textContent = file.name;
+            fileSize.textContent = formatFileSize(file.size);
+            fileInfo.classList.add('show');
+            convertBtn.style.display = 'block';
+            hideError();
+            hideSuccess();
+        }
+
+        convertBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            try {
+                convertBtn.disabled = true;
+                progress.classList.add('show');
+                updateProgress(0, 'Starting conversion...');
+                hideError();
+                hideSuccess();
+
+                const wavBuffer = await convertAudio(selectedFile);
+
+                // Create download link
+                const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = selectedFile.name.replace(/\.[^/.]+$/, '') + '_ulaw.wav';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showSuccess('File converted and downloaded successfully!');
+
+                setTimeout(() => {
+                    progress.classList.remove('show');
+                    convertBtn.disabled = false;
+                }, 1000);
+
+            } catch (err) {
+                showError('Conversion failed: ' + err.message);
+                progress.classList.remove('show');
+                convertBtn.disabled = false;
+                console.error(err);
+            }
+        });
+    </script>
+</body>
+
+</html>

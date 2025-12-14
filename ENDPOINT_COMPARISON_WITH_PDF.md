@@ -5,42 +5,50 @@
 ### ✅ CORRECT Endpoints (Match PDF)
 
 1. **Image Adjustment**
+
    - **Integration:** `/ISAPI/Image/channels/{channel}/color`
    - **PDF:** `/ISAPI/Image/channels/<ID>/color` ✅
    - **Status:** ✅ CORRECT
 
 2. **Two-way Audio**
+
    - **Integration:** `/ISAPI/System/TwoWayAudio/channels/{channel}`
    - **PDF:** `/ISAPI/System/TwoWayAudio/channels/<ID>` ✅
    - **Status:** ✅ CORRECT
 
 3. **Supplement Light (Lights)**
+
    - **Integration:** `/ISAPI/Image/channels/{channel}/supplementLight`
    - **PDF:** `/ISAPI/Image/channels/<ID>/SupplementLight` (capital S)
    - **Status:** ⚠️ CASE DIFFERENCE (should work, but PDF shows capital S)
 
 4. **IR Cut Filter**
+
    - **Integration:** `/ISAPI/Image/channels/{channel}/IrcutFilter`
    - **PDF:** `/ISAPI/Image/channels/<ID>/IrcutFilter` ✅
    - **Status:** ✅ CORRECT
 
 5. **Audio Alarm**
+
    - **Integration:** `/ISAPI/Event/triggers/notifications/AudioAlarm?format=json`
    - **PDF:** `/ISAPI/Event/triggers/notifications/AudioAlarm?format=json` ✅
    - **Status:** ✅ CORRECT
 
 6. **Line Detection**
+
    - **Integration:** `/ISAPI/Event/triggers/lineDetection`
    - **PDF Primary:** `/ISAPI/Event/triggers/<ID>` where `<ID>` = `linedetection` (lowercase)
    - **PDF Also Shows:** `lineDetection` (camelCase) for compatibility
    - **Status:** ⚠️ See "Potential Issues" section below
 
 7. **Region Entrance**
+
    - **Integration:** `/ISAPI/Event/triggers/regionEntrance`
    - **PDF:** `/ISAPI/Event/triggers/<ID>` where `<ID>` = `regionEntrance` ✅
    - **Status:** ✅ CORRECT
 
 8. **Region Exiting**
+
    - **Integration:** `/ISAPI/Event/triggers/regionExiting`
    - **PDF:** `/ISAPI/Event/triggers/<ID>` where `<ID>` = `regionExiting` ✅
    - **Status:** ✅ CORRECT
@@ -53,6 +61,7 @@
 ### ⚠️ POTENTIAL ISSUES: Event Type IDs
 
 1. **Intrusion Detection:**
+
    - **Integration:** `/ISAPI/Event/triggers/intrusionDetection`
    - **PDF Primary:** `/ISAPI/Event/triggers/fielddetection` (lowercase, one word)
    - **PDF Also Shows:** `fielddetection (fieldDetection)` - both formats supported for compatibility
@@ -88,11 +97,13 @@ According to the PDF (section 15.3.18), the `<ID>` in `/ISAPI/Event/triggers/<ID
 ### 🔍 Detection Method Differences
 
 **Motion Detection & Tamper Detection:**
+
 - **Integration:** Uses EventCap flags from capabilities XML (`isSupportMotionDetection`, `isSupportTamperDetection`)
 - **PDF:** Confirms these flags exist in `XML_EventTriggersCap` (section 16.2.136)
 - **Status:** ✅ CORRECT approach
 
 **I/O Ports:**
+
 - **Integration:** Uses IOCap counts from capabilities XML
 - **PDF:** Confirms `IOCap/IOInputPortNums` and `IOCap/IOOutputPortNums` exist
 - **Status:** ✅ CORRECT approach
@@ -100,18 +111,21 @@ According to the PDF (section 15.3.18), the `<ID>` in `/ISAPI/Event/triggers/<ID
 ## Recommendations
 
 1. **Fix Intrusion Detection Endpoint:**
+
    - **Current:** `/ISAPI/Event/triggers/intrusionDetection`
    - **PDF Primary:** `/ISAPI/Event/triggers/fielddetection` (lowercase)
    - **Action:** Change to `fielddetection` OR test both and use whichever works
    - **Note:** PDF shows both `fielddetection` and `fieldDetection` for compatibility, but primary is lowercase
 
 2. **Fix Line Detection Endpoint:**
+
    - **Current:** `/ISAPI/Event/triggers/lineDetection`
    - **PDF Primary:** `/ISAPI/Event/triggers/linedetection` (lowercase)
    - **Action:** Change to `linedetection` OR test both and use whichever works
    - **Note:** PDF shows both `linedetection` and `lineDetection` for compatibility, but primary is lowercase
 
 3. **Supplement Light Case:**
+
    - **Current:** `supplementLight` (camelCase)
    - **PDF shows:** `SupplementLight` (PascalCase)
    - **Action:** Test if current works, if not, try `SupplementLight`
@@ -130,4 +144,3 @@ According to the PDF (section 15.3.18), the `<ID>` in `/ISAPI/Event/triggers/<ID
 - **Audio Alarm:** Section 15.3.21 (line 9042)
 - **Event Triggers:** Section 15.3.18 (line 8868)
 - **Event Type IDs:** Section showing event types (line 33500+)
-
