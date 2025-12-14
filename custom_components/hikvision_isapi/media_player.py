@@ -328,38 +328,24 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("File too small to be valid audio")
             return None
         
-        # Debug: Log file header to understand what we're dealing with
-        _LOGGER.debug("File header: first 12 bytes = %s", audio_data[:12].hex())
-        _LOGGER.debug("File header as text: %r", audio_data[:12])
-        
         # Check if it's a WAV file (starts with "RIFF" and "WAVE")
-        is_rif = audio_data[:4] == b'RIFF'
-        is_wav = len(audio_data) >= 12 and audio_data[8:12] == b'WAVE'
-        _LOGGER.debug("WAV detection: RIFF=%s, WAVE=%s", is_rif, is_wav)
-        
-        if is_rif and is_wav:
-            _LOGGER.info("Detected WAV file, parsing...")
-            result = self._extract_ulaw_from_wav(audio_data)
-            if result is not None:
-                return result
-            # If WAV parsing failed, don't fall back to raw - the file is malformed
-            _LOGGER.error("WAV file detected but parsing failed. File may be corrupted.")
-            return None
+        if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
+            return self._extract_ulaw_from_wav(audio_data)
         
         # Check file extension for raw ulaw files
         if media_id:
             media_lower = media_id.lower()
             if media_lower.endswith('.ulaw') or media_lower.endswith('.pcm'):
-                _LOGGER.info("Treating as raw G.711ulaw file (based on extension)")
+                _LOGGER.info("Treating as raw G.711ulaw file")
                 return audio_data
         
-        # Don't guess - if we can't identify the format, fail
-        _LOGGER.error(
-            "Unsupported audio format. File must be:\n"
-            "1. A WAV file with G.711ulaw codec (starts with 'RIFF' and 'WAVE')\n"
-            "2. A raw G.711ulaw file with .ulaw or .pcm extension\n"
-            "File appears to be neither. Size: %d bytes", len(audio_data)
-        )
+        # If it's not a WAV and not a known raw format, try to detect if it's raw ulaw
+        # (no header, just raw data - this is a guess)
+        if len(audio_data) > 1000:  # Reasonable size for audio
+            _LOGGER.warning("File doesn't appear to be WAV or raw ulaw. Attempting as raw ulaw...")
+            return audio_data
+        
+        _LOGGER.error("Unsupported audio format. Only G.711ulaw WAV files or raw ulaw files are supported.")
         return None
     
     def _extract_ulaw_from_wav(self, wav_data: bytes) -> bytes | None:
@@ -518,28 +504,14 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             if response.status_code == 200:
                 _LOGGER.info("Audio sent successfully (status 200)")
                 # Wait for audio to finish playing before closing session
-                # Audio duration in seconds = bytes / 8000 (bytes per second for G.711ulaw at 8kHz)
+                # Audio duration in seconds = bytes / 8000 (bytes per second)
                 audio_duration = len(ulaw_data) / 8000.0
                 import time
-                # Add 2s buffer to ensure camera finishes playing (camera may need time to process)
-                # Minimum 1 second wait (even for very short audio)
-                wait_time = max(audio_duration + 2.0, 1.0)
-                _LOGGER.info(
-                    "Waiting %.2f seconds for audio to finish playing before closing session "
-                    "(audio: %.2f seconds, buffer: 2.0 seconds, total: %.2f seconds)",
-                    wait_time, audio_duration, wait_time
-                )
-                time.sleep(wait_time)
-                _LOGGER.info("Audio playback wait complete, closing session")
+                _LOGGER.info("Waiting %.2f seconds for audio to play before closing session", audio_duration)
+                time.sleep(audio_duration + 0.5)  # Add 0.5s buffer
             else:
-                # Extract error message from camera response
-                from .api import _extract_error_message
-                error_msg = _extract_error_message(response)
-                if error_msg:
-                    _LOGGER.error("Camera returned status %d: %s", response.status_code, error_msg)
-                else:
-                    error_text = response.text[:200] if response.text else 'No response body'
-                    _LOGGER.error("Camera returned status %d: %s", response.status_code, error_text)
+                error_text = response.text[:200] if response.text else 'No response body'
+                _LOGGER.error("Camera returned status %d: %s", response.status_code, error_text)
                 # Still wait a bit even on error
                 import time
                 time.sleep(0.5)
