@@ -83,18 +83,29 @@ def _extract_error_message(response) -> str:
             root = ET.fromstring(text)
             # Check common XML error elements
             for ns in [XML_NS, "{http://www.isapi.org/ver20/XMLSchema}", ""]:
-                # Look for ResponseStatus element
-                response_status = root.find(f".//{ns}ResponseStatus")
+                # Check if root itself is ResponseStatus, or find it as child
+                response_status = None
+                if root.tag.endswith("ResponseStatus") or root.tag == "ResponseStatus":
+                    response_status = root
+                else:
+                    response_status = root.find(f".//{ns}ResponseStatus")
+                
                 if response_status is not None:
                     parts = []
                     
-                    # Get statusString
-                    status_string = response_status.find(f".//{ns}statusString")
+                    # Get statusString (direct child, not recursive)
+                    status_string = response_status.find(f"{ns}statusString")
+                    if status_string is None and ns:
+                        # Try without namespace
+                        status_string = response_status.find("statusString")
                     if status_string is not None and status_string.text:
                         parts.append(status_string.text.strip())
                     
-                    # Get description (often has detailed error like "remain_path=open")
-                    description = response_status.find(f".//{ns}description")
+                    # Get description (direct child, often has detailed error like "remain_path=open")
+                    description = response_status.find(f"{ns}description")
+                    if description is None and ns:
+                        # Try without namespace
+                        description = response_status.find("description")
                     if description is not None and description.text:
                         desc_text = description.text.strip()
                         # Parse description for meaningful parts
@@ -105,11 +116,14 @@ def _extract_error_message(response) -> str:
                         elif any(keyword in desc_text.lower() for keyword in ["twoway", "two-way"]):
                             parts.append("Two-way audio error")
                         # If description is short and meaningful, include it
-                        elif len(desc_text) < 100 and desc_text:
+                        elif len(desc_text) < 150 and desc_text:
                             parts.append(desc_text)
                     
-                    # Get subStatusCode for context
-                    sub_status = response_status.find(f".//{ns}subStatusCode")
+                    # Get subStatusCode for context (direct child)
+                    sub_status = response_status.find(f"{ns}subStatusCode")
+                    if sub_status is None and ns:
+                        # Try without namespace
+                        sub_status = response_status.find("subStatusCode")
                     if sub_status is not None and sub_status.text:
                         sub_text = sub_status.text.strip()
                         if sub_text and sub_text not in " ".join(parts).lower():
