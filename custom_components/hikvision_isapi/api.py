@@ -133,7 +133,12 @@ class HikvisionISAPI:
         except requests.exceptions.HTTPError as e:
             if e.response.status_code in (401, 403):
                 raise AuthenticationError(f"Authentication failed: {e}") from e
-            _LOGGER.error("HTTP error GET %s: %s", endpoint, e)
+            # Extract detailed error message from camera response
+            error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
+            if error_msg:
+                _LOGGER.error("HTTP error GET %s: %s - %s", endpoint, e.response.status_code, error_msg)
+            else:
+                _LOGGER.error("HTTP error GET %s: %s", endpoint, e)
             raise
         except requests.exceptions.RequestException as e:
             # Connection errors are expected during camera restarts - log as warning
@@ -173,7 +178,12 @@ class HikvisionISAPI:
         except requests.exceptions.HTTPError as e:
             if e.response.status_code in (401, 403):
                 raise AuthenticationError(f"Authentication failed: {e}") from e
-            _LOGGER.error("HTTP error PUT %s: %s", endpoint, e)
+            # Extract detailed error message from camera response
+            error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
+            if error_msg:
+                _LOGGER.error("HTTP error PUT %s: %s - %s", endpoint, e.response.status_code, error_msg)
+            else:
+                _LOGGER.error("HTTP error PUT %s: %s", endpoint, e)
             raise
         except requests.exceptions.RequestException as e:
             _LOGGER.error("Request error PUT %s: %s", endpoint, e)

@@ -92,6 +92,14 @@ async def async_get_config_entry_diagnostics(
         except Exception as e:
             endpoints_info["error"] = str(e)
         
+        # Get log server information - fail gracefully
+        log_server_info = {}
+        try:
+            if api:
+                log_server_info = await _get_log_server_info(api, hass)
+        except Exception as e:
+            log_server_info["error"] = str(e)
+        
         # Camera/channel details - fail gracefully
         camera_details = []
         try:
@@ -153,6 +161,7 @@ async def async_get_config_entry_diagnostics(
                 "button_entities": _count_supported_button_entities(detected_features),
             },
             "endpoints": endpoints_info,
+            "log_server": log_server_info,
             "events": {
                 "supported_events_count": len(supported_events),
                 "supported_events": supported_events[:20] if len(supported_events) > 20 else supported_events,  # Limit to first 20
@@ -272,4 +281,67 @@ def _count_supported_button_entities(features: dict) -> int:
     """Count supported button entities."""
     button_features = ["restart", "media_player", "test_audio_alarm"]
     return sum(1 for f in button_features if features.get(f, False))
+
+
+async def _get_log_server_info(api, hass) -> dict[str, Any]:
+    """Get log server configuration and capabilities."""
+    try:
+        if not api or not hasattr(api, 'host'):
+            return {"error": "API not available"}
+        
+        import xml.etree.ElementTree as ET
+        XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+        
+        # Get log server config
+        log_server_config = {}
+        try:
+            xml = await hass.async_add_executor_job(api._get, "/ISAPI/System/logServer")
+            if xml is not None:
+                enabled = xml.find(f".//{XML_NS}enabled")
+                addressing = xml.find(f".//{XML_NS}addressingFormatType")
+                hostname = xml.find(f".//{XML_NS}hostName")
+                ip_address = xml.find(f".//{XML_NS}ipAddress")
+                port = xml.find(f".//{XML_NS}portNo")
+                
+                log_server_config = {
+                    "enabled": enabled.text.strip().lower() == "true" if enabled is not None and enabled.text else False,
+                    "addressing_format": addressing.text.strip() if addressing is not None and addressing.text else None,
+                    "hostname": hostname.text.strip() if hostname is not None and hostname.text else None,
+                    "ip_address": anonymise_ip(ip_address.text.strip()) if ip_address is not None and ip_address.text else None,
+                    "port": port.text.strip() if port is not None and port.text else None,
+                }
+        except Exception as e:
+            log_server_config["error"] = f"Failed to get log server config: {str(e)}"
+        
+        # Get log server capabilities
+        log_server_capabilities = {}
+        try:
+            xml = await hass.async_add_executor_job(api._get, "/ISAPI/System/logServer/capabilities")
+            if xml is not None:
+                enabled_cap = xml.find(f".//{XML_NS}enabled")
+                addressing_cap = xml.find(f".//{XML_NS}addressingFormatType")
+                port_cap = xml.find(f".//{XML_NS}portNo")
+                
+                log_server_capabilities = {
+                    "enabled_supported": enabled_cap is not None,
+                    "addressing_formats": addressing_cap.get("opt", "").split(",") if addressing_cap is not None and addressing_cap.get("opt") else [],
+                    "port_range": {
+                        "min": port_cap.get("@min") if port_cap is not None and port_cap.get("@min") else None,
+                        "max": port_cap.get("@max") if port_cap is not None and port_cap.get("@max") else None,
+                    } if port_cap is not None else None,
+                }
+        except Exception as e:
+            log_server_capabilities["error"] = f"Failed to get log server capabilities: {str(e)}"
+        
+        return {
+            "config": log_server_config,
+            "capabilities": log_server_capabilities,
+            "endpoints": {
+                "config": "/ISAPI/System/logServer",
+                "capabilities": "/ISAPI/System/logServer/capabilities",
+                "test": "/ISAPI/System/logServer/test",
+            },
+        }
+    except Exception as e:
+        return {"error": f"Failed to get log server info: {str(e)}"}
 
