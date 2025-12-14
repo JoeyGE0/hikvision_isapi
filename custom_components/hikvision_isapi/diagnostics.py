@@ -43,10 +43,57 @@ async def async_get_config_entry_diagnostics(
     capabilities = data.get("capabilities", {})
     detected_features = data.get("detected_features", {})
     cameras = data.get("cameras", [])
+    supported_events = data.get("supported_events", [])
     
     # Anonymize sensitive data
     host = data.get("host", "")
     anonymized_host = anonymise_ip(host) if host else ""
+    
+    # Get detailed capabilities XML info
+    capabilities_details = {}
+    try:
+        if api:
+            # Get raw capabilities XML to extract more details
+            import xml.etree.ElementTree as ET
+            XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+            
+            xml = await hass.async_add_executor_job(api._get, "/ISAPI/System/capabilities")
+            
+            # Extract key capability flags
+            capabilities_details = {
+                "supplement_light": _extract_capability_bool(xml, f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportSupplementLight"),
+                "two_way_audio": _extract_capability_bool(xml, f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio"),
+                "ir_cut_filter": _extract_capability_bool(xml, f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportIRCutFilter"),
+                "audio_alarm": _extract_capability_bool(xml, f".//{XML_NS}SysCap/{XML_NS}EventCap/{XML_NS}isSupportAudioAlarm"),
+                "smart_detection": xml.find(f".//{XML_NS}SysCap/{XML_NS}SmartCap") is not None,
+                "image_adjustment": xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap") is not None,
+                "io_inputs": _extract_capability_int(xml, f".//{XML_NS}SysCap/{XML_NS}IOCap/{XML_NS}IOInputPortNums"),
+                "io_outputs": _extract_capability_int(xml, f".//{XML_NS}SysCap/{XML_NS}IOCap/{XML_NS}IOOutputPortNums"),
+                "analog_inputs": _extract_capability_int(xml, f".//{XML_NS}SysCap/{XML_NS}VideoCap/{XML_NS}videoInputPortNums"),
+                "digital_inputs": _extract_capability_int(xml, f".//{XML_NS}RacmCap/{XML_NS}inputProxyNums"),
+                "holiday_mode": _extract_capability_bool(xml, f".//{XML_NS}SysCap/{XML_NS}isSupportHolidy"),
+            }
+    except Exception as e:
+        capabilities_details["error"] = str(e)
+    
+    # Get endpoint information (what endpoints are available)
+    endpoints_info = _get_endpoints_info(api, hass) if api else {}
+    
+    # Camera/channel details
+    camera_details = []
+    for cam in cameras:
+        cam_info = {
+            "id": cam.get("id", "unknown"),
+            "name": cam.get("name", "unknown"),
+            "channel": cam.get("channel", "unknown"),
+        }
+        # Add stream info if available
+        if "streams" in cam:
+            cam_info["streams"] = [
+                {"id": s.get("id"), "type": s.get("type"), "type_id": s.get("type_id")}
+                for s in cam.get("streams", [])
+            ]
+        camera_details.append(cam_info)
     
     diagnostics = {
         "integration": {
@@ -65,7 +112,14 @@ async def async_get_config_entry_diagnostics(
         "capabilities": {
             "is_nvr": capabilities.get("is_nvr", False),
             "channel_count": len(cameras),
+            "analog_cameras": capabilities.get("analog_cameras_inputs", 0),
+            "digital_cameras": capabilities.get("digital_cameras_inputs", 0),
+            "input_ports": capabilities.get("input_ports", 0),
+            "output_ports": capabilities.get("output_ports", 0),
+            "holiday_mode": capabilities.get("support_holiday_mode", False),
+            "detailed_capabilities": capabilities_details,
         },
+        "cameras": camera_details,
         "detected_features": {
             "total_features_tested": len(detected_features),
             "supported_features": sum(1 for v in detected_features.values() if v),
@@ -79,9 +133,71 @@ async def async_get_config_entry_diagnostics(
             "media_player": detected_features.get("media_player", False),
             "button_entities": _count_supported_button_entities(detected_features),
         },
+        "endpoints": endpoints_info,
+        "events": {
+            "supported_events_count": len(supported_events),
+            "supported_events": supported_events[:20] if len(supported_events) > 20 else supported_events,  # Limit to first 20
+        },
     }
     
     return diagnostics
+
+
+def _extract_capability_bool(xml, xpath: str) -> bool | None:
+    """Extract boolean capability from XML."""
+    try:
+        elem = xml.find(xpath)
+        if elem is not None and elem.text:
+            return elem.text.strip().lower() == "true"
+        return None
+    except Exception:
+        return None
+
+
+def _extract_capability_int(xml, xpath: str) -> int | None:
+    """Extract integer capability from XML."""
+    try:
+        elem = xml.find(xpath)
+        if elem is not None and elem.text:
+            return int(elem.text.strip())
+        return None
+    except Exception:
+        return None
+
+
+def _get_endpoints_info(api, hass) -> dict[str, Any]:
+    """Get information about available ISAPI endpoints."""
+    endpoints = {
+        "base_urls": {
+            "image_channels": f"http://{api.host}/ISAPI/Image/channels/{api.channel}",
+            "system": f"http://{api.host}/ISAPI/System",
+            "smart": f"http://{api.host}/ISAPI/Smart",
+            "event": f"http://{api.host}/ISAPI/Event",
+            "streaming": f"http://{api.host}/ISAPI/Streaming",
+        },
+        "common_endpoints": {
+            "device_info": "/ISAPI/System/deviceInfo",
+            "capabilities": "/ISAPI/System/capabilities",
+            "two_way_audio": f"/ISAPI/System/TwoWayAudio/channels/{api.channel}",
+            "supplement_light": f"/ISAPI/Image/channels/{api.channel}/supplementLight",
+            "ircut_filter": f"/ISAPI/Image/channels/{api.channel}/ircutFilter",
+            "color_settings": f"/ISAPI/Image/channels/{api.channel}/color",
+            "sharpness": f"/ISAPI/Image/channels/{api.channel}/sharpness",
+            "motion_detection": f"/ISAPI/Smart/Image/{api.channel}/motionDetection",
+            "tamper_detection": f"/ISAPI/Smart/Image/{api.channel}/tamperDetection",
+            "field_detection": f"/ISAPI/Smart/Image/{api.channel}/fieldDetection",
+            "line_detection": f"/ISAPI/Smart/Image/{api.channel}/lineDetection",
+            "scene_change": f"/ISAPI/Smart/Image/{api.channel}/sceneChangeDetection",
+            "region_entrance": f"/ISAPI/Smart/Image/{api.channel}/regionEntrance",
+            "region_exiting": f"/ISAPI/Smart/Image/{api.channel}/regionExiting",
+            "io_inputs": f"/ISAPI/System/IO/inputs/{api.channel}",
+            "io_outputs": f"/ISAPI/System/IO/outputs/{api.channel}",
+            "audio_alarm": "/ISAPI/Event/triggers/notifications/AudioAlarm?format=json",
+            "streaming_channels": f"/ISAPI/Streaming/channels",
+        },
+        "note": "These are the endpoints used by the integration. Test endpoints by adding ?format=json for JSON or leaving as XML.",
+    }
+    return endpoints
 
 
 def _count_supported_number_entities(features: dict) -> int:
