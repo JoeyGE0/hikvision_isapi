@@ -2930,22 +2930,20 @@ class HikvisionISAPI:
             # Get capabilities XML
             xml = self._get("/ISAPI/System/capabilities")
             
-            # Check for supplement light capability
+            # Check for supplement light capability - be lenient: if element exists, assume supported
             supplement_light = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportSupplementLight")
-            has_lights = supplement_light is not None and supplement_light.text and supplement_light.text.strip().lower() == "true"
+            has_lights = supplement_light is not None  # Just check if element exists, don't require "true"
             
-            # Check for two-way audio capability
+            # Check for two-way audio capability - be lenient
             two_way_audio = xml.find(f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio")
-            has_two_way_audio = two_way_audio is not None and two_way_audio.text and two_way_audio.text.strip().lower() == "true"
+            has_two_way_audio = two_way_audio is not None  # Just check if element exists
             
-            # Check for I/O ports (already in capabilities dict, but check XML too)
-            io_inputs = xml.find(f".//{XML_NS}SysCap/{XML_NS}IOCap/{XML_NS}IOInputPortNums")
-            has_io_inputs = io_inputs is not None and io_inputs.text and int(io_inputs.text.strip()) > 0
+            # Check for I/O ports - be lenient, check if capability section exists
+            io_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}IOCap")
+            has_io_inputs = io_cap is not None  # If IOCap exists, assume inputs available
+            has_io_outputs = io_cap is not None  # If IOCap exists, assume outputs available
             
-            io_outputs = xml.find(f".//{XML_NS}SysCap/{XML_NS}IOCap/{XML_NS}IOOutputPortNums")
-            has_io_outputs = io_outputs is not None and io_outputs.text and int(io_outputs.text.strip()) > 0
-            
-            # Check for smart detection capabilities
+            # Check for smart detection capabilities - just check if SmartCap exists
             smart_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}SmartCap")
             has_smart_detection = smart_cap is not None
             
@@ -2953,12 +2951,13 @@ class HikvisionISAPI:
             image_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap")
             has_image_adjustment = image_cap is not None
             
-            # Check for IR cut filter (day/night mode)
-            has_ir_cut = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportIRCutFilter") is not None
+            # Check for IR cut filter (day/night mode) - be lenient
+            has_ir_cut = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportIRCutFilter") is not None or image_cap is not None
             
-            # Check for audio alarm capability
+            # Check for audio alarm capability - be lenient
+            event_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}EventCap")
             audio_alarm = xml.find(f".//{XML_NS}SysCap/{XML_NS}EventCap/{XML_NS}isSupportAudioAlarm")
-            has_audio_alarm = audio_alarm is not None and audio_alarm.text and audio_alarm.text.strip().lower() == "true"
+            has_audio_alarm = audio_alarm is not None or event_cap is not None  # If EventCap exists, assume audio alarm possible
             
             _LOGGER.info("Feature categories detected - Lights: %s, Two-way Audio: %s, I/O: %s/%s, Smart: %s, Image: %s, Audio Alarm: %s",
                         has_lights, has_two_way_audio, has_io_inputs, has_io_outputs, has_smart_detection, has_image_adjustment, has_audio_alarm)
@@ -3042,3 +3041,48 @@ class HikvisionISAPI:
         _LOGGER.info("Feature detection complete: %d/%d features supported", supported_count, total_count)
         
         return features
+    
+    def _get_all_features_enabled(self) -> dict:
+        """Return dict with all features enabled (fallback when detection fails)."""
+        return {
+            # Number entities
+            "ir_sensitivity": True,
+            "ir_filter_time": True,
+            "speaker_volume": True,
+            "microphone_volume": True,
+            "white_light_time": True,
+            "white_light_brightness": True,
+            "ir_light_brightness": True,
+            "white_light_brightness_limit": True,
+            "ir_light_brightness_limit": True,
+            "motion_sensitivity": True,
+            "motion_start_trigger_time": True,
+            "motion_end_trigger_time": True,
+            "brightness": True,
+            "contrast": True,
+            "saturation": True,
+            "sharpness": True,
+            "alarm_times": True,
+            "loudspeaker_volume": True,
+            # Switch entities
+            "noise_reduce": True,
+            "motion_detection": True,
+            "tamper_detection": True,
+            "intrusion_detection": True,
+            "line_crossing_detection": True,
+            "scene_change_detection": True,
+            "region_entrance_detection": True,
+            "region_exiting_detection": True,
+            "alarm_input": True,
+            "alarm_output": True,
+            # Select entities
+            "day_night_mode": True,
+            "supplement_light_mode": True,
+            "audio_alarm_type": True,
+            "audio_alarm_sound": True,
+            # Media player
+            "media_player": True,
+            # Button entities
+            "restart": True,
+            "test_audio_alarm": True,
+        }

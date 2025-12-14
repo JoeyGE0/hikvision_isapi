@@ -51,8 +51,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             detected_features = await hass.async_add_executor_job(api.detect_features)
             api.detected_features = detected_features
         except Exception as e:
-            _LOGGER.warning("Feature detection failed, will add all entities: %s", e)
-            detected_features = {}  # Empty dict = no features detected = no entities added
+            _LOGGER.warning("Feature detection failed, will enable all entities as fallback: %s", e)
+            # If detection fails, enable everything (safe fallback)
+            detected_features = api._get_all_features_enabled()
             api.detected_features = detected_features
         
         # Get supported events from Event/triggers API (optional - fallback to empty list if fails)
