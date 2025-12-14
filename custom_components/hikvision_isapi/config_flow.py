@@ -74,7 +74,11 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # Use MAC address as unique_id
         await self.async_set_unique_id(mac_address)
-        self._abort_if_unique_id_configured()
+        try:
+            self._abort_if_unique_id_configured()
+        except config_entries.ConfigFlowAbort:
+            # Device already configured, abort discovery
+            raise
         
         # Try to get device info for better discovery display
         device_name = discovery_info.hostname or host
