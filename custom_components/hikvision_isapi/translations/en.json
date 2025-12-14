@@ -26,13 +26,13 @@
           "update_interval": "Update Interval (seconds)",
           "set_alarm_server": "Enable event notifications",
           "alarm_server": "Home Assistant Address",
-          "rtsp_port_forced": "Force RTSP port (Optional)"
+          "rtsp_port_forced": "Force RTSP Port (Optional)"
         },
         "data_description": {
           "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
           "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
           "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
-          "rtsp_port_forced": "Force RTSP port (Optional)"
+          "rtsp_port_forced": "Force a specific RTSP port number (1-65535). Leave empty to use camera's default port."
         }
       },
       "reconfigure": {
@@ -46,7 +46,7 @@
           "update_interval": "Update Interval (seconds)",
           "set_alarm_server": "Enable event notifications",
           "alarm_server": "Home Assistant Address",
-          "rtsp_port_forced": "Force RTSP port (Optional)"
+          "rtsp_port_forced": "Force RTSP Port (Optional)"
         },
         "data_description": {
           "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.13)",
@@ -56,7 +56,7 @@
           "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
           "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
           "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
-          "rtsp_port_forced": "Force RTSP port (Optional)"
+          "rtsp_port_forced": "Force a specific RTSP port number (1-65535). Leave empty to use camera's default port."
         }
       }
     },

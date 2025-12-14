@@ -76,17 +76,30 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(mac_address)
         self._abort_if_unique_id_configured()
         
-        # Store discovered host in context for use in user step
-        self.context.update({"discovered_host": host})
+        # Try to get device info for better discovery display
+        device_name = discovery_info.hostname or host
+        try:
+            # Try to get device name from camera (without auth, might fail but worth trying)
+            url = f"http://{host}/ISAPI/System/deviceInfo"
+            response = await self.hass.async_add_executor_job(
+                lambda: requests.get(url, verify=False, timeout=3)
+            )
+            if response.ok:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(response.text)
+                name_elem = root.find(".//{http://www.hikvision.com/ver20/XMLSchema}deviceName")
+                if name_elem is not None and name_elem.text:
+                    device_name = name_elem.text.strip()
+        except Exception:
+            pass  # Fallback to hostname or IP
+        
+        # Store discovered host and device name in context for use in user step
+        self.context.update({
+            "discovered_host": host,
+            "discovered_device_name": device_name,
+        })
         
         # Show form with pre-filled values (will use same schema as user step)
-        # Get local IP for alarm server default
-        try:
-            local_ip = await async_get_source_ip(self.hass)
-            default_alarm_server = f"http://{local_ip}:8123"
-        except Exception:
-            default_alarm_server = None
-        
         return self.async_show_form(
             step_id="user",
             data_schema=get_basic_schema(host),
