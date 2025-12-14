@@ -228,8 +228,12 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
                 
                 return self.async_create_entry(title=basic_data[CONF_HOST], data=entry_data)
+            else:
+                # If there are errors, show form with errors
+                schema = get_advanced_schema(default_alarm_server, set_alarm_server=set_alarm_server)
+                return self.async_show_form(step_id="advanced", data_schema=schema, errors=errors)
         
-        # Show advanced form
+        # Show advanced form (initial load)
         schema = get_advanced_schema(default_alarm_server, set_alarm_server=True)
         return self.async_show_form(
             step_id="advanced", data_schema=schema, errors=errors
