@@ -43,17 +43,17 @@ class EventNotificationsView(HomeAssistantView):
 
     async def post(self, request: web.Request):
         """Accept the POST request from camera."""
-        _LOGGER.info("=== WEBHOOK RECEIVED === Source: %s, Headers: %s", request.remote, dict(request.headers))
+        _LOGGER.debug("=== WEBHOOK RECEIVED === Source: %s, Headers: %s", request.remote, dict(request.headers))
 
         try:
-            _LOGGER.info("--- Incoming event notification from %s ---", request.remote)
+            _LOGGER.debug("--- Incoming event notification from %s ---", request.remote)
             xml = await self.parse_event_request(request)
-            _LOGGER.info("Received XML (first 500 chars): %s", xml[:500] if xml else "None")
+            _LOGGER.debug("Received XML (first 500 chars): %s", xml[:500] if xml else "None")
             _LOGGER.debug("Full XML: %s", xml)
             alert = self.parse_event_notification(xml)
-            _LOGGER.info("Parsed alert: event=%s, channel=%s, io_port=%s", alert.event_id, alert.channel_id, alert.io_port_id)
+            _LOGGER.debug("Parsed alert: event=%s, channel=%s, io_port=%s", alert.event_id, alert.channel_id, alert.io_port_id)
             device_entry = self.get_isapi_device(request.remote, alert)
-            _LOGGER.info("Found device entry: %s", device_entry.entry_id)
+            _LOGGER.debug("Found device entry: %s", device_entry.entry_id)
             self.update_alert_channel(device_entry, alert)
             self.trigger_sensor(device_entry, alert)
         except Exception as ex:  # pylint: disable=broad-except
@@ -181,7 +181,7 @@ class EventNotificationsView(HomeAssistantView):
             XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
             
             # Log the root tag and structure for debugging
-            _LOGGER.info("Root tag: %s, Root attrib: %s", root.tag, root.attrib)
+            _LOGGER.debug("Root tag: %s, Root attrib: %s", root.tag, root.attrib)
             
             # Try multiple ways to find EventNotificationAlert
             alert = None
@@ -204,7 +204,7 @@ class EventNotificationsView(HomeAssistantView):
                     local_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
                     if local_name == "EventNotificationAlert":
                         alert = elem
-                        _LOGGER.info("Found EventNotificationAlert by local name: %s", elem.tag)
+                        _LOGGER.debug("Found EventNotificationAlert by local name: %s", elem.tag)
                         break
             
             # If still not found, log the XML structure and all element tags
@@ -256,7 +256,7 @@ class EventNotificationsView(HomeAssistantView):
                 raise ValueError("No eventType found")
             
             event_id = event_type_elem.text.strip().lower() if event_type_elem.text else ""
-            _LOGGER.info("Received event type: %s (raw)", event_id)
+            _LOGGER.debug("Received event type: %s (raw)", event_id)
             
             # Handle duration events (version 2.0 notifications)
             # When eventType is "duration" or empty, the actual event type is in DurationList
@@ -274,7 +274,7 @@ class EventNotificationsView(HomeAssistantView):
                         relation_event = duration.find(".//relationEvent")
                     if relation_event is not None and relation_event.text:
                         event_id = relation_event.text.strip().lower()
-                        _LOGGER.info("Extracted event type from DurationList: %s", event_id)
+                        _LOGGER.debug("Extracted event type from DurationList: %s", event_id)
                 
                 # Try ISAPI namespace (some cameras use this)
                 if not event_id or event_id == "duration":
@@ -286,7 +286,7 @@ class EventNotificationsView(HomeAssistantView):
                             relation_event = duration.find(".//relationEvent")
                         if relation_event is not None and relation_event.text:
                             event_id = relation_event.text.strip().lower()
-                            _LOGGER.info("Extracted event type from DurationList (ISAPI namespace): %s", event_id)
+                            _LOGGER.debug("Extracted event type from DurationList (ISAPI namespace): %s", event_id)
                 
                 # Try without namespace if still not found
                 if not event_id or event_id == "duration":
@@ -298,7 +298,7 @@ class EventNotificationsView(HomeAssistantView):
                             relation_event = duration.find(".//relationEvent")
                         if relation_event is not None and relation_event.text:
                             event_id = relation_event.text.strip().lower()
-                            _LOGGER.info("Extracted event type from DurationList (no namespace): %s", event_id)
+                            _LOGGER.debug("Extracted event type from DurationList (no namespace): %s", event_id)
                 
                 # If we still can't extract the event type, skip this notification
                 if not event_id or event_id == "duration":
@@ -315,7 +315,7 @@ class EventNotificationsView(HomeAssistantView):
             if EVENTS_ALTERNATE_ID.get(event_id):
                 original_id = event_id
                 event_id = EVENTS_ALTERNATE_ID[event_id]
-                _LOGGER.info("Mapped event type %s -> %s", original_id, event_id)
+                _LOGGER.debug("Mapped event type %s -> %s", original_id, event_id)
             
             channel_id_elem = alert.find(f".//{XML_NS}channelID")
             if channel_id_elem is None:
@@ -370,7 +370,7 @@ class EventNotificationsView(HomeAssistantView):
                              event_id, channel_id, io_port_id)
                 raise ValueError(f"Unsupported event {event_id}")
             
-            _LOGGER.info("Parsed event: type=%s, channel=%s, io_port=%s, activeState=%s", 
+            _LOGGER.debug("Parsed event: type=%s, channel=%s, io_port=%s, activeState=%s", 
                         event_id, channel_id, io_port_id, active_state)
             
             return AlertInfo(
@@ -452,7 +452,7 @@ class EventNotificationsView(HomeAssistantView):
             io_port_id_param = ""  # Non-I/O events don't include io_port_id
         unique_id = f"{slugify(device_name.lower())}{device_id_param}{io_port_id_param}_{alert.event_id}"
 
-        _LOGGER.info("Looking for entity with unique_id: %s (event: %s, channel: %s, io_port: %s)", 
+        _LOGGER.debug("Looking for entity with unique_id: %s (event: %s, channel: %s, io_port: %s)", 
                      unique_id, alert.event_id, alert.channel_id, alert.io_port_id)
 
         entity_registry = async_get(self.hass)
@@ -466,14 +466,14 @@ class EventNotificationsView(HomeAssistantView):
                 if alert.active_state and alert.active_state.lower() == "inactive":
                     # Only clear if currently ON (state change)
                     if current_state == STATE_ON:
-                        _LOGGER.info("Clearing entity: %s (event: %s, activeState: inactive)", entity_id, alert.event_id)
+                        _LOGGER.debug("Clearing entity: %s (event: %s, activeState: inactive)", entity_id, alert.event_id)
                         self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
                     else:
                         _LOGGER.debug("Entity %s already OFF, ignoring inactive notification", entity_id)
                 else:
                     # Only trigger if currently OFF (state change) - prevents duplicate notifications during continuous detection
                     if current_state == STATE_OFF:
-                        _LOGGER.info("Triggering entity: %s (event: %s, activeState: %s)", 
+                        _LOGGER.debug("Triggering entity: %s (event: %s, activeState: %s)", 
                                    entity_id, alert.event_id, alert.active_state or "active")
                         self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                         self.fire_hass_event(entry, alert)
@@ -502,7 +502,7 @@ class EventNotificationsView(HomeAssistantView):
                             if alert.active_state and alert.active_state.lower() == "inactive":
                                 # Only clear if currently ON (state change)
                                 if current_state == STATE_ON:
-                                    _LOGGER.info("Clearing entity with fallback channel_id=%d: %s (event: %s, activeState: inactive)", 
+                                    _LOGGER.debug("Clearing entity with fallback channel_id=%d: %s (event: %s, activeState: inactive)", 
                                                camera_id, entity_id, alert.event_id)
                                     self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
                                 else:
@@ -510,7 +510,7 @@ class EventNotificationsView(HomeAssistantView):
                             else:
                                 # Only trigger if currently OFF (state change) - prevents duplicate notifications during continuous detection
                                 if current_state == STATE_OFF:
-                                    _LOGGER.info("Triggering entity with fallback channel_id=%d: %s (event: %s, activeState: %s)", 
+                                    _LOGGER.debug("Triggering entity with fallback channel_id=%d: %s (event: %s, activeState: %s)", 
                                                camera_id, entity_id, alert.event_id, alert.active_state or "active")
                                     self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                                     self.fire_hass_event(entry, alert)
