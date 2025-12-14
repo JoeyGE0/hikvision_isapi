@@ -18,9 +18,8 @@
 
 ## Important Notes
 
-> **Early Development**: This integration is in early development. There are likely bugs and it's only been tested on DS-2CD2387G3 (ColorVu G3). Other models haven't been tested.
+> **Limited Offical Suuport**: Tested only on the DS-2CD2387G3 (ColorVu G3). Other NVRs and standalone cameras may not have full suuport. Compatibility will improve as bugs are reported and PRs are contributed.
 
-> **Disclaimer**: mostly written with Cursor AI. I have no clue what I'm doing - help is appreciated 
 
 ### Known Issues
 
@@ -472,11 +471,11 @@ This project is licensed under the **MIT License**.
 
 This integration was partially inspired by the [hikvision_next](https://github.com/maciej-or/hikvision_next) integration by [@maciej-or](https://github.com/maciej-or).
 
+Workflow improved with cursor AI models 
+
 ---
 
 <div align="center">
-
-**Made with Cursor AI**
 
 [Back to Top](#hikvision-isapi-controls)
 
