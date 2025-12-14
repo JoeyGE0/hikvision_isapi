@@ -157,12 +157,6 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 4. Category: Integration
 5. Install and restart Home Assistant
 
-## Branching tips
-
-This repository currently uses `main` as the default branch. If you want a safer workflow, create a short‑lived feature branch (for example, `beta` or `fix/entity-events`) from `main`, push that branch, and open a pull request back to `main`. No big refactor is needed to start doing this—just branch, edit, and merge when you're ready. If you keep working directly on `main`, commit regularly so you can roll back easily if something breaks.
-
----
-
 ## Configuration
 
 ### Camera Setup Requirements
