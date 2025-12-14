@@ -157,8 +157,6 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 4. Category: Integration
 5. Install and restart Home Assistant
 
----
-
 ## Configuration
 
 ### Camera Setup Requirements

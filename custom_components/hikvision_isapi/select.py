@@ -383,7 +383,7 @@ class HikvisionAudioTypeSelect(SelectEntity):
 
     _attr_unique_id = "hikvision_audio_type"
     _attr_options = ["Alert Audio", "Prompt Audio", "Custom Audio"]
-    _attr_icon = "mdi:audio"
+    _attr_icon = "mdi:waveform"
     _attr_entity_registry_enabled_default = False
 
     # Map display names to API values
