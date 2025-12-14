@@ -12,7 +12,7 @@
           "configure_advanced": "Configure advanced options"
         },
         "data_description": {
-          "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.13)",
+          "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.12)",
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Password for camera login",
@@ -49,7 +49,7 @@
           "rtsp_port_forced": "Force RTSP Port (Optional)"
         },
         "data_description": {
-          "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.13)",
+          "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.12)",
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Password for camera login",
