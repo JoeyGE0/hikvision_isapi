@@ -1,0 +1,72 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Hikvision ISAPI Controls",
+        "description": "Enter your camera/NVR credentials to get started",
+        "data": {
+          "host": "IP Address or Hostname",
+          "username": "Username",
+          "password": "Password",
+          "configure_advanced": "Configure advanced options"
+        },
+        "data_description": {
+          "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.13)",
+          "username": "Username for camera login (usually 'admin')",
+          "password": "Password for camera login",
+          "configure_advanced": "Enable this to configure advanced options like update interval and event notifications"
+        }
+      },
+      "advanced": {
+        "title": "Advanced Options",
+        "description": "Configure advanced settings (optional)",
+        "data": {
+          "update_interval": "Update Interval (seconds)",
+          "set_alarm_server": "Enable event notifications",
+          "alarm_server": "Home Assistant Address"
+        },
+        "data_description": {
+          "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
+          "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
+          "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Hikvision ISAPI Controls",
+        "description": "Update your camera/NVR configuration",
+        "data": {
+          "host": "IP Address or Hostname",
+          "username": "Username",
+          "password": "Password",
+          "update_interval": "Update Interval (seconds)",
+          "set_alarm_server": "Enable event notifications",
+          "alarm_server": "Home Assistant Address"
+        },
+        "data_description": {
+          "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.13)",
+          "username": "Username for camera login (usually 'admin')",
+          "password": "Password for camera login",
+          "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
+          "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
+          "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid authentication - check username and password",
+      "cannot_connect": "Cannot connect to camera - check IP address and network",
+      "timeout": "Connection timeout - camera did not respond",
+      "unknown": "Unexpected error occurred",
+      "host_required": "IP address or hostname is required",
+      "username_required": "Username is required",
+      "password_required": "Password is required",
+      "alarm_server_required": "Home Assistant address is required when event notifications are enabled"
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "reconfigure_successful": "Re-configuration was successful",
+      "no_basic_data": "Basic configuration data is missing"
+    }
+  }
+}
+
