@@ -22,15 +22,22 @@ async def async_setup_entry(
     api = data["api"]
     host = data["host"]
     device_name = data["device_info"].get("deviceName", host)
+    detected_features = data.get("detected_features", {})
 
-    entities = [
-        HikvisionLightModeSelect(coordinator, api, entry, host, device_name),
-        HikvisionBrightnessControlSelect(coordinator, api, entry, host, device_name),
-        HikvisionIRModeSelect(coordinator, api, entry, host, device_name),
-        HikvisionMotionTargetTypeSelect(coordinator, api, entry, host, device_name),
-        HikvisionAudioTypeSelect(coordinator, api, entry, host, device_name),
-        HikvisionWarningSoundSelect(coordinator, api, entry, host, device_name),
-    ]
+    entities = []
+    
+    # Only add entities if their features are detected
+    if detected_features.get("supplement_light_mode", False):
+        entities.append(HikvisionLightModeSelect(coordinator, api, entry, host, device_name))
+    if detected_features.get("day_night_mode", False):
+        entities.append(HikvisionBrightnessControlSelect(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionIRModeSelect(coordinator, api, entry, host, device_name))
+    if detected_features.get("motion_detection", False):
+        entities.append(HikvisionMotionTargetTypeSelect(coordinator, api, entry, host, device_name))
+    if detected_features.get("audio_alarm_type", False):
+        entities.append(HikvisionAudioTypeSelect(coordinator, api, entry, host, device_name))
+    if detected_features.get("audio_alarm_sound", False):
+        entities.append(HikvisionWarningSoundSelect(coordinator, api, entry, host, device_name))
 
     async_add_entities(entities)
 

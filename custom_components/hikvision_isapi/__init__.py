@@ -46,6 +46,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         cameras = await hass.async_add_executor_job(api.get_cameras)
         api.cameras = cameras
         
+        # Detect supported features by testing endpoints
+        try:
+            detected_features = await hass.async_add_executor_job(api.detect_features)
+            api.detected_features = detected_features
+        except Exception as e:
+            _LOGGER.warning("Feature detection failed, will add all entities: %s", e)
+            detected_features = {}  # Empty dict = no features detected = no entities added
+            api.detected_features = detected_features
+        
         # Get supported events from Event/triggers API (optional - fallback to empty list if fails)
         supported_events = []
         if hasattr(api, 'get_supported_events'):
@@ -115,6 +124,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "capabilities": capabilities,
         "cameras": cameras,
         "supported_events": supported_events,
+        "detected_features": detected_features,
         "host": host,
         "nvr_device_identifier": nvr_device_identifier,  # For via_device on NVR cameras
         **entry.data

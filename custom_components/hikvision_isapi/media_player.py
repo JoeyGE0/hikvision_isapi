@@ -34,10 +34,13 @@ async def async_setup_entry(
     api = data["api"]
     host = data["host"]
     device_name = data["device_info"].get("deviceName", host)
+    detected_features = data.get("detected_features", {})
 
-    entities = [
-        HikvisionMediaPlayer(coordinator, api, entry, host, device_name),
-    ]
+    entities = []
+    
+    # Only add media player if two-way audio is supported
+    if detected_features.get("media_player", False):
+        entities.append(HikvisionMediaPlayer(coordinator, api, entry, host, device_name))
 
     async_add_entities(entities)
 

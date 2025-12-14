@@ -26,19 +26,31 @@ async def async_setup_entry(
     api = data["api"]
     host = data["host"]
     device_name = data["device_info"].get("deviceName", host)
+    detected_features = data.get("detected_features", {})
 
-    entities = [
-        HikvisionNoiseReduceSwitch(coordinator, api, entry, host, device_name),
-        HikvisionMotionDetectionSwitch(coordinator, api, entry, host, device_name),
-        HikvisionTamperDetectionSwitch(coordinator, api, entry, host, device_name),
-        HikvisionIntrusionDetectionSwitch(coordinator, api, entry, host, device_name),
-        HikvisionLineCrossingDetectionSwitch(coordinator, api, entry, host, device_name),
-        HikvisionSceneChangeDetectionSwitch(coordinator, api, entry, host, device_name),
-        HikvisionRegionEntranceDetectionSwitch(coordinator, api, entry, host, device_name),
-        HikvisionRegionExitingDetectionSwitch(coordinator, api, entry, host, device_name),
-        HikvisionAlarmInputSwitch(coordinator, api, entry, host, device_name),
-        HikvisionAlarmOutputSwitch(coordinator, api, entry, host, device_name, 1),
-    ]
+    entities = []
+    
+    # Only add entities if their features are detected
+    if detected_features.get("noise_reduce", False):
+        entities.append(HikvisionNoiseReduceSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("motion_detection", False):
+        entities.append(HikvisionMotionDetectionSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("tamper_detection", False):
+        entities.append(HikvisionTamperDetectionSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("intrusion_detection", False):
+        entities.append(HikvisionIntrusionDetectionSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("line_crossing_detection", False):
+        entities.append(HikvisionLineCrossingDetectionSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("scene_change_detection", False):
+        entities.append(HikvisionSceneChangeDetectionSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("region_entrance_detection", False):
+        entities.append(HikvisionRegionEntranceDetectionSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("region_exiting_detection", False):
+        entities.append(HikvisionRegionExitingDetectionSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("alarm_input", False):
+        entities.append(HikvisionAlarmInputSwitch(coordinator, api, entry, host, device_name))
+    if detected_features.get("alarm_output", False):
+        entities.append(HikvisionAlarmOutputSwitch(coordinator, api, entry, host, device_name, 1))
 
     async_add_entities(entities)
 

@@ -6,15 +6,15 @@ bronze:
   - name: "User Documentation"
     status: "completed"
     notes: "README.md with clear setup instructions"
-  
+
   - name: "Code Quality"
     status: "completed"
     notes: "Code follows Home Assistant standards"
-  
+
   - name: "Asynchronous Codebase"
     status: "completed"
     notes: "Uses async/await throughout"
-  
+
   - name: "Efficient Data Handling"
     status: "completed"
     notes: "Uses coordinator pattern, local_push IoT class"
@@ -24,11 +24,11 @@ silver:
   - name: "Config Flow"
     status: "completed"
     notes: "Full config flow implementation with DHCP discovery"
-  
+
   - name: "High-Level Description"
     status: "completed"
     notes: "README includes comprehensive feature description"
-  
+
   - name: "Automated Tests"
     status: "completed"
     notes: "Tests exist for config_flow, api, and coordinator"
@@ -38,40 +38,39 @@ gold:
   - name: "Devices"
     status: "completed"
     notes: "Creates devices via device_registry.async_get_or_create"
-  
+
   - name: "Diagnostics"
-    status: "not_started"
-    notes: "No async_get_diagnostics implementation found"
-  
+    status: "completed"
+    notes: "async_get_config_entry_diagnostics implemented with feature detection, anonymized sensitive data"
+
   - name: "Discovery"
     status: "completed"
     notes: "DHCP discovery implemented with MAC address matching"
-  
+
   - name: "Documentation - Data Update"
     status: "completed"
     notes: "README describes webhook-based real-time updates"
-  
+
   - name: "Documentation - Examples"
     status: "completed"
     notes: "README includes automation example"
-  
+
   - name: "Documentation - Known Limitations"
     status: "completed"
     notes: "README includes Known Issues section"
-  
+
   - name: "Reconfiguration"
     status: "completed"
     notes: "async_step_reconfigure implemented in config_flow"
-  
+
   - name: "Translations"
     status: "not_started"
     notes: "No translations directory found"
-  
+
   - name: "Firmware Updates"
     status: "not_applicable"
     notes: "Camera firmware updates not supported via ISAPI"
-  
+
   - name: "Automated Tests - Full Coverage"
     status: "in_progress"
     notes: "Tests exist but may not cover all code paths"
-

@@ -22,12 +22,17 @@ async def async_setup_entry(
     api = data["api"]
     host = data["host"]
     device_name = data["device_info"].get("deviceName", host)
+    detected_features = data.get("detected_features", {})
 
-    entities = [
-        HikvisionRestartButton(api, entry, host, device_name),
-        HikvisionTestToneButton(api, entry, host, device_name),
-        HikvisionTestAudioAlarmButton(api, entry, host, device_name),
-    ]
+    entities = []
+    
+    # Only add entities if their features are detected
+    if detected_features.get("restart", True):  # Restart is usually always available
+        entities.append(HikvisionRestartButton(api, entry, host, device_name))
+    if detected_features.get("media_player", False):  # Test tone requires two-way audio
+        entities.append(HikvisionTestToneButton(api, entry, host, device_name))
+    if detected_features.get("test_audio_alarm", False):
+        entities.append(HikvisionTestAudioAlarmButton(api, entry, host, device_name))
 
     async_add_entities(entities)
 

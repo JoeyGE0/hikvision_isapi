@@ -2912,3 +2912,94 @@ class HikvisionISAPI:
             else:
                 _LOGGER.debug("Failed to test audio alarm: %s", e)
             return False
+
+    def detect_features(self) -> dict:
+        """Detect which features are supported by testing endpoints.
+        
+        Returns a dict with feature names as keys and True/False as values.
+        Only tests GET endpoints (read-only) to avoid modifying camera state.
+        """
+        features = {}
+        
+        _LOGGER.info("Detecting supported features for %s...", self.host)
+        
+        # Helper to test an endpoint
+        def test_endpoint(endpoint: str, method: str = "GET") -> bool:
+            """Test if an endpoint is accessible (returns 200 or valid data)."""
+            try:
+                if method == "GET":
+                    if endpoint.startswith("/ISAPI/"):
+                        url = f"http://{self.host}{endpoint}"
+                    else:
+                        url = f"{self.base_url}{endpoint}"
+                    response = requests.get(
+                        url,
+                        auth=(self.username, self.password),
+                        verify=False,
+                        timeout=3
+                    )
+                    # 200 = supported, 404 = not supported, 403 = no permission (but endpoint exists)
+                    if response.status_code == 200:
+                        return True
+                    elif response.status_code == 404:
+                        return False
+                    elif response.status_code == 403:
+                        # Endpoint exists but no permission - consider it supported
+                        return True
+                    else:
+                        return False
+                return False
+            except Exception:
+                return False
+        
+        # Number entities - test GET endpoints
+        features["ir_sensitivity"] = test_endpoint("/ircutFilter")
+        features["ir_filter_time"] = test_endpoint("/ircutFilter")
+        features["speaker_volume"] = test_endpoint("/ISAPI/System/TwoWayAudio/channels/1")
+        features["microphone_volume"] = test_endpoint("/ISAPI/System/TwoWayAudio/channels/1")
+        features["white_light_time"] = test_endpoint("/supplementLight")
+        features["white_light_brightness"] = test_endpoint("/supplementLight")
+        features["ir_light_brightness"] = test_endpoint("/supplementLight")
+        features["white_light_brightness_limit"] = test_endpoint("/supplementLight")
+        features["ir_light_brightness_limit"] = test_endpoint("/supplementLight")
+        features["motion_sensitivity"] = test_endpoint("/ISAPI/Smart/Image/1/motionDetection")
+        features["motion_start_trigger_time"] = test_endpoint("/ISAPI/Smart/Image/1/motionDetection")
+        features["motion_end_trigger_time"] = test_endpoint("/ISAPI/Smart/Image/1/motionDetection")
+        features["brightness"] = test_endpoint("/color")
+        features["contrast"] = test_endpoint("/color")
+        features["saturation"] = test_endpoint("/color")
+        features["sharpness"] = test_endpoint("/ISAPI/Image/channels/1/sharpness")
+        features["alarm_times"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+        features["loudspeaker_volume"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+        
+        # Switch entities - test GET endpoints
+        features["noise_reduce"] = test_endpoint("/ISAPI/System/TwoWayAudio/channels/1")
+        features["motion_detection"] = test_endpoint("/ISAPI/Smart/Image/1/motionDetection")
+        features["tamper_detection"] = test_endpoint("/ISAPI/Smart/Image/1/tamperDetection")
+        features["intrusion_detection"] = test_endpoint("/ISAPI/Smart/Image/1/fieldDetection")
+        features["line_crossing_detection"] = test_endpoint("/ISAPI/Smart/Image/1/lineDetection")
+        features["scene_change_detection"] = test_endpoint("/ISAPI/Smart/Image/1/sceneChangeDetection")
+        features["region_entrance_detection"] = test_endpoint("/ISAPI/Smart/Image/1/regionEntrance")
+        features["region_exiting_detection"] = test_endpoint("/ISAPI/Smart/Image/1/regionExiting")
+        features["alarm_input"] = test_endpoint(f"/ISAPI/System/IO/inputs/{self.channel}")
+        features["alarm_output"] = test_endpoint(f"/ISAPI/System/IO/outputs/{self.channel}")
+        
+        # Select entities - test GET endpoints
+        features["day_night_mode"] = test_endpoint("/ircutFilter")
+        features["supplement_light_mode"] = test_endpoint("/supplementLight")
+        features["audio_alarm_type"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+        features["audio_alarm_sound"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+        
+        # Media player - test two-way audio
+        features["media_player"] = test_endpoint("/ISAPI/System/TwoWayAudio/channels/1")
+        
+        # Button entities
+        features["restart"] = True  # System restart is usually always available
+        features["test_audio_alarm"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+        
+        # Count supported features
+        supported_count = sum(1 for v in features.values() if v)
+        total_count = len(features)
+        _LOGGER.info("Feature detection complete: %d/%d features supported", supported_count, total_count)
+        
+        return features
