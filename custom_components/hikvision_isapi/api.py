@@ -2931,35 +2931,57 @@ class HikvisionISAPI:
         xml = None
         try:
             xml = self._get("/ISAPI/System/capabilities")
+            if xml is None:
+                _LOGGER.error("Capabilities XML is None - this should not happen")
+                # Try to use capabilities dict as fallback
+                caps_dict = getattr(self, 'capabilities', {})
+                if not caps_dict:
+                    return {}
         except Exception as e:
             _LOGGER.error("Failed to fetch capabilities XML for feature detection: %s", e)
-            # Return empty dict - can't detect features without capabilities
-            return {}
+            # Try to use already-parsed capabilities dict as fallback
+            caps_dict = getattr(self, 'capabilities', {})
+            if not caps_dict:
+                _LOGGER.error("No capabilities available - cannot detect features")
+                return {}
+            # If we have capabilities dict, we can still enable some basic features
+            _LOGGER.warning("Using capabilities dict as fallback for feature detection")
+            xml = None  # Will use lenient detection based on dict only
         
         # Use already-parsed capabilities dict as additional source
         caps_dict = getattr(self, 'capabilities', {})
         
-        # Check for supplement light capability
+        # Check for supplement light capability - be lenient: if element exists, assume supported
         has_lights = False
         if xml is not None:
             supplement_light = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportSupplementLight")
             if supplement_light is not None:
-                has_lights = supplement_light.text and supplement_light.text.strip().lower() == "true"
+                # If element exists, check value - but be lenient (accept "true", "True", "1", etc.)
+                text = supplement_light.text.strip().lower() if supplement_light.text else ""
+                has_lights = text in ("true", "1", "yes")
                 _LOGGER.debug("Supplement light capability: element found, value='%s', has_lights=%s", 
                              supplement_light.text if supplement_light.text else "None", has_lights)
             else:
                 _LOGGER.debug("Supplement light capability: element not found in XML")
         
-        # Check for two-way audio capability
+        # Check for two-way audio capability - be lenient: if AudioCap exists, assume supported
         has_two_way_audio = False
         if xml is not None:
-            two_way_audio = xml.find(f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio")
-            if two_way_audio is not None:
-                has_two_way_audio = two_way_audio.text and two_way_audio.text.strip().lower() == "true"
-                _LOGGER.debug("Two-way audio capability: element found, value='%s', has_two_way_audio=%s",
-                             two_way_audio.text if two_way_audio.text else "None", has_two_way_audio)
+            # First check if AudioCap section exists at all
+            audio_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}AudioCap")
+            if audio_cap is not None:
+                # If AudioCap exists, check the specific flag
+                two_way_audio = xml.find(f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio")
+                if two_way_audio is not None:
+                    text = two_way_audio.text.strip().lower() if two_way_audio.text else ""
+                    has_two_way_audio = text in ("true", "1", "yes")
+                else:
+                    # AudioCap exists but no explicit flag - assume supported (lenient)
+                    has_two_way_audio = True
+                    _LOGGER.debug("Two-way audio: AudioCap exists but no explicit flag, assuming supported")
+                _LOGGER.debug("Two-way audio capability: AudioCap found, has_two_way_audio=%s", has_two_way_audio)
             else:
-                _LOGGER.debug("Two-way audio capability: element not found in XML")
+                _LOGGER.debug("Two-way audio capability: AudioCap section not found in XML")
         
         # Check for I/O ports - use capabilities dict which was already parsed
         has_io_inputs = caps_dict.get("input_ports", 0) > 0
@@ -2971,11 +2993,20 @@ class HikvisionISAPI:
             smart_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}SmartCap")
             has_smart_detection = smart_cap is not None
         
-        # Check for image adjustment (color, sharpness) - usually always available if ImageCap exists
+        # Check for image adjustment (color, sharpness) - ALWAYS enable if ImageCap exists
+        # Most cameras support basic image adjustment, so be very lenient here
         has_image_adjustment = False
         if xml is not None:
             image_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap")
             has_image_adjustment = image_cap is not None
+            if has_image_adjustment:
+                _LOGGER.debug("Image adjustment: ImageCap found, enabling brightness/contrast/saturation/sharpness")
+            else:
+                _LOGGER.warning("Image adjustment: ImageCap NOT found - this is unusual for a camera")
+        else:
+            # If XML not available, assume image adjustment is available (most cameras have it)
+            _LOGGER.debug("Image adjustment: XML not available, assuming supported (most cameras have basic image adjustment)")
+            has_image_adjustment = True
         
         # Check for IR cut filter (day/night mode)
         has_ir_cut = False
@@ -2987,11 +3018,18 @@ class HikvisionISAPI:
                 image_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap")
                 has_ir_cut = image_cap is not None
         
-        # Check for audio alarm capability
+        # Check for audio alarm capability - be lenient: if EventCap exists, check flag
         has_audio_alarm = False
         if xml is not None:
-            audio_alarm = xml.find(f".//{XML_NS}SysCap/{XML_NS}EventCap/{XML_NS}isSupportAudioAlarm")
-            has_audio_alarm = audio_alarm is not None and audio_alarm.text and audio_alarm.text.strip().lower() == "true"
+            event_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}EventCap")
+            if event_cap is not None:
+                audio_alarm = xml.find(f".//{XML_NS}SysCap/{XML_NS}EventCap/{XML_NS}isSupportAudioAlarm")
+                if audio_alarm is not None:
+                    text = audio_alarm.text.strip().lower() if audio_alarm.text else ""
+                    has_audio_alarm = text in ("true", "1", "yes")
+                else:
+                    # EventCap exists but no explicit flag - don't assume (audio alarm is less common)
+                    has_audio_alarm = False
         
         _LOGGER.info("Feature categories detected - Lights: %s, Two-way Audio: %s, I/O: %s/%s, Smart: %s, Image: %s, IR Cut: %s, Audio Alarm: %s",
                     has_lights, has_two_way_audio, has_io_inputs, has_io_outputs, has_smart_detection, has_image_adjustment, has_ir_cut, has_audio_alarm)
@@ -3057,9 +3095,25 @@ class HikvisionISAPI:
         # Button entities (always available)
         features["restart"] = True
         
+        # SAFETY: If NO features were detected at all, enable basic features
+        # This prevents the integration from being completely broken if detection fails
+        if not any(features.values()):
+            _LOGGER.warning("No features detected! Enabling basic features as fallback.")
+            # At minimum, enable image adjustment and restart button (most cameras support these)
+            features["brightness"] = True
+            features["contrast"] = True
+            features["saturation"] = True
+            features["sharpness"] = True
+            features["restart"] = True  # Already set above, but ensure it's there
+            _LOGGER.info("Enabled basic image adjustment features as fallback (brightness, contrast, saturation, sharpness)")
+        
         # Count supported features
         supported_count = sum(1 for v in features.values() if v)
         total_count = len(features)
         _LOGGER.info("Feature detection complete: %d/%d features supported", supported_count, total_count)
+        
+        # Log which features were enabled for debugging
+        enabled_features = [k for k, v in features.items() if v]
+        _LOGGER.info("Enabled features: %s", ", ".join(enabled_features[:20]))  # First 20 to avoid log spam
         
         return features
