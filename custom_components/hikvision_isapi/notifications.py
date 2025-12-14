@@ -444,7 +444,13 @@ class EventNotificationsView(HomeAssistantView):
         
         # Build unique_id matching binary sensor format (using device name, NO prefix - ENTITY_ID_FORMAT adds it)
         # Format must match exactly what binary_sensor.py creates
-        device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
+        # Only include channel_id if there are multiple cameras/channels (NVR or multi-channel)
+        cameras = device_data.get("cameras", [])
+        is_nvr = device_data.get("capabilities", {}).get("is_nvr", False)
+        if len(cameras) > 1 or is_nvr:
+            device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
+        else:
+            device_id_param = ""  # Single camera - no need for channel_id
         # For I/O events: always include io_port_id (even if 0) to match binary_sensor format
         # For other events: don't include io_port_id (should be 0 anyway)
         if alert.event_id == EVENT_IO:
@@ -487,11 +493,16 @@ class EventNotificationsView(HomeAssistantView):
         if not entity_id and alert.channel_id == 0 and alert.event_id != EVENT_IO:
             device_data = self.hass.data[DOMAIN][entry.entry_id]
             cameras = device_data.get("cameras", [])
+            is_nvr = device_data.get("capabilities", {}).get("is_nvr", False)
             # Try with channel_id=1 (first camera)
             if cameras:
                 camera_id = cameras[0].get("id", 1)
                 if camera_id != 0:
-                    fallback_device_id_param = f"_{camera_id}"
+                    # Only include channel_id if there are multiple cameras/channels
+                    if len(cameras) > 1 or is_nvr:
+                        fallback_device_id_param = f"_{camera_id}"
+                    else:
+                        fallback_device_id_param = ""  # Single camera - no need for channel_id
                     fallback_unique_id = f"{slugify(device_name.lower())}{fallback_device_id_param}_{alert.event_id}"
                     entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, fallback_unique_id)
                     if entity_id:
