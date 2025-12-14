@@ -496,7 +496,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             # Send all audio data in one request (matches play_test_tone() approach)
             # Camera expects Content-Length header, not chunked transfer encoding
             response = requests.put(
-                endpoint,
+                        endpoint,
                 auth=(self.api.username, self.api.password),
                 data=ulaw_data,
                 headers={"Content-Type": "application/octet-stream"},

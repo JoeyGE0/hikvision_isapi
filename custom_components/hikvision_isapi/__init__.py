@@ -92,7 +92,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         identifiers = {(DOMAIN, serial_number)}
         nvr_device_identifier = serial_number  # For via_device on NVR cameras
     else:
-        identifiers = {(DOMAIN, host)}
+    identifiers = {(DOMAIN, host)}
         nvr_device_identifier = host  # For via_device on NVR cameras
     
     if mac_address := device_info.get("macAddress"):
