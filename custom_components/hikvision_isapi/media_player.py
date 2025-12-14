@@ -175,6 +175,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 return
             
             # Extract G.711ulaw data (no conversion - must be pre-encoded)
+            _LOGGER.debug("Extracting ulaw data from %d bytes of audio data", len(audio_data))
             ulaw_data = await self.hass.async_add_executor_job(
                 self._extract_ulaw_data, audio_data, media_id
             )
@@ -183,6 +184,8 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 _LOGGER.error("File is not in G.711ulaw format. Only pre-encoded G.711ulaw WAV files or raw ulaw files are supported.")
                 await self.async_media_stop()
                 return
+            
+            _LOGGER.debug("Successfully extracted %d bytes of ulaw data, sending to camera", len(ulaw_data))
             
             # Stream to camera
             await self.hass.async_add_executor_job(
@@ -398,23 +401,45 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 chunk_id = wav_data[offset:offset+4]
                 chunk_size = int.from_bytes(wav_data[offset+4:offset+8], byteorder='little')
                 
-                if chunk_id == b'data':
-                    # Found data chunk - extract raw audio
-                    data_start = offset + 8
-                    
-                    # Validate chunk size - if it's unreasonably large or extends beyond file, use available data
-                    if chunk_size > len(wav_data) or (data_start + chunk_size) > len(wav_data):
-                        # WAV header says there's more data than exists - file might be truncated or header is wrong
+                # Validate chunk size - if invalid, handle it properly
+                if chunk_size > len(wav_data) or (offset + 8 + chunk_size) > len(wav_data):
+                    # Invalid chunk size
+                    if chunk_id == b'data':
+                        # This is the data chunk - extract what's available
+                        data_start = offset + 8
                         available_bytes = len(wav_data) - data_start
                         _LOGGER.warning(
                             "WAV file data chunk header claims %d bytes, but only %d bytes available in file. "
                             "Using available data (file may be truncated or header incorrect).",
                             chunk_size, available_bytes
                         )
-                        data_end = len(wav_data)
+                        raw_audio = wav_data[data_start:]
+                        _LOGGER.info("Extracted %d bytes of raw G.711ulaw audio from WAV file (header was invalid)", len(raw_audio))
+                        return raw_audio
                     else:
-                        data_end = data_start + chunk_size
-                    
+                        # Not the data chunk - invalid size means we can't calculate next offset
+                        # Search for next chunk by looking for common chunk IDs
+                        found_next = False
+                        for search_offset in range(offset + 8, min(offset + 200, len(wav_data) - 8)):
+                            if wav_data[search_offset:search_offset+4] in [b'data', b'fmt ', b'LIST', b'fact']:
+                                offset = search_offset
+                                found_next = True
+                                break
+                        if not found_next:
+                            # Can't find next chunk - try to find 'data' anywhere in remaining file
+                            data_pos = wav_data.find(b'data', offset + 8)
+                            if data_pos != -1 and data_pos < len(wav_data) - 8:
+                                offset = data_pos
+                                continue
+                            else:
+                                # Give up - can't find data chunk
+                                break
+                        continue
+                
+                if chunk_id == b'data':
+                    # Found data chunk - extract raw audio
+                    data_start = offset + 8
+                    data_end = data_start + chunk_size
                     raw_audio = wav_data[data_start:data_end]
                     _LOGGER.info("Extracted %d bytes of raw G.711ulaw audio from WAV file", len(raw_audio))
                     return raw_audio
@@ -476,13 +501,18 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             
             if response.status_code == 200:
                 _LOGGER.info("Audio sent successfully (status 200)")
+                # Wait for audio to finish playing before closing session
+                # Audio duration in seconds = bytes / 8000 (bytes per second)
+                audio_duration = len(ulaw_data) / 8000.0
+                import time
+                _LOGGER.info("Waiting %.2f seconds for audio to play before closing session", audio_duration)
+                time.sleep(audio_duration + 0.5)  # Add 0.5s buffer
             else:
                 error_text = response.text[:200] if response.text else 'No response body'
-                _LOGGER.warning("Camera returned status %d: %s", response.status_code, error_text)
-            
-            # Small delay before closing session to let camera process
-            import time
-            time.sleep(0.1)
+                _LOGGER.error("Camera returned status %d: %s", response.status_code, error_text)
+                # Still wait a bit even on error
+                import time
+                time.sleep(0.5)
                 
         except requests.exceptions.Timeout:
             _LOGGER.warning("Timeout sending audio (camera may still be processing)")
