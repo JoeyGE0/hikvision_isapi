@@ -530,7 +530,17 @@ class EventNotificationsView(HomeAssistantView):
                                     _LOGGER.debug("Entity %s already ON, ignoring duplicate active notification", entity_id)
                             return
         
-        raise ValueError(f"Entity not found {unique_id}")
+        _LOGGER.debug(
+            "Skipping ISAPI event %s for %s (entity not registered, unique_id=%s)",
+            alert.event_id,
+            device_name,
+            unique_id,
+        )
+
+        # Gracefully ignore events for entities that are not registered (for example,
+        # when entities have been renamed or disabled in the UI). Previously this
+        # raised a ValueError which surfaced as a noisy error in the logs.
+        return
 
     def fire_hass_event(self, entry, alert: AlertInfo):
         """Fire HASS event for Hikvision camera events."""
