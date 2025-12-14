@@ -38,15 +38,6 @@ async def async_setup_entry(
     entities = []
     device_name_slug = slugify(device_name.lower())
     
-    # Create entities for all known events, but use channel_id from Event/triggers if available
-    # Build a lookup dict: {event_id: {channel_id: EventInfo}} from supported_events
-    supported_events_lookup = {}
-    if supported_events:
-        for event in supported_events:
-            if event.id not in supported_events_lookup:
-                supported_events_lookup[event.id] = {}
-            supported_events_lookup[event.id][event.channel_id] = event
-    
     # Create binary sensors for each camera/channel (Video Events)
     # Only create entities for events actually returned by Event/triggers
     for camera in cameras:

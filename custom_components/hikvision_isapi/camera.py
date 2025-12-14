@@ -136,11 +136,17 @@ class HikvisionCamera(Camera):
         else:
             device_identifier = device_info.get("serialNumber") or self._host
         
+        # Strip all stream type suffixes from device name (Main, Snapshot, Transcoded Stream, Sub-stream, etc.)
+        device_name_clean = self._attr_name.replace(" Main", "").replace(" Snapshot", "")
+        # Also strip common stream type suffixes
+        for suffix in [" Transcoded Stream", " Transcoded", " Sub-stream", " Sub", " Third Stream", " Third"]:
+            device_name_clean = device_name_clean.replace(suffix, "")
+        
         device_info_dict = {
             "identifiers": {(DOMAIN, device_identifier)},
             "manufacturer": device_info.get("manufacturer", "Hikvision").title(),
             "model": camera_info.get("model") if camera_info else device_info.get("model", "Hikvision Camera"),
-            "name": self._attr_name.replace(" Main", "").replace(" Snapshot", ""),
+            "name": device_name_clean,
             "sw_version": camera_info.get("firmware") if camera_info else device_info.get("firmwareVersion"),
         }
         

@@ -3066,15 +3066,18 @@ class HikvisionISAPI:
                     url=event_url,
                 ))
             
-            # Multi-channel camera needs to fetch events for each channel
-            # Check if this is a multi-channel camera (not NVR, but has multiple channels)
+            # Check Event/channels/capabilities for events not in main Event/triggers
+            # This finds events like scenechangedetection that may not appear in the main list
+            # Check for both multi-channel cameras and single-channel cameras
             is_multi_channel = False
             if hasattr(self, 'capabilities') and isinstance(self.capabilities, dict):
                 is_multi_channel = self.capabilities.get("is_multi_channel", False)
             
-            if is_multi_channel:
+            # Always check Event/channels/capabilities to find all supported events
+            # (not just for multi-channel cameras, as some events may only appear here)
+            if True:  # Check for all cameras, not just multi-channel
                 try:
-                    _LOGGER.debug("Multi-channel camera detected, fetching events per channel")
+                    _LOGGER.debug("Checking Event/channels/capabilities for additional events")
                     xml = self._get("/ISAPI/Event/channels/capabilities")
                     
                     # Find ChannelEventCapList
@@ -3165,7 +3168,7 @@ class HikvisionISAPI:
                                             is_proxy=False,  # Multi-channel cameras are direct
                                             url=event_url,
                                         ))
-                                        _LOGGER.debug("Added multi-channel event: %s for channel %d", event_id, channel_id)
+                                        _LOGGER.debug("Added event from Event/channels/capabilities: %s for channel %d", event_id, channel_id)
                                 except Exception as e:
                                     _LOGGER.debug("Failed to get event trigger for %s-%d: %s", event_id, channel_id, e)
                                     continue
@@ -3519,8 +3522,8 @@ class HikvisionISAPI:
             # 11. REGION EXITING - Test endpoint
             has_region_exiting = self._test_endpoint_exists("/ISAPI/Event/triggers/regionExiting")
             
-            # 12. SCENE CHANGE DETECTION - Test endpoint
-            has_scene_change = self._test_endpoint_exists("/ISAPI/Event/triggers/sceneChangeDetection")
+            # 12. SCENE CHANGE DETECTION - Test actual endpoint (same as get/set methods)
+            has_scene_change = self._test_endpoint_exists(f"/ISAPI/Smart/SceneChangeDetection/{self.channel}")
             
             # 13. I/O PORTS - Use capabilities dict (already working)
             has_io_inputs = caps_dict.get("input_ports", 0) > 0
