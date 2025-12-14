@@ -2913,207 +2913,187 @@ class HikvisionISAPI:
                 _LOGGER.debug("Failed to test audio alarm: %s", e)
             return False
 
-    def detect_features(self) -> dict:
-        """Detect which features are supported by parsing capabilities XML.
+    def _test_endpoint_exists(self, endpoint: str) -> bool:
+        """Test if an endpoint exists (returns 200 or 403 = exists, 404 = doesn't exist).
         
-        Uses category-based detection: if a feature category exists (e.g., lights),
-        all related entities are enabled. Uses already-fetched capabilities XML
-        and capabilities dict to avoid duplicate requests.
+        This checks if a feature EXISTS, not if it's currently enabled.
+        Works even if feature is temporarily disabled by a mode setting.
+        """
+        try:
+            # Use same URL logic as _get() - if endpoint already has full path, use it directly
+            if endpoint.startswith("/ISAPI/"):
+                url = f"http://{self.host}{endpoint}"
+            else:
+                url = f"{self.base_url}{endpoint}"
+            
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=False,
+                timeout=3  # Shorter timeout for detection
+            )
+            # 200 = exists and accessible
+            # 403 = exists but no permission (still means feature exists)
+            # 404 = doesn't exist (feature not supported)
+            return response.status_code in (200, 403)
+        except requests.exceptions.HTTPError:
+            # 404 means endpoint doesn't exist
+            return False
+        except Exception:
+            # Any other error (timeout, connection, etc.) = assume not supported
+            return False
+    
+    def detect_features(self) -> dict:
+        """Detect which features are supported by testing actual endpoints.
+        
+        Tests endpoints to see if features exist (not if they're currently enabled).
+        This works even if features are temporarily disabled by mode settings.
+        Works reliably across different camera types.
         
         Returns a dict with feature names as keys and True/False as values.
         """
         features = {}
         
-        _LOGGER.info("Detecting supported features for %s using capabilities...", self.host)
-        
-        # Get capabilities XML - this should already be fetched in __init__.py
-        # but we fetch it again here to ensure we have the raw XML for parsing
-        xml = None
         try:
+            # Get capabilities XML for EventCap flags and I/O ports
             xml = self._get("/ISAPI/System/capabilities")
-            if xml is None:
-                _LOGGER.error("Capabilities XML is None - this should not happen")
-                # Try to use capabilities dict as fallback
-                caps_dict = getattr(self, 'capabilities', {})
-                if not caps_dict:
-                    return {}
-        except Exception as e:
-            _LOGGER.error("Failed to fetch capabilities XML for feature detection: %s", e)
-            # Try to use already-parsed capabilities dict as fallback
             caps_dict = getattr(self, 'capabilities', {})
-            if not caps_dict:
-                _LOGGER.error("No capabilities available - cannot detect features")
-                return {}
-            # If we have capabilities dict, we can still enable some basic features
-            _LOGGER.warning("Using capabilities dict as fallback for feature detection")
-            xml = None  # Will use lenient detection based on dict only
-        
-        # Use already-parsed capabilities dict as additional source
-        caps_dict = getattr(self, 'capabilities', {})
-        
-        # Check for supplement light capability - be lenient: if element exists, assume supported
-        has_lights = False
-        if xml is not None:
-            supplement_light = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportSupplementLight")
-            if supplement_light is not None:
-                # If element exists, check value - but be lenient (accept "true", "True", "1", etc.)
-                text = supplement_light.text.strip().lower() if supplement_light.text else ""
-                has_lights = text in ("true", "1", "yes")
-                _LOGGER.debug("Supplement light capability: element found, value='%s', has_lights=%s", 
-                             supplement_light.text if supplement_light.text else "None", has_lights)
-            else:
-                _LOGGER.debug("Supplement light capability: element not found in XML")
-        
-        # Check for two-way audio capability - be lenient: if AudioCap exists, assume supported
-        has_two_way_audio = False
-        if xml is not None:
-            # First check if AudioCap section exists at all
-            audio_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}AudioCap")
-            if audio_cap is not None:
-                # If AudioCap exists, check the specific flag
-                two_way_audio = xml.find(f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio")
-                if two_way_audio is not None:
-                    text = two_way_audio.text.strip().lower() if two_way_audio.text else ""
-                    has_two_way_audio = text in ("true", "1", "yes")
-                else:
-                    # AudioCap exists but no explicit flag - assume supported (lenient)
-                    has_two_way_audio = True
-                    _LOGGER.debug("Two-way audio: AudioCap exists but no explicit flag, assuming supported")
-                _LOGGER.debug("Two-way audio capability: AudioCap found, has_two_way_audio=%s", has_two_way_audio)
-            else:
-                _LOGGER.debug("Two-way audio capability: AudioCap section not found in XML")
-        
-        # Check for I/O ports - use capabilities dict which was already parsed
-        has_io_inputs = caps_dict.get("input_ports", 0) > 0
-        has_io_outputs = caps_dict.get("output_ports", 0) > 0
-        
-        # Check for smart detection capabilities
-        has_smart_detection = False
-        if xml is not None:
-            smart_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}SmartCap")
-            has_smart_detection = smart_cap is not None
-        
-        # Check for image adjustment (color, sharpness) - ALWAYS enable if ImageCap exists
-        # Most cameras support basic image adjustment, so be very lenient here
-        has_image_adjustment = False
-        if xml is not None:
-            image_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap")
-            has_image_adjustment = image_cap is not None
+            
+            # 1. IMAGE ADJUSTMENT - Test endpoint
+            has_image_adjustment = self._test_endpoint_exists(f"/ISAPI/Image/channels/{self.channel}/color")
+            
+            # 2. TWO-WAY AUDIO - Test endpoint
+            has_two_way_audio = self._test_endpoint_exists(f"/ISAPI/System/TwoWayAudio/channels/{self.channel}")
+            
+            # 3. LIGHTS - Test endpoint
+            has_lights = self._test_endpoint_exists(f"/ISAPI/Image/channels/{self.channel}/supplementLight")
+            
+            # 4. IR CUT - Test endpoint
+            has_ir_cut = self._test_endpoint_exists(f"/ISAPI/Image/channels/{self.channel}/IrcutFilter")
+            
+            # 5. AUDIO ALARM - Test JSON endpoint
+            has_audio_alarm = self._test_endpoint_exists("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+            
+            # 6. MOTION DETECTION - Check EventCap flag (this works reliably)
+            motion_elem = xml.find(f".//{XML_NS}EventCap/{XML_NS}isSupportMotionDetection")
+            has_motion_detection = motion_elem is not None and motion_elem.text and motion_elem.text.strip().lower() == "true"
+            
+            # 7. TAMPER DETECTION - Check EventCap flag (this works reliably)
+            tamper_elem = xml.find(f".//{XML_NS}EventCap/{XML_NS}isSupportTamperDetection")
+            has_tamper_detection = tamper_elem is not None and tamper_elem.text and tamper_elem.text.strip().lower() == "true"
+            
+            # 8. INTRUSION DETECTION - Test endpoint
+            has_intrusion_detection = self._test_endpoint_exists("/ISAPI/Event/triggers/intrusionDetection")
+            
+            # 9. LINE DETECTION - Test endpoint
+            has_line_detection = self._test_endpoint_exists("/ISAPI/Event/triggers/lineDetection")
+            
+            # 10. REGION ENTRANCE - Test endpoint
+            has_region_entrance = self._test_endpoint_exists("/ISAPI/Event/triggers/regionEntrance")
+            
+            # 11. REGION EXITING - Test endpoint
+            has_region_exiting = self._test_endpoint_exists("/ISAPI/Event/triggers/regionExiting")
+            
+            # 12. SCENE CHANGE DETECTION - Test endpoint
+            has_scene_change = self._test_endpoint_exists("/ISAPI/Event/triggers/sceneChangeDetection")
+            
+            # 13. I/O PORTS - Use capabilities dict (already working)
+            has_io_inputs = caps_dict.get("input_ports", 0) > 0
+            has_io_outputs = caps_dict.get("output_ports", 0) > 0
+            
+            # Enable features based on categories
+            
+            # Image adjustment features
             if has_image_adjustment:
-                _LOGGER.debug("Image adjustment: ImageCap found, enabling brightness/contrast/saturation/sharpness")
-            else:
-                _LOGGER.warning("Image adjustment: ImageCap NOT found - this is unusual for a camera")
-        else:
-            # If XML not available, assume image adjustment is available (most cameras have it)
-            _LOGGER.debug("Image adjustment: XML not available, assuming supported (most cameras have basic image adjustment)")
-            has_image_adjustment = True
-        
-        # Check for IR cut filter (day/night mode)
-        has_ir_cut = False
-        if xml is not None:
-            ir_cut_elem = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportIRCutFilter")
-            has_ir_cut = ir_cut_elem is not None
-            # Also check if ImageCap exists (some cameras have IR cut but don't explicitly say so)
-            if not has_ir_cut:
-                image_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap")
-                has_ir_cut = image_cap is not None
-        
-        # Check for audio alarm capability - be lenient: if EventCap exists, check flag
-        has_audio_alarm = False
-        if xml is not None:
-            event_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}EventCap")
-            if event_cap is not None:
-                audio_alarm = xml.find(f".//{XML_NS}SysCap/{XML_NS}EventCap/{XML_NS}isSupportAudioAlarm")
-                if audio_alarm is not None:
-                    text = audio_alarm.text.strip().lower() if audio_alarm.text else ""
-                    has_audio_alarm = text in ("true", "1", "yes")
-                else:
-                    # EventCap exists but no explicit flag - don't assume (audio alarm is less common)
-                    has_audio_alarm = False
-        
-        _LOGGER.info("Feature categories detected - Lights: %s, Two-way Audio: %s, I/O: %s/%s, Smart: %s, Image: %s, IR Cut: %s, Audio Alarm: %s",
-                    has_lights, has_two_way_audio, has_io_inputs, has_io_outputs, has_smart_detection, has_image_adjustment, has_ir_cut, has_audio_alarm)
-        
-        # Enable features based on categories
-        
-        # IR Cut / Day-Night features
-        if has_ir_cut:
-            features["ir_sensitivity"] = True
-            features["ir_filter_time"] = True
-            features["day_night_mode"] = True
-        
-        # Two-way Audio features
-        if has_two_way_audio:
-            features["speaker_volume"] = True
-            features["microphone_volume"] = True
-            features["noise_reduce"] = True
-            features["media_player"] = True
-        
-        # Light features (all or nothing - if lights exist, all light controls exist)
-        if has_lights:
-            features["white_light_time"] = True
-            features["white_light_brightness"] = True
-            features["ir_light_brightness"] = True
-            features["white_light_brightness_limit"] = True
-            features["ir_light_brightness_limit"] = True
-            features["supplement_light_mode"] = True
-        
-        # Smart Detection features
-        if has_smart_detection:
-            features["motion_sensitivity"] = True
-            features["motion_start_trigger_time"] = True
-            features["motion_end_trigger_time"] = True
-            features["motion_detection"] = True
-            features["tamper_detection"] = True
-            features["intrusion_detection"] = True
-            features["line_crossing_detection"] = True
-            features["scene_change_detection"] = True
-            features["region_entrance_detection"] = True
-            features["region_exiting_detection"] = True
-        
-        # Image adjustment features
-        if has_image_adjustment:
-            features["brightness"] = True
-            features["contrast"] = True
-            features["saturation"] = True
-            features["sharpness"] = True
-        
-        # I/O features
-        if has_io_inputs:
-            features["alarm_input"] = True
-        if has_io_outputs:
-            features["alarm_output"] = True
-        
-        # Audio Alarm features
-        if has_audio_alarm:
-            features["alarm_times"] = True
-            features["loudspeaker_volume"] = True
-            features["audio_alarm_type"] = True
-            features["audio_alarm_sound"] = True
-            features["test_audio_alarm"] = True
-        
-        # Button entities (always available)
-        features["restart"] = True
-        
-        # SAFETY: If NO features were detected at all, enable basic features
-        # This prevents the integration from being completely broken if detection fails
-        if not any(features.values()):
-            _LOGGER.warning("No features detected! Enabling basic features as fallback.")
-            # At minimum, enable image adjustment and restart button (most cameras support these)
-            features["brightness"] = True
-            features["contrast"] = True
-            features["saturation"] = True
-            features["sharpness"] = True
-            features["restart"] = True  # Already set above, but ensure it's there
-            _LOGGER.info("Enabled basic image adjustment features as fallback (brightness, contrast, saturation, sharpness)")
-        
-        # Count supported features
-        supported_count = sum(1 for v in features.values() if v)
-        total_count = len(features)
-        _LOGGER.info("Feature detection complete: %d/%d features supported", supported_count, total_count)
-        
-        # Log which features were enabled for debugging
-        enabled_features = [k for k, v in features.items() if v]
-        _LOGGER.info("Enabled features: %s", ", ".join(enabled_features[:20]))  # First 20 to avoid log spam
-        
-        return features
+                features["brightness"] = True
+                features["contrast"] = True
+                features["saturation"] = True
+                features["sharpness"] = True
+            
+            # Two-way Audio features
+            if has_two_way_audio:
+                features["speaker_volume"] = True
+                features["microphone_volume"] = True
+                features["noise_reduce"] = True
+                features["media_player"] = True
+            
+            # Light features (all or nothing - if lights exist, all light controls exist)
+            if has_lights:
+                features["white_light_time"] = True
+                features["white_light_brightness"] = True
+                features["ir_light_brightness"] = True
+                features["white_light_brightness_limit"] = True
+                features["ir_light_brightness_limit"] = True
+                features["supplement_light_mode"] = True
+            
+            # IR Cut / Day-Night features
+            if has_ir_cut:
+                features["ir_sensitivity"] = True
+                features["ir_filter_time"] = True
+                features["day_night_mode"] = True
+            
+            # Motion Detection features
+            if has_motion_detection:
+                features["motion_sensitivity"] = True
+                features["motion_start_trigger_time"] = True
+                features["motion_end_trigger_time"] = True
+                features["motion_detection"] = True
+            
+            # Tamper Detection
+            if has_tamper_detection:
+                features["tamper_detection"] = True
+            
+            # Intrusion Detection
+            if has_intrusion_detection:
+                features["intrusion_detection"] = True
+            
+            # Line Detection
+            if has_line_detection:
+                features["line_crossing_detection"] = True
+            
+            # Region Entrance
+            if has_region_entrance:
+                features["region_entrance_detection"] = True
+            
+            # Region Exiting
+            if has_region_exiting:
+                features["region_exiting_detection"] = True
+            
+            # Scene Change Detection
+            if has_scene_change:
+                features["scene_change_detection"] = True
+            
+            # I/O features
+            if has_io_inputs:
+                features["alarm_input"] = True
+            if has_io_outputs:
+                features["alarm_output"] = True
+            
+            # Audio Alarm features
+            if has_audio_alarm:
+                features["alarm_times"] = True
+                features["loudspeaker_volume"] = True
+                features["audio_alarm_type"] = True
+                features["audio_alarm_sound"] = True
+                features["test_audio_alarm"] = True
+            
+            # Button entities (always available)
+            features["restart"] = True
+            
+            # Count supported features
+            supported_count = sum(1 for v in features.values() if v)
+            enabled_features = [k for k, v in features.items() if v]
+            _LOGGER.info("Feature detection complete: %d features supported", supported_count)
+            _LOGGER.info("Enabled features: %s", ", ".join(enabled_features))
+            
+            # Log what categories were detected
+            _LOGGER.info("Feature categories - Image: %s, Audio: %s, Lights: %s, IR: %s, Motion: %s, Tamper: %s, Intrusion: %s, Line: %s, Region: %s/%s, Scene: %s, Alarm: %s, I/O: %s/%s",
+                        has_image_adjustment, has_two_way_audio, has_lights, has_ir_cut,
+                        has_motion_detection, has_tamper_detection, has_intrusion_detection,
+                        has_line_detection, has_region_entrance, has_region_exiting,
+                        has_scene_change, has_audio_alarm, has_io_inputs, has_io_outputs)
+            
+            return features
+        except Exception as e:
+            _LOGGER.error("Failed to detect features: %s", e)
+            return {}

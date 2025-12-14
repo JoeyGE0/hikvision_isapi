@@ -62,7 +62,7 @@ class EventNotificationsView(HomeAssistantView):
             if "Cannot extract event type from DurationList" in str(ex):
                 _LOGGER.debug("Skipping duration event notification: %s", ex)
             else:
-                _LOGGER.error("Cannot process incoming event: %s", ex, exc_info=True)
+            _LOGGER.error("Cannot process incoming event: %s", ex, exc_info=True)
 
         response = web.Response(status=HTTPStatus.OK, content_type=CONTENT_TYPE_TEXT_PLAIN)
         return response
@@ -428,7 +428,7 @@ class EventNotificationsView(HomeAssistantView):
                         xml_snippet, parse_err
                     )
             else:
-                _LOGGER.error("Failed to parse event notification: %s", e)
+            _LOGGER.error("Failed to parse event notification: %s", e)
             raise
 
     def trigger_sensor(self, entry, alert: AlertInfo) -> None:
@@ -475,8 +475,8 @@ class EventNotificationsView(HomeAssistantView):
                     if current_state == STATE_OFF:
                         _LOGGER.info("Triggering entity: %s (event: %s, activeState: %s)", 
                                    entity_id, alert.event_id, alert.active_state or "active")
-                        self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
-                        self.fire_hass_event(entry, alert)
+                self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                self.fire_hass_event(entry, alert)
                     else:
                         _LOGGER.debug("Entity %s already ON, ignoring duplicate active notification", entity_id)
                 return
