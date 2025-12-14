@@ -46,14 +46,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         cameras = await hass.async_add_executor_job(api.get_cameras)
         api.cameras = cameras
         
-        # Detect supported features by testing endpoints
+        # Detect supported features from capabilities
         try:
             detected_features = await hass.async_add_executor_job(api.detect_features)
             api.detected_features = detected_features
+            if not detected_features:
+                _LOGGER.warning("Feature detection returned empty - no features detected. This may indicate a problem with capabilities parsing.")
         except Exception as e:
-            _LOGGER.warning("Feature detection failed, will enable all entities as fallback: %s", e)
-            # If detection fails, enable everything (safe fallback)
-            detected_features = api._get_all_features_enabled()
+            _LOGGER.error("Feature detection failed: %s. No entities will be added until this is fixed.", e)
+            # Return empty dict - don't enable everything, let user know something is wrong
+            detected_features = {}
             api.detected_features = detected_features
         
         # Get supported events from Event/triggers API (optional - fallback to empty list if fails)
