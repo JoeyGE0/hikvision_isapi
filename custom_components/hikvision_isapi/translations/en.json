@@ -6,12 +6,14 @@
         "description": "Enter your camera/NVR credentials to get started",
         "data": {
           "host": "IP Address or Hostname",
+          "verify_ssl": "Verify SSL certificate",
           "username": "Username",
           "password": "Password",
           "configure_advanced": "Configure advanced options"
         },
         "data_description": {
           "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.13)",
+          "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Password for camera login",
           "configure_advanced": "Enable this to configure advanced options like update interval and event notifications"
@@ -23,12 +25,14 @@
         "data": {
           "update_interval": "Update Interval (seconds)",
           "set_alarm_server": "Enable event notifications",
-          "alarm_server": "Home Assistant Address"
+          "alarm_server": "Home Assistant Address",
+          "rtsp_port_forced": "Force RTSP port (Optional)"
         },
         "data_description": {
           "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
           "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
-          "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)"
+          "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
+          "rtsp_port_forced": "Force RTSP port (Optional)"
         }
       },
       "reconfigure": {
@@ -36,19 +40,23 @@
         "description": "Update your camera/NVR configuration",
         "data": {
           "host": "IP Address or Hostname",
+          "verify_ssl": "Verify SSL certificate",
           "username": "Username",
           "password": "Password",
           "update_interval": "Update Interval (seconds)",
           "set_alarm_server": "Enable event notifications",
-          "alarm_server": "Home Assistant Address"
+          "alarm_server": "Home Assistant Address",
+          "rtsp_port_forced": "Force RTSP port (Optional)"
         },
         "data_description": {
           "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.13)",
+          "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Password for camera login",
           "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
           "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
-          "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)"
+          "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
+          "rtsp_port_forced": "Force RTSP port (Optional)"
         }
       }
     },

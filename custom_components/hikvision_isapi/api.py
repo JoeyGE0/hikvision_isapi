@@ -250,12 +250,14 @@ class AuthenticationError(Exception):
 class HikvisionISAPI:
     """Helper class for Hikvision ISAPI calls."""
 
-    def __init__(self, host: str, username: str, password: str, channel: int = 1):
+    def __init__(self, host: str, username: str, password: str, channel: int = 1, verify_ssl: bool = False, rtsp_port_forced: Optional[int] = None):
         """Initialize the API helper."""
         self.host = host
         self.username = username
         self.password = password
         self.channel = channel
+        self.verify_ssl = verify_ssl
+        self.rtsp_port_forced = rtsp_port_forced
         self.base_url = f"http://{host}/ISAPI/Image/channels/{channel}"
         self._audio_session_url = f"http://{host}/ISAPI/System/TwoWayAudio/channels/{channel}/audioData"
         self._audio_session_id = None
@@ -276,7 +278,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -321,7 +323,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -404,7 +406,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -427,7 +429,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -449,7 +451,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -472,7 +474,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -494,7 +496,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -517,7 +519,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -539,7 +541,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5,
             )
             if response.status_code == 401:
@@ -570,7 +572,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5,
             )
             if response.status_code == 401:
@@ -592,7 +594,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5,
             )
             if response.status_code == 401:
@@ -616,7 +618,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5,
             )
             if response.status_code == 401:
@@ -638,7 +640,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5,
             )
             if response.status_code == 401:
@@ -662,7 +664,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5,
             )
             if response.status_code == 401:
@@ -701,7 +703,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -724,7 +726,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -820,7 +822,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -843,7 +845,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -866,7 +868,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -889,7 +891,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -912,7 +914,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -935,7 +937,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -975,7 +977,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -998,7 +1000,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1294,7 +1296,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1340,7 +1342,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1387,7 +1389,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1409,7 +1411,7 @@ class HikvisionISAPI:
             response = requests.put(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             response.raise_for_status()
@@ -1437,7 +1439,7 @@ class HikvisionISAPI:
             response = requests.put(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             response.raise_for_status()
@@ -1502,7 +1504,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             response.raise_for_status()
@@ -1596,7 +1598,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=bytes(ulaw_data),
                 headers={"Content-Type": "application/octet-stream"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=10
             )
             
@@ -1626,7 +1628,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1686,7 +1688,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1707,7 +1709,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1731,7 +1733,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1754,7 +1756,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1778,7 +1780,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1801,7 +1803,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1825,7 +1827,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1853,7 +1855,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1875,7 +1877,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1910,7 +1912,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1931,7 +1933,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -1959,7 +1961,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=10
             )
             response.raise_for_status()
@@ -2079,6 +2081,10 @@ class HikvisionISAPI:
 
     def get_rtsp_port(self) -> int:
         """Get RTSP port from device."""
+        # Use forced port if configured
+        if self.rtsp_port_forced is not None:
+            return self.rtsp_port_forced
+        
         try:
             xml = self._get("/ISAPI/Security/adminAccesses")
             protocols = xml.findall(f".//{XML_NS}AdminAccessProtocol")
@@ -2210,7 +2216,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2226,7 +2232,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2277,7 +2283,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2293,7 +2299,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2336,7 +2342,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2352,7 +2358,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2394,7 +2400,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2410,7 +2416,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2452,7 +2458,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2468,7 +2474,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2512,7 +2518,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2528,7 +2534,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2575,7 +2581,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -2597,7 +2603,7 @@ class HikvisionISAPI:
             response = requests.put(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             response.raise_for_status()
@@ -2624,7 +2630,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             response.raise_for_status()
@@ -2764,7 +2770,7 @@ class HikvisionISAPI:
                 auth=(self.username, self.password),
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 400:
@@ -2790,7 +2796,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             response.raise_for_status()
@@ -2954,7 +2960,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -3009,7 +3015,7 @@ class HikvisionISAPI:
                 url,
                 json={"AudioAlarm": audio_alarm},
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=5
             )
             if response.status_code == 401:
@@ -3050,7 +3056,7 @@ class HikvisionISAPI:
                 url,
                 json={},
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=10
             )
             if response.status_code == 200:
@@ -3094,7 +3100,7 @@ class HikvisionISAPI:
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
-                verify=False,
+                verify=self.verify_ssl,
                 timeout=3  # Shorter timeout for detection
             )
             # 200 = exists and accessible

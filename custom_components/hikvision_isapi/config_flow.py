@@ -21,6 +21,8 @@ from .const import (
     DOMAIN,
     CONF_SET_ALARM_SERVER,
     CONF_ALARM_SERVER_HOST,
+    CONF_VERIFY_SSL,
+    RTSP_PORT_FORCED,
 )
 from .api import _extract_error_message
 
@@ -28,6 +30,7 @@ def get_basic_schema(default_host=None):
     """Get basic schema with required fields only."""
     return vol.Schema({
         vol.Required(CONF_HOST, default=default_host or ""): str,
+        vol.Optional(CONF_VERIFY_SSL, default=True): bool,
         vol.Required(CONF_USERNAME, default="admin"): str,
         vol.Required(CONF_PASSWORD): str,
         vol.Optional("configure_advanced", default=False): bool,
@@ -40,6 +43,7 @@ def get_advanced_schema(default_alarm_server=None, set_alarm_server=True):
             vol.Coerce(int), vol.Range(min=5, max=300)
         ),
         vol.Required(CONF_SET_ALARM_SERVER, default=set_alarm_server): bool,
+        vol.Optional(RTSP_PORT_FORCED): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
     }
     
     # Only show alarm server if set_alarm_server is enabled
@@ -100,6 +104,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             host = user_input.get(CONF_HOST, "").strip()
             username = user_input.get(CONF_USERNAME, "").strip()
             password = user_input.get(CONF_PASSWORD, "")
+            verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
             configure_advanced = user_input.get("configure_advanced", False)
             
             # Basic validation
@@ -119,10 +124,22 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         lambda: requests.get(
                             url,
                             auth=(username, password),
-                            verify=False,
+                            verify=verify_ssl,
                             timeout=10
                         )
                     )
+                    
+                    # Try to get device name for better discovery title
+                    device_name = host
+                    try:
+                        if response.ok:
+                            import xml.etree.ElementTree as ET
+                            root = ET.fromstring(response.text)
+                            name_elem = root.find(".//{http://www.hikvision.com/ver20/XMLSchema}deviceName")
+                            if name_elem is not None and name_elem.text:
+                                device_name = name_elem.text.strip()
+                    except Exception:
+                        pass  # Fallback to host if name extraction fails
                     
                     if response.status_code == 401:
                         # Extract camera error message (HTML tags already removed by _extract_error_message)
@@ -161,6 +178,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_HOST: host,
                             CONF_USERNAME: username,
                             CONF_PASSWORD: password,
+                            CONF_VERIFY_SSL: verify_ssl,
+                            "device_name": device_name,  # Store for title
                         }
                         
                         # If user wants to configure advanced options, go to advanced step
@@ -177,8 +196,10 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_SET_ALARM_SERVER: True,
                             CONF_ALARM_SERVER_HOST: default_alarm_server,
                         }
+                        # Remove device_name from entry_data (only used for title)
+                        entry_data.pop("device_name", None)
                         
-                        return self.async_create_entry(title=host, data=entry_data)
+                        return self.async_create_entry(title=device_name, data=entry_data)
                         
                 except requests.exceptions.Timeout:
                     errors["base"] = "timeout: Camera did not respond within 10 seconds - check network connection"
@@ -225,9 +246,12 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
                     CONF_SET_ALARM_SERVER: set_alarm_server,
                     CONF_ALARM_SERVER_HOST: user_input.get(CONF_ALARM_SERVER_HOST, default_alarm_server) if set_alarm_server else default_alarm_server,
+                    RTSP_PORT_FORCED: user_input.get(RTSP_PORT_FORCED),
                 }
+                # Remove device_name from entry_data (only used for title)
+                device_name = entry_data.pop("device_name", basic_data.get(CONF_HOST, "Hikvision"))
                 
-                return self.async_create_entry(title=basic_data[CONF_HOST], data=entry_data)
+                return self.async_create_entry(title=device_name, data=entry_data)
             else:
                 # If there are errors, show form with errors
                 schema = get_advanced_schema(default_alarm_server, set_alarm_server=set_alarm_server)
@@ -249,6 +273,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST]
             username = user_input[CONF_USERNAME]
             password = user_input[CONF_PASSWORD]
+            verify_ssl = user_input.get(CONF_VERIFY_SSL, entry.data.get(CONF_VERIFY_SSL, True))
             
             try:
                 # Test connection with device info endpoint
@@ -257,10 +282,22 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     lambda: requests.get(
                         url,
                         auth=(username, password),
-                        verify=False,
+                        verify=verify_ssl,
                         timeout=10
                     )
                 )
+                
+                # Try to get device name for better title
+                device_name = host
+                try:
+                    if response.ok:
+                        import xml.etree.ElementTree as ET
+                        root = ET.fromstring(response.text)
+                        name_elem = root.find(".//{http://www.hikvision.com/ver20/XMLSchema}deviceName")
+                        if name_elem is not None and name_elem.text:
+                            device_name = name_elem.text.strip()
+                except Exception:
+                    pass  # Fallback to host if name extraction fails
                 
                 if response.status_code == 401:
                     # Extract camera error message (HTML tags already removed by _extract_error_message)
@@ -292,7 +329,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self.hass.config_entries.async_update_entry(
                         entry,
                         data={**entry.data, **user_input},
-                        title=host,
+                        title=device_name,
                     )
                     await self.hass.config_entries.async_reload(entry.entry_id)
                     return self.async_abort(reason="reconfigure_successful")
@@ -315,6 +352,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         reconfigure_schema = vol.Schema({
             vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST, "")): str,
+            vol.Optional(CONF_VERIFY_SSL, default=entry.data.get(CONF_VERIFY_SSL, True)): bool,
             vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME, "admin")): str,
             vol.Required(CONF_PASSWORD, default=entry.data.get(CONF_PASSWORD, "")): str,
             vol.Optional(
@@ -335,6 +373,14 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     default=default_alarm_server
                 ): str,
             })
+        
+        # Add RTSP port forced option
+        reconfigure_schema = reconfigure_schema.extend({
+            vol.Optional(
+                RTSP_PORT_FORCED,
+                default=entry.data.get(RTSP_PORT_FORCED)
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+        })
 
         return self.async_show_form(
             step_id="reconfigure", data_schema=reconfigure_schema, errors=errors

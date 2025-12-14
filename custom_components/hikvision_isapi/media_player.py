@@ -157,7 +157,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                     auth=(self.api.username, self.api.password),
                     data=xml_data,
                     headers={"Content-Type": "application/xml"},
-                    verify=False,
+                    verify=self.api.verify_ssl,
                     timeout=5
                 )
                 response.raise_for_status()
@@ -500,7 +500,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 auth=(self.api.username, self.api.password),
                 data=ulaw_data,
                 headers={"Content-Type": "application/octet-stream"},
-                verify=False,
+                verify=self.api.verify_ssl,
                 timeout=30  # Longer timeout for large files
             )
             

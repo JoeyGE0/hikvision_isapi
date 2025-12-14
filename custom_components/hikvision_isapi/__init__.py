@@ -5,7 +5,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.components.network import async_get_source_ip
 
-from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST
+from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
 from .notifications import EventNotificationsView
@@ -26,8 +26,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     username = entry.data["username"]
     password = entry.data["password"]
     update_interval = entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+    verify_ssl = entry.data.get(CONF_VERIFY_SSL, True)
+    rtsp_port_forced = entry.data.get(RTSP_PORT_FORCED)
     
-    api = HikvisionISAPI(host, username, password)
+    api = HikvisionISAPI(host, username, password, verify_ssl=verify_ssl, rtsp_port_forced=rtsp_port_forced)
     
     # Fetch device info - validate connection and credentials
     try:
