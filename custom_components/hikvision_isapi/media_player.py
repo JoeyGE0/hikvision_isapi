@@ -507,11 +507,20 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 # Audio duration in seconds = bytes / 8000 (bytes per second)
                 audio_duration = len(ulaw_data) / 8000.0
                 import time
-                _LOGGER.info("Waiting %.2f seconds for audio to play before closing session", audio_duration)
-                time.sleep(audio_duration + 0.5)  # Add 0.5s buffer
+                # Add 2s buffer to ensure camera finishes playing (camera may need time to process)
+                wait_time = audio_duration + 2.0
+                _LOGGER.info("Waiting %.2f seconds for audio to play before closing session (%.2f audio + 2.0 buffer)", 
+                            wait_time, audio_duration)
+                time.sleep(wait_time)
             else:
-                error_text = response.text[:200] if response.text else 'No response body'
-                _LOGGER.error("Camera returned status %d: %s", response.status_code, error_text)
+                # Extract error message from camera response
+                from .api import _extract_error_message
+                error_msg = _extract_error_message(response)
+                if error_msg:
+                    _LOGGER.error("Camera returned status %d: %s", response.status_code, error_msg)
+                else:
+                    error_text = response.text[:200] if response.text else 'No response body'
+                    _LOGGER.error("Camera returned status %d: %s", response.status_code, error_text)
                 # Still wait a bit even on error
                 import time
                 time.sleep(0.5)
