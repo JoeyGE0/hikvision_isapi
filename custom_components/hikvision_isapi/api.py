@@ -19,11 +19,105 @@ def _extract_error_message(response) -> str:
     Camera returns errors in different formats:
     - JSON: {"statusString": "...", "errorMsg": "...", "subStatusCode": "..."}
     - XML: <ResponseStatus><statusString>...</statusString><description>...</description></ResponseStatus>
+    - HTML: <!DOCTYPE html>... (for 401/403 errors from web server)
     """
     try:
         text = response.text
         if not text:
             return ""
+        
+        # Check if response contains HTML (web server error pages, not ISAPI errors)
+        # Check for HTML indicators more thoroughly
+        text_lower = text.lower().strip()
+        is_html = (
+            text_lower.startswith("<!doctype") or 
+            text_lower.startswith("<html") or 
+            "<title>" in text[:200] or
+            "<html" in text[:200] or
+            "<body>" in text[:200] or
+            "<head>" in text[:200]
+        )
+        
+        if is_html:
+            # Extract meaningful text from HTML by removing all HTML tags but keeping text content
+            import re
+            
+            # First, try to extract structured error information from common HTML error page patterns
+            title_match = re.search(r'<title[^>]*>(.*?)</title>', text, re.IGNORECASE | re.DOTALL)
+            h2_match = re.search(r'<h2[^>]*>(.*?)</h2>', text, re.IGNORECASE | re.DOTALL)
+            h1_match = re.search(r'<h1[^>]*>(.*?)</h1>', text, re.IGNORECASE | re.DOTALL)
+            p_matches = re.findall(r'<p[^>]*>(.*?)</p>', text, re.IGNORECASE | re.DOTALL)
+            
+            parts = []
+            if title_match:
+                title_text = title_match.group(1).strip()
+                # Clean up HTML entities
+                title_text = re.sub(r'&[a-z]+;', '', title_text)
+                title_text = re.sub(r'\s+', ' ', title_text).strip()
+                if title_text:
+                    parts.append(title_text)
+            
+            if h2_match:
+                h2_text = h2_match.group(1).strip()
+                h2_text = re.sub(r'&[a-z]+;', '', h2_text)
+                h2_text = re.sub(r'\s+', ' ', h2_text).strip()
+                if h2_text:
+                    parts.append(h2_text)
+            elif h1_match:
+                h1_text = h1_match.group(1).strip()
+                h1_text = re.sub(r'&[a-z]+;', '', h1_text)
+                h1_text = re.sub(r'\s+', ' ', h1_text).strip()
+                if h1_text:
+                    parts.append(h1_text)
+            
+            # Add paragraph text (only short, meaningful ones)
+            for p_text in p_matches:
+                p_clean = p_text.strip()
+                p_clean = re.sub(r'&[a-z]+;', '', p_clean)
+                p_clean = re.sub(r'\s+', ' ', p_clean).strip()
+                if p_clean and len(p_clean) < 150 and p_clean.lower() not in ["error", "unauthorized", "forbidden"]:
+                    parts.append(p_clean)
+            
+            if parts:
+                # Join and clean up - remove any remaining HTML tags
+                result = " - ".join(parts)
+                result = re.sub(r'<[^>]+>', '', result)  # Remove any remaining HTML tags
+                result = re.sub(r'\s+', ' ', result).strip()
+                # Decode common HTML entities
+                result = result.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+                result = re.sub(r'\s+', ' ', result).strip()
+                if result and len(result) < 300:  # Only return if reasonable length
+                    return result
+            
+            # Fallback: Strip all HTML tags and use the text content
+            # Remove all HTML tags but keep text
+            text_only = re.sub(r'<[^>]+>', '', text)
+            # Remove HTML entities
+            text_only = text_only.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+            # Clean up whitespace
+            text_only = re.sub(r'\s+', ' ', text_only).strip()
+            # Extract meaningful parts (skip common boilerplate)
+            lines = [line.strip() for line in text_only.split('\n') if line.strip()]
+            meaningful_lines = [
+                line for line in lines 
+                if line and len(line) > 3 and len(line) < 200
+                and line.lower() not in ['error', 'unauthorized', 'forbidden', 'document error', 'access error']
+                and not line.lower().startswith('http')
+            ]
+            
+            if meaningful_lines:
+                result = " - ".join(meaningful_lines[:3])  # Take first 3 meaningful lines
+                result = re.sub(r'\s+', ' ', result).strip()
+                if result and len(result) < 300:
+                    return result
+            
+            # Final fallback: return generic message based on status code (never return HTML)
+            if response.status_code == 401:
+                return "Authentication failed - check username and password"
+            elif response.status_code == 403:
+                return "Access forbidden - check user permissions"
+            else:
+                return f"HTTP {response.status_code} error"
         
         # Try JSON first
         try:

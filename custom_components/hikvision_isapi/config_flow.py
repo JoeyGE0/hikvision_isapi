@@ -24,17 +24,21 @@ from .const import (
 )
 from .api import _extract_error_message
 
-def get_data_schema(default_host=None, default_alarm_server=None, set_alarm_server=True):
-    """Get data schema with defaults and human-readable labels."""
-    # Update interval options (dropdown-friendly values)
-    update_interval_options = [5, 10, 15, 30, 60, 120, 300]
-    
-    # Basic required fields
-    schema = {
+def get_basic_schema(default_host=None):
+    """Get basic schema with required fields only."""
+    return vol.Schema({
         vol.Required(CONF_HOST, default=default_host or ""): str,
         vol.Required(CONF_USERNAME, default="admin"): str,
         vol.Required(CONF_PASSWORD): str,
-        vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.In(update_interval_options),
+        vol.Optional("configure_advanced", default=False): bool,
+    })
+
+def get_advanced_schema(default_alarm_server=None, set_alarm_server=True):
+    """Get advanced options schema."""
+    schema = {
+        vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
+            vol.Coerce(int), vol.Range(min=5, max=300)
+        ),
         vol.Required(CONF_SET_ALARM_SERVER, default=set_alarm_server): bool,
     }
     
@@ -81,33 +85,22 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         return self.async_show_form(
             step_id="user",
-            data_schema=get_data_schema(host, default_alarm_server),
+            data_schema=get_basic_schema(host),
         )
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
+        """Handle the initial step (basic credentials)."""
         errors = {}
-        set_alarm_server = True
         
         # If coming from DHCP discovery, use discovered host as default
         discovered_host = self.context.get("discovered_host")
         
-        # Get local IP for alarm server default
-        local_ip = await async_get_source_ip(self.hass)
-        default_alarm_server = f"http://{local_ip}:8123"
-        
         if user_input is not None:
-            set_alarm_server = user_input.get(CONF_SET_ALARM_SERVER, True)
-            
-            # If just toggling alarm server checkbox, re-show form
-            if CONF_SET_ALARM_SERVER in user_input and not any(k in user_input for k in [CONF_HOST, CONF_USERNAME, CONF_PASSWORD]):
-                schema = get_data_schema(discovered_host, default_alarm_server, set_alarm_server=set_alarm_server)
-                return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
-            
-            # Validate credentials by attempting to connect
+            # Validate basic fields
             host = user_input.get(CONF_HOST, "").strip()
             username = user_input.get(CONF_USERNAME, "").strip()
             password = user_input.get(CONF_PASSWORD, "")
+            configure_advanced = user_input.get("configure_advanced", False)
             
             # Basic validation
             if not host:
@@ -116,10 +109,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_USERNAME] = "username_required"
             if not password:
                 errors[CONF_PASSWORD] = "password_required"
-            
-            # Validate alarm server if enabled
-            if set_alarm_server and not user_input.get(CONF_ALARM_SERVER_HOST, "").strip():
-                errors[CONF_ALARM_SERVER_HOST] = "alarm_server_required"
             
             # If basic validation passed, test connection
             if not errors:
@@ -136,16 +125,18 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                     
                     if response.status_code == 401:
-                        # Extract camera error message
+                        # Extract camera error message (HTML tags already removed by _extract_error_message)
                         error_msg = _extract_error_message(response)
-                        if error_msg and error_msg != "OK" and "Invalid Operation" not in error_msg:
+                        # Use extracted message if it's meaningful (HTML already stripped)
+                        if error_msg and error_msg != "OK" and "Invalid Operation" not in error_msg and len(error_msg) > 5:
                             errors["base"] = f"invalid_auth: {error_msg}"
                         else:
                             errors["base"] = "invalid_auth"
                     elif response.status_code == 403:
-                        # Extract camera error message
+                        # Extract camera error message (HTML tags already removed by _extract_error_message)
                         error_msg = _extract_error_message(response)
-                        if error_msg and error_msg != "OK" and "Invalid Operation" not in error_msg:
+                        # Use extracted message if it's meaningful (HTML already stripped)
+                        if error_msg and error_msg != "OK" and "Invalid Operation" not in error_msg and len(error_msg) > 5:
                             errors["base"] = f"invalid_auth: {error_msg}"
                         else:
                             errors["base"] = "invalid_auth"
@@ -159,21 +150,35 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         else:
                             errors["base"] = f"cannot_connect: HTTP {response.status_code}"
                     else:
-                        # Connection successful, proceed with setup
+                        # Connection successful
                         # Only set unique_id if not already set (e.g., from DHCP discovery)
                         if not self.unique_id:
                             await self.async_set_unique_id(host)
                         self._abort_if_unique_id_configured()
                         
-                        # Set defaults for optional fields if not provided
-                        if CONF_UPDATE_INTERVAL not in user_input:
-                            user_input[CONF_UPDATE_INTERVAL] = DEFAULT_UPDATE_INTERVAL
-                        if CONF_SET_ALARM_SERVER not in user_input:
-                            user_input[CONF_SET_ALARM_SERVER] = True
-                        if CONF_ALARM_SERVER_HOST not in user_input or not user_input[CONF_ALARM_SERVER_HOST]:
-                            user_input[CONF_ALARM_SERVER_HOST] = default_alarm_server
+                        # Store basic data in context for next step or final creation
+                        self.context["user_input"] = {
+                            CONF_HOST: host,
+                            CONF_USERNAME: username,
+                            CONF_PASSWORD: password,
+                        }
                         
-                        return self.async_create_entry(title=host, data=user_input)
+                        # If user wants to configure advanced options, go to advanced step
+                        if configure_advanced:
+                            return await self.async_step_advanced()
+                        
+                        # Otherwise, use defaults and create entry
+                        local_ip = await async_get_source_ip(self.hass)
+                        default_alarm_server = f"http://{local_ip}:8123"
+                        
+                        entry_data = {
+                            **self.context["user_input"],
+                            CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL,
+                            CONF_SET_ALARM_SERVER: True,
+                            CONF_ALARM_SERVER_HOST: default_alarm_server,
+                        }
+                        
+                        return self.async_create_entry(title=host, data=entry_data)
                         
                 except requests.exceptions.Timeout:
                     errors["base"] = "timeout: Camera did not respond within 10 seconds - check network connection"
@@ -183,11 +188,51 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     _LOGGER.exception("Unexpected error during setup: %s", e)
                     errors["base"] = f"unknown: {str(e)}"
 
-        # Use discovered host as default if available
-        schema = get_data_schema(discovered_host, default_alarm_server, set_alarm_server=set_alarm_server)
-        
+        # Show basic form
         return self.async_show_form(
-            step_id="user", data_schema=schema, errors=errors
+            step_id="user", data_schema=get_basic_schema(discovered_host), errors=errors
+        )
+
+    async def async_step_advanced(self, user_input=None):
+        """Handle advanced options step."""
+        errors = {}
+        
+        # Get basic data from context
+        basic_data = self.context.get("user_input", {})
+        if not basic_data:
+            return self.async_abort(reason="no_basic_data")
+        
+        # Get local IP for alarm server default
+        local_ip = await async_get_source_ip(self.hass)
+        default_alarm_server = f"http://{local_ip}:8123"
+        
+        if user_input is not None:
+            set_alarm_server = user_input.get(CONF_SET_ALARM_SERVER, True)
+            
+            # If just toggling alarm server checkbox, re-show form
+            if CONF_SET_ALARM_SERVER in user_input and not any(k in user_input for k in [CONF_UPDATE_INTERVAL, CONF_ALARM_SERVER_HOST]):
+                schema = get_advanced_schema(default_alarm_server, set_alarm_server=set_alarm_server)
+                return self.async_show_form(step_id="advanced", data_schema=schema, errors=errors)
+            
+            # Validate alarm server if enabled
+            if set_alarm_server and not user_input.get(CONF_ALARM_SERVER_HOST, "").strip():
+                errors[CONF_ALARM_SERVER_HOST] = "alarm_server_required"
+            
+            if not errors:
+                # Merge basic and advanced data
+                entry_data = {
+                    **basic_data,
+                    CONF_UPDATE_INTERVAL: user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                    CONF_SET_ALARM_SERVER: set_alarm_server,
+                    CONF_ALARM_SERVER_HOST: user_input.get(CONF_ALARM_SERVER_HOST, default_alarm_server) if set_alarm_server else default_alarm_server,
+                }
+                
+                return self.async_create_entry(title=basic_data[CONF_HOST], data=entry_data)
+        
+        # Show advanced form
+        schema = get_advanced_schema(default_alarm_server, set_alarm_server=True)
+        return self.async_show_form(
+            step_id="advanced", data_schema=schema, errors=errors
         )
 
     async def async_step_reconfigure(self, user_input=None):
@@ -214,16 +259,18 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 
                 if response.status_code == 401:
-                    # Extract camera error message
+                    # Extract camera error message (HTML tags already removed by _extract_error_message)
                     error_msg = _extract_error_message(response)
-                    if error_msg and error_msg != "OK":
+                    # Use extracted message if it's meaningful (HTML already stripped)
+                    if error_msg and error_msg != "OK" and len(error_msg) > 5:
                         errors["base"] = f"invalid_auth: {error_msg}"
                     else:
                         errors["base"] = "invalid_auth"
                 elif response.status_code == 403:
-                    # Extract camera error message
+                    # Extract camera error message (HTML tags already removed by _extract_error_message)
                     error_msg = _extract_error_message(response)
-                    if error_msg and error_msg != "OK":
+                    # Use extracted message if it's meaningful (HTML already stripped)
+                    if error_msg and error_msg != "OK" and len(error_msg) > 5:
                         errors["base"] = f"invalid_auth: {error_msg}"
                     else:
                         errors["base"] = "invalid_auth"
@@ -258,13 +305,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         local_ip = await async_get_source_ip(self.hass)
         default_alarm_server = entry.data.get(CONF_ALARM_SERVER_HOST, f"http://{local_ip}:8123")
         
-        # Pre-fill form with existing values
+        # Pre-fill form with existing values (always show advanced for reconfigure)
         existing_set_alarm = entry.data.get(CONF_SET_ALARM_SERVER, True)
-        update_interval_options = [5, 10, 15, 30, 60, 120, 300]
         existing_update_interval = entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
-        if existing_update_interval not in update_interval_options:
-            # Find closest option
-            existing_update_interval = min(update_interval_options, key=lambda x: abs(x - existing_update_interval))
         
         reconfigure_schema = vol.Schema({
             vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST, "")): str,
@@ -273,7 +316,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(
                 CONF_UPDATE_INTERVAL,
                 default=existing_update_interval
-            ): vol.In(update_interval_options),
+            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
             vol.Required(
                 CONF_SET_ALARM_SERVER,
                 default=existing_set_alarm
