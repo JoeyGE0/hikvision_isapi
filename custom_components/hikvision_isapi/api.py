@@ -247,6 +247,28 @@ class AuthenticationError(Exception):
     pass
 
 
+class EventMutexError(Exception):
+    """Raised when trying to enable an event that conflicts with another enabled event."""
+    
+    def __init__(self, event_id: str, mutex_issues: list):
+        """Initialize exception."""
+        from .const import EVENTS
+        self.event_id = event_id
+        self.mutex_issues = mutex_issues
+        
+        if mutex_issues:
+            conflict_event = mutex_issues[0].event_id
+            conflict_channels = mutex_issues[0].channels or []
+            event_label = EVENTS.get(event_id, {}).get("label", event_id)
+            conflict_label = EVENTS.get(conflict_event, {}).get("label", conflict_event)
+            channels_str = ", ".join(map(str, conflict_channels)) if conflict_channels else "unknown"
+            self.message = f"Cannot enable {event_label}. Please disable {conflict_label} on channel(s) {channels_str} first."
+        else:
+            self.message = f"Cannot enable {event_id} - conflicts with another enabled event."
+        
+        super().__init__(self.message)
+
+
 class HikvisionISAPI:
     """Helper class for Hikvision ISAPI calls."""
 
@@ -1081,8 +1103,19 @@ class HikvisionISAPI:
             holiday_support = xml.find(f".//{XML_NS}SysCap/{XML_NS}isSupportHolidy")
             capabilities["support_holiday_mode"] = holiday_support.text.strip().lower() == "true" if holiday_support is not None and holiday_support.text else False
             
+            # Channel 0 support (for NVR-level events)
+            channel_zero_support = xml.find(f".//{XML_NS}RacmCap/{XML_NS}isSupportZeroChan")
+            capabilities["support_channel_zero"] = channel_zero_support.text.strip().lower() == "true" if channel_zero_support is not None and channel_zero_support.text else False
+            
+            # Event mutex checking support
+            mutex_support = xml.find(f".//{XML_NS}isSupportGetmutexFuncErrMsg")
+            capabilities["support_event_mutex_checking"] = mutex_support.text.strip().lower() == "true" if mutex_support is not None and mutex_support.text else False
+            
             # Determine if NVR (more than 1 camera input)
             capabilities["is_nvr"] = (capabilities["analog_cameras_inputs"] + capabilities["digital_cameras_inputs"]) > 1
+            
+            # is_multi_channel will be set in get_cameras() after discovering channels
+            capabilities["is_multi_channel"] = False
             
             return capabilities
         except Exception as e:
@@ -1091,7 +1124,7 @@ class HikvisionISAPI:
                 _LOGGER.debug("Failed to get capabilities (camera may be restarting): %s", e)
             else:
                 _LOGGER.error("Failed to get capabilities: %s", e)
-            return {"analog_cameras_inputs": 0, "digital_cameras_inputs": 0, "input_ports": 0, "output_ports": 0, "support_holiday_mode": False, "is_nvr": False}
+            return {"analog_cameras_inputs": 0, "digital_cameras_inputs": 0, "input_ports": 0, "output_ports": 0, "support_holiday_mode": False, "support_channel_zero": False, "support_event_mutex_checking": False, "is_nvr": False, "is_multi_channel": False}
 
     def get_cameras(self) -> list:
         """Discover all cameras/channels on the device."""
@@ -1120,6 +1153,10 @@ class HikvisionISAPI:
                     
                     device_name = self.device_info.get("deviceName", self.host)
                     is_multi_channel = len(channel_ids) > 1
+                    
+                    # Store is_multi_channel in capabilities dict (if it exists)
+                    if hasattr(self, 'capabilities') and isinstance(self.capabilities, dict):
+                        self.capabilities["is_multi_channel"] = is_multi_channel
                     
                     for channel_id in sorted(channel_ids):
                         camera_name = f"{device_name} - Channel {channel_id}" if is_multi_channel else device_name
@@ -1168,8 +1205,15 @@ class HikvisionISAPI:
                             serial_elem = source.find(f".//{XML_NS}serialNumber")
                             firmware_elem = source.find(f".//{XML_NS}firmwareVersion")
                             input_port_elem = source.find(f".//{XML_NS}srcInputPort")
+                            ip_addr_elem = source.find(f".//{XML_NS}ipAddress")
+                            ip_port_elem = source.find(f".//{XML_NS}managePortNo")
+                            proxy_protocol_elem = source.find(f".//{XML_NS}proxyProtocol")
                             
-                            serial_no = serial_elem.text.strip() if serial_elem is not None and serial_elem.text else f"{self.device_info.get('serialNumber', '')}_{camera_id}"
+                            # Serial number fallback: include proxyProtocol for proper identification
+                            serial_no = serial_elem.text.strip() if serial_elem is not None and serial_elem.text else None
+                            if not serial_no:
+                                proxy_protocol = proxy_protocol_elem.text.strip() if proxy_protocol_elem is not None and proxy_protocol_elem.text else "unknown"
+                                serial_no = f"{self.device_info.get('serialNumber', '')}_{proxy_protocol}_{camera_id}"
                             
                             cameras.append({
                                 "id": camera_id,
@@ -1179,6 +1223,8 @@ class HikvisionISAPI:
                                 "firmware": firmware_elem.text.strip() if firmware_elem is not None and firmware_elem.text else "",
                                 "input_port": int(input_port_elem.text.strip()) if input_port_elem is not None and input_port_elem.text else camera_id,
                                 "connection_type": "proxied",
+                                "ip_addr": ip_addr_elem.text.strip() if ip_addr_elem is not None and ip_addr_elem.text else None,
+                                "ip_port": int(ip_port_elem.text.strip()) if ip_port_elem is not None and ip_port_elem.text else None,
                             })
                     except Exception as e:
                         _LOGGER.warning("Failed to get digital cameras: %s", e)
@@ -1677,6 +1723,17 @@ class HikvisionISAPI:
     def set_motion_detection(self, enabled: bool) -> bool:
         """Enable/disable motion detection."""
         try:
+            # Check for mutex conflicts before enabling
+            if enabled:
+                # Check if mutex checking is supported and event has mutex flag
+                if (hasattr(self, 'capabilities') and isinstance(self.capabilities, dict) and 
+                    self.capabilities.get("support_event_mutex_checking", False)):
+                    from .const import EVENTS
+                    if EVENTS.get("motiondetection", {}).get("mutex"):
+                        mutex_issues = self.get_event_switch_mutex("motiondetection", self.channel)
+                        if mutex_issues:
+                            raise EventMutexError("motiondetection", mutex_issues)
+            
             # Get current settings first
             current = self.get_motion_detection()
             if not current:
@@ -1948,8 +2005,14 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set tamper detection: %s", e)
             return False
 
-    def get_snapshot(self, channel: int = None, stream_id: int = None) -> Optional[bytes]:
-        """Get camera snapshot image."""
+    def get_snapshot(self, channel: int = None, stream_id: int = None, use_proxy_url: bool = False) -> Optional[bytes]:
+        """Get camera snapshot image.
+        
+        Args:
+            channel: Channel ID (for direct cameras)
+            stream_id: Stream ID (e.g., 101, 102, 103, 104)
+            use_proxy_url: If True, use ContentMgmt/StreamingProxy endpoint (for NVR cameras)
+        """
         try:
             if stream_id is not None:
                 # Use specific stream ID (e.g., 101, 102, 103, 104)
@@ -1957,7 +2020,12 @@ class HikvisionISAPI:
             else:
                 # Snapshot channel format: 10X where X is channel number (101 = channel 1, 102 = channel 2, etc.)
                 snapshot_channel = 100 + (channel if channel is not None else self.channel)
-            url = f"http://{self.host}/ISAPI/Streaming/channels/{snapshot_channel}/picture"
+            
+            # Use proxied URL for NVR cameras
+            if use_proxy_url:
+                url = f"http://{self.host}/ISAPI/ContentMgmt/StreamingProxy/channels/{snapshot_channel}/picture"
+            else:
+                url = f"http://{self.host}/ISAPI/Streaming/channels/{snapshot_channel}/picture"
             response = requests.get(
                 url,
                 auth=(self.username, self.password),
@@ -2103,13 +2171,20 @@ class HikvisionISAPI:
             _LOGGER.debug("Failed to get RTSP port, using default 554: %s", e)
             return 554
 
-    def get_stream_source(self, stream_id: int) -> str:
-        """Get RTSP stream source URL."""
+    def get_stream_source(self, stream_id: int, camera_ip: str = None) -> str:
+        """Get RTSP stream source URL.
+        
+        Args:
+            stream_id: Stream ID (e.g., 101, 102, 103, 104)
+            camera_ip: IP address of camera (for proxied cameras on NVR). If None, uses host.
+        """
         from urllib.parse import quote
         rtsp_port = self.get_rtsp_port()
         username = quote(self.username, safe="")
         password = quote(self.password, safe="")
-        return f"rtsp://{username}:{password}@{self.host}:{rtsp_port}/Streaming/channels/{stream_id}"
+        # Use camera IP for proxied cameras, otherwise use host (NVR IP)
+        ip_address = camera_ip if camera_ip else self.host
+        return f"rtsp://{username}:{password}@{ip_address}:{rtsp_port}/Streaming/channels/{stream_id}"
 
     def get_streaming_status(self) -> dict:
         """Get streaming status information."""
@@ -2212,6 +2287,17 @@ class HikvisionISAPI:
     def set_field_detection(self, enabled: bool) -> bool:
         """Enable/disable field detection (intrusion)."""
         try:
+            # Check for mutex conflicts before enabling
+            if enabled:
+                # Check if mutex checking is supported and event has mutex flag
+                if (hasattr(self, 'capabilities') and isinstance(self.capabilities, dict) and 
+                    self.capabilities.get("support_event_mutex_checking", False)):
+                    from .const import EVENTS
+                    if EVENTS.get("fielddetection", {}).get("mutex"):
+                        mutex_issues = self.get_event_switch_mutex("fielddetection", self.channel)
+                        if mutex_issues:
+                            raise EventMutexError("fielddetection", mutex_issues)
+            
             url = f"http://{self.host}/ISAPI/Smart/FieldDetection/{self.channel}"
             response = requests.get(
                 url,
@@ -2279,6 +2365,17 @@ class HikvisionISAPI:
     def set_line_detection(self, enabled: bool) -> bool:
         """Enable/disable line detection."""
         try:
+            # Check for mutex conflicts before enabling
+            if enabled:
+                # Check if mutex checking is supported and event has mutex flag
+                if (hasattr(self, 'capabilities') and isinstance(self.capabilities, dict) and 
+                    self.capabilities.get("support_event_mutex_checking", False)):
+                    from .const import EVENTS
+                    if EVENTS.get("linedetection", {}).get("mutex"):
+                        mutex_issues = self.get_event_switch_mutex("linedetection", self.channel)
+                        if mutex_issues:
+                            raise EventMutexError("linedetection", mutex_issues)
+            
             url = f"http://{self.host}/ISAPI/Smart/LineDetection/{self.channel}"
             response = requests.get(
                 url,
@@ -2338,6 +2435,17 @@ class HikvisionISAPI:
     def set_scene_change_detection(self, enabled: bool) -> bool:
         """Enable/disable scene change detection."""
         try:
+            # Check for mutex conflicts before enabling
+            if enabled:
+                # Check if mutex checking is supported and event has mutex flag
+                if (hasattr(self, 'capabilities') and isinstance(self.capabilities, dict) and 
+                    self.capabilities.get("support_event_mutex_checking", False)):
+                    from .const import EVENTS
+                    if EVENTS.get("scenechangedetection", {}).get("mutex"):
+                        mutex_issues = self.get_event_switch_mutex("scenechangedetection", self.channel)
+                        if mutex_issues:
+                            raise EventMutexError("scenechangedetection", mutex_issues)
+            
             url = f"http://{self.host}/ISAPI/Smart/SceneChangeDetection/{self.channel}"
             response = requests.get(
                 url,
@@ -2907,15 +3015,19 @@ class HikvisionISAPI:
                 if event_id not in EVENTS:
                     continue
                 
-                # Get channel_id and io_port_id
+                # Get channel_id and io_port_id, and detect if proxied
                 channel_id = 0
                 io_port_id = 0
+                is_proxy = False
                 
                 if event_id == EVENT_IO:
                     # I/O events use inputIOPortID
                     io_port_elem = event_trigger.find(f".//{XML_NS}inputIOPortID")
                     if io_port_elem is None or not io_port_elem.text:
                         io_port_elem = event_trigger.find(f".//{XML_NS}dynInputIOPortID")
+                        # If dynInputIOPortID exists, this is a proxied event
+                        if io_port_elem is not None and io_port_elem.text:
+                            is_proxy = True
                     if io_port_elem is not None and io_port_elem.text:
                         io_port_id = int(io_port_elem.text.strip())
                 else:
@@ -2923,6 +3035,9 @@ class HikvisionISAPI:
                     channel_elem = event_trigger.find(f".//{XML_NS}videoInputChannelID")
                     if channel_elem is None or not channel_elem.text:
                         channel_elem = event_trigger.find(f".//{XML_NS}dynVideoInputChannelID")
+                        # If dynVideoInputChannelID exists, this is a proxied event
+                        if channel_elem is not None and channel_elem.text:
+                            is_proxy = True
                     if channel_elem is not None and channel_elem.text:
                         channel_id = int(channel_elem.text.strip())
                 
@@ -2939,12 +3054,123 @@ class HikvisionISAPI:
                     # Event is disabled if "center" (Surveillance Center) is not in notifications
                     disabled = "center" not in notifications
                 
+                # Build event URL using get_event_url method
+                event_url = self.get_event_url(event_id, channel_id, io_port_id, is_proxy)
+                
                 events.append(EventInfo(
                     id=event_id,
                     channel_id=channel_id,
                     io_port_id=io_port_id,
                     disabled=disabled,
+                    is_proxy=is_proxy,
+                    url=event_url,
                 ))
+            
+            # Multi-channel camera needs to fetch events for each channel
+            # Check if this is a multi-channel camera (not NVR, but has multiple channels)
+            is_multi_channel = False
+            if hasattr(self, 'capabilities') and isinstance(self.capabilities, dict):
+                is_multi_channel = self.capabilities.get("is_multi_channel", False)
+            
+            if is_multi_channel:
+                try:
+                    _LOGGER.debug("Multi-channel camera detected, fetching events per channel")
+                    xml = self._get("/ISAPI/Event/channels/capabilities")
+                    
+                    # Find ChannelEventCapList
+                    channel_cap_list = xml.find(f".//{XML_NS}ChannelEventCapList")
+                    if channel_cap_list is None:
+                        # Try without namespace
+                        channel_cap_list = xml.find(".//ChannelEventCapList")
+                    
+                    if channel_cap_list is not None:
+                        channel_caps = channel_cap_list.findall(f".//{XML_NS}ChannelEventCap")
+                        if not channel_caps:
+                            # Try without namespace
+                            channel_caps = channel_cap_list.findall(".//ChannelEventCap")
+                        
+                        for channel_cap in channel_caps:
+                            # Get channel ID
+                            channel_id_elem = channel_cap.find(f".//{XML_NS}channelID")
+                            if channel_id_elem is None:
+                                channel_id_elem = channel_cap.find(".//channelID")
+                            if channel_id_elem is None or not channel_id_elem.text:
+                                continue
+                            
+                            channel_id = int(channel_id_elem.text.strip())
+                            
+                            # Get event types (comma-separated in @opt attribute)
+                            event_type_elem = channel_cap.find(f".//{XML_NS}eventType")
+                            if event_type_elem is None:
+                                event_type_elem = channel_cap.find(".//eventType")
+                            
+                            if event_type_elem is None:
+                                continue
+                            
+                            # Get @opt attribute (comma-separated event types)
+                            # In ElementTree, attributes are in .attrib dictionary
+                            event_types_str = event_type_elem.attrib.get("opt", "") if hasattr(event_type_elem, 'attrib') else ""
+                            if not event_types_str:
+                                # Try text content as fallback
+                                event_types_str = event_type_elem.text or ""
+                            
+                            event_types = [et.strip() for et in event_types_str.split(",") if et.strip()]
+                            
+                            for event_type in event_types:
+                                event_id = event_type.lower()
+                                
+                                # Handle alternate event ID mapping
+                                if event_id in EVENTS_ALTERNATE_ID:
+                                    event_id = EVENTS_ALTERNATE_ID[event_id]
+                                
+                                # Skip if not in our supported events
+                                if event_id not in EVENTS:
+                                    continue
+                                
+                                # Skip if event already exists for this channel
+                                if any(e.id == event_id and e.channel_id == channel_id for e in events):
+                                    continue
+                                
+                                # Fetch event trigger for this specific channel
+                                try:
+                                    trigger_xml = self._get(f"/ISAPI/Event/triggers/{event_id}-{channel_id}")
+                                    
+                                    # Find EventTrigger
+                                    event_trigger = trigger_xml.find(f".//{XML_NS}EventTrigger")
+                                    if event_trigger is None:
+                                        event_trigger = trigger_xml.find(".//EventTrigger")
+                                    
+                                    if event_trigger is not None:
+                                        # Parse this event trigger (similar to main loop)
+                                        # Get notification methods
+                                        notification_list = event_trigger.find(f".//{XML_NS}EventTriggerNotificationList")
+                                        notifications = []
+                                        disabled = False
+                                        if notification_list is not None:
+                                            notification_elems = notification_list.findall(f".//{XML_NS}EventTriggerNotification")
+                                            for notif in notification_elems:
+                                                method_elem = notif.find(f".//{XML_NS}notificationMethod")
+                                                if method_elem is not None and method_elem.text:
+                                                    notifications.append(method_elem.text.strip())
+                                        disabled = "center" not in notifications
+                                        
+                                        # Build event URL
+                                        event_url = self.get_event_url(event_id, channel_id, 0, False)  # Multi-channel cameras are direct, not proxied
+                                        
+                                        events.append(EventInfo(
+                                            id=event_id,
+                                            channel_id=channel_id,
+                                            io_port_id=0,
+                                            disabled=disabled,
+                                            is_proxy=False,  # Multi-channel cameras are direct
+                                            url=event_url,
+                                        ))
+                                        _LOGGER.debug("Added multi-channel event: %s for channel %d", event_id, channel_id)
+                                except Exception as e:
+                                    _LOGGER.debug("Failed to get event trigger for %s-%d: %s", event_id, channel_id, e)
+                                    continue
+                except Exception as e:
+                    _LOGGER.warning("Failed to get multi-channel event capabilities: %s", e)
             
             _LOGGER.info("Found %d supported events from Event/triggers", len(events))
             return events
@@ -2952,6 +3178,134 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.warning("Failed to get supported events from Event/triggers: %s", e)
             return events
+
+    def get_event_url(self, event_id: str, channel_id: int, io_port_id: int, is_proxy: bool) -> str | None:
+        """Get event ISAPI URL based on event type and whether it's proxied.
+        
+        Args:
+            event_id: Event ID (e.g., "motiondetection", "io")
+            channel_id: Channel ID for video events
+            io_port_id: I/O port ID for I/O events
+            is_proxy: True if event comes from camera connected via NVR
+            
+        Returns:
+            Relative ISAPI URL path or None if event not supported
+        """
+        from .const import EVENTS, EVENT_IO, EVENT_BASIC, EVENT_SMART
+        
+        if event_id not in EVENTS:
+            return None
+        
+        event_config = EVENTS[event_id]
+        event_type = event_config.get("type")
+        slug = event_config.get("slug")
+        
+        if event_type == EVENT_BASIC:
+            # Basic events (motion, tamper, video loss)
+            if is_proxy:
+                url = f"ContentMgmt/InputProxy/channels/{channel_id}/video/{slug}"
+            else:
+                url = f"System/Video/inputs/channels/{channel_id}/{slug}"
+        elif event_type == EVENT_IO:
+            # I/O events
+            if is_proxy:
+                url = f"ContentMgmt/IOProxy/{slug}/{io_port_id}"
+            else:
+                url = f"System/IO/{slug}/{io_port_id}"
+        elif event_type == EVENT_SMART:
+            # Smart events (intrusion, line crossing, etc.)
+            url = f"Smart/{slug}/{channel_id}"
+        else:
+            return None
+        
+        return url
+
+    def get_event_switch_mutex(self, event_id: str, channel_id: int) -> list:
+        """Get if event is mutually exclusive with enabled events.
+        
+        Args:
+            event_id: Event ID (e.g., "motiondetection")
+            channel_id: Channel ID for the event
+            
+        Returns:
+            List of MutexIssue objects if conflicts found, empty list otherwise
+        """
+        from .const import EVENTS, MUTEX_ALTERNATE_ID, EVENTS_ALTERNATE_ID
+        from .models import MutexIssue
+        
+        mutex_issues = []
+        
+        # Check if event has mutex flag
+        if event_id not in EVENTS or not EVENTS[event_id].get("mutex"):
+            return mutex_issues
+        
+        try:
+            # Use alternate event ID for mutex checking (API uses different IDs)
+            mutex_event_id = event_id
+            if event_id in MUTEX_ALTERNATE_ID:
+                mutex_event_id = MUTEX_ALTERNATE_ID[event_id]
+            
+            # Call mutex function endpoint
+            url = f"http://{self.host}/ISAPI/System/mutexFunction?format=json"
+            data = {"function": mutex_event_id, "channelID": int(channel_id)}
+            
+            response = requests.post(
+                url,
+                auth=(self.username, self.password),
+                json=data,
+                headers={"Content-Type": "application/json"},
+                verify=self.verify_ssl,
+                timeout=5
+            )
+            
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                # 403 might mean mutex checking not supported, return empty list
+                _LOGGER.debug("Mutex checking not available (403) for event %s on channel %d", event_id, channel_id)
+                return mutex_issues
+            elif response.status_code == 404:
+                # 404 means endpoint doesn't exist, return empty list
+                _LOGGER.debug("Mutex checking endpoint not found (404) for event %s on channel %d", event_id, channel_id)
+                return mutex_issues
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            # Parse mutex function list
+            mutex_list = result.get("MutexFunctionList", [])
+            if not isinstance(mutex_list, list):
+                mutex_list = [mutex_list] if mutex_list else []
+            
+            for mutex_item in mutex_list:
+                mutex_event_id = mutex_item.get("mutexFunction", "")
+                if not mutex_event_id:
+                    continue
+                
+                # Map alternate event ID back to standard ID
+                if mutex_event_id in EVENTS_ALTERNATE_ID:
+                    mutex_event_id = EVENTS_ALTERNATE_ID[mutex_event_id]
+                
+                # Get channel IDs (can be a list or single value)
+                channels = mutex_item.get("channelID", [])
+                if not isinstance(channels, list):
+                    channels = [channels] if channels else []
+                
+                mutex_issues.append(
+                    MutexIssue(
+                        event_id=mutex_event_id,
+                        channels=channels,
+                    )
+                )
+            
+            return mutex_issues
+            
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            # Log but don't fail - mutex checking is optional
+            _LOGGER.debug("Failed to check event mutex for %s on channel %d: %s", event_id, channel_id, e)
+            return mutex_issues
 
     def get_audio_alarm(self) -> Optional[dict]:
         """Get audio alarm configuration."""

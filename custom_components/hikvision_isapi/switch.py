@@ -9,7 +9,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .api import HikvisionISAPI
+from .api import HikvisionISAPI, EventMutexError
 from .coordinator import HikvisionDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -184,17 +184,23 @@ class HikvisionMotionDetectionSwitch(SwitchEntity):
         self._optimistic_value = True
         self.async_write_ha_state()
         
-        success = await self.hass.async_add_executor_job(
-            self.api.set_motion_detection, True
-        )
-        
-        if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("motion", {}).get("enabled") == True):
+        try:
+            success = await self.hass.async_add_executor_job(
+                self.api.set_motion_detection, True
+            )
+            
+            if success:
+                await self.coordinator.async_request_refresh()
+                if (self.coordinator.data and 
+                    self.coordinator.data.get("motion", {}).get("enabled") == True):
+                    self._optimistic_value = None
+            else:
                 self._optimistic_value = None
-        else:
+        except EventMutexError as e:
             self._optimistic_value = None
+            _LOGGER.error("Cannot enable motion detection: %s", e.message)
+            # Show error to user via Home Assistant's error system
+            raise
 
     async def async_turn_off(self, **kwargs):
         """Turn off motion detection."""
@@ -350,17 +356,22 @@ class HikvisionIntrusionDetectionSwitch(SwitchEntity):
         self._optimistic_value = True
         self.async_write_ha_state()
         
-        success = await self.hass.async_add_executor_job(
-            self.api.set_field_detection, True
-        )
-        
-        if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("field_detection", {}).get("enabled") == True):
+        try:
+            success = await self.hass.async_add_executor_job(
+                self.api.set_field_detection, True
+            )
+            
+            if success:
+                await self.coordinator.async_request_refresh()
+                if (self.coordinator.data and 
+                    self.coordinator.data.get("field_detection", {}).get("enabled") == True):
+                    self._optimistic_value = None
+            else:
                 self._optimistic_value = None
-        else:
+        except EventMutexError as e:
             self._optimistic_value = None
+            _LOGGER.error("Cannot enable intrusion detection: %s", e.message)
+            raise
 
     async def async_turn_off(self, **kwargs):
         """Turn off intrusion detection."""
@@ -433,17 +444,22 @@ class HikvisionLineCrossingDetectionSwitch(SwitchEntity):
         self._optimistic_value = True
         self.async_write_ha_state()
         
-        success = await self.hass.async_add_executor_job(
-            self.api.set_line_detection, True
-        )
-        
-        if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("line_detection", {}).get("enabled") == True):
+        try:
+            success = await self.hass.async_add_executor_job(
+                self.api.set_line_detection, True
+            )
+            
+            if success:
+                await self.coordinator.async_request_refresh()
+                if (self.coordinator.data and 
+                    self.coordinator.data.get("line_detection", {}).get("enabled") == True):
+                    self._optimistic_value = None
+            else:
                 self._optimistic_value = None
-        else:
+        except EventMutexError as e:
             self._optimistic_value = None
+            _LOGGER.error("Cannot enable line crossing detection: %s", e.message)
+            raise
 
     async def async_turn_off(self, **kwargs):
         """Turn off line crossing detection."""
@@ -516,17 +532,22 @@ class HikvisionSceneChangeDetectionSwitch(SwitchEntity):
         self._optimistic_value = True
         self.async_write_ha_state()
         
-        success = await self.hass.async_add_executor_job(
-            self.api.set_scene_change_detection, True
-        )
-        
-        if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("scene_change", {}).get("enabled") == True):
+        try:
+            success = await self.hass.async_add_executor_job(
+                self.api.set_scene_change_detection, True
+            )
+            
+            if success:
+                await self.coordinator.async_request_refresh()
+                if (self.coordinator.data and 
+                    self.coordinator.data.get("scene_change", {}).get("enabled") == True):
+                    self._optimistic_value = None
+            else:
                 self._optimistic_value = None
-        else:
+        except EventMutexError as e:
             self._optimistic_value = None
+            _LOGGER.error("Cannot enable scene change detection: %s", e.message)
+            raise
 
     async def async_turn_off(self, **kwargs):
         """Turn off scene change detection."""

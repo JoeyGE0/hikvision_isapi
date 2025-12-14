@@ -1,6 +1,6 @@
 """Data models for Hikvision ISAPI."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -18,6 +18,14 @@ class AlertInfo:
 
 
 @dataclass
+class MutexIssue:
+    """Holds mutually exclusive event checking info."""
+
+    event_id: str
+    channels: list = field(default_factory=list)  # List of channel IDs that have conflicting events enabled
+
+
+@dataclass
 class EventInfo:
     """Holds event info of Hikvision device."""
 
@@ -27,4 +35,5 @@ class EventInfo:
     unique_id: str = None
     url: str = None  # URL to fetch the event status (enabled/disabled)
     disabled: bool = False
+    is_proxy: bool = False  # True if the event comes from device connected via NVR
 

@@ -32,6 +32,7 @@ EVENTS: Final = {
         "label": "Motion",
         "slug": "motionDetection",
         "device_class": BinarySensorDeviceClass.MOTION,
+        "mutex": True,  # Mutually exclusive with other motion detection types
     },
     "tamperdetection": {
         "type": EVENT_BASIC,
@@ -50,18 +51,21 @@ EVENTS: Final = {
         "label": "Scene Change",
         "slug": "SceneChangeDetection",
         "device_class": BinarySensorDeviceClass.TAMPER,
+        "mutex": True,  # Mutually exclusive with other smart events
     },
     "fielddetection": {
         "type": EVENT_SMART,
         "label": "Intrusion",
         "slug": "FieldDetection",
         "device_class": BinarySensorDeviceClass.MOTION,
+        "mutex": True,  # Mutually exclusive with other smart events
     },
     "linedetection": {
         "type": EVENT_SMART,
         "label": "Line Crossing",
         "slug": "LineDetection",
         "device_class": BinarySensorDeviceClass.MOTION,
+        "mutex": True,  # Mutually exclusive with other smart events
     },
     "regionentrance": {
         "type": EVENT_SMART,
@@ -83,6 +87,11 @@ EVENTS_ALTERNATE_ID: Final = {
     "thermometry": "motiondetection",
     "shelteralarm": "tamperdetection",
     "VMDHumanVehicle": "motiondetection",
+}
+
+# Alternate event IDs for mutex checking (API uses different IDs for mutex)
+MUTEX_ALTERNATE_ID: Final = {
+    "motiondetection": "VMDHumanVehicle",
 }
 
 # Stream type mappings
