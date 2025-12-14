@@ -2914,88 +2914,127 @@ class HikvisionISAPI:
             return False
 
     def detect_features(self) -> dict:
-        """Detect which features are supported by testing endpoints.
+        """Detect which features are supported by parsing capabilities XML.
+        
+        Uses category-based detection: if a feature category exists (e.g., lights),
+        all related entities are enabled. This is more reliable than testing
+        individual endpoints and handles mode-dependent values correctly.
         
         Returns a dict with feature names as keys and True/False as values.
-        Only tests GET endpoints (read-only) to avoid modifying camera state.
         """
         features = {}
         
-        _LOGGER.info("Detecting supported features for %s...", self.host)
+        _LOGGER.info("Detecting supported features for %s using capabilities...", self.host)
         
-        # Helper to test an endpoint
-        def test_endpoint(endpoint: str, method: str = "GET") -> bool:
-            """Test if an endpoint is accessible (returns 200 or valid data)."""
-            try:
-                if method == "GET":
-                    if endpoint.startswith("/ISAPI/"):
-                        url = f"http://{self.host}{endpoint}"
-                    else:
-                        url = f"{self.base_url}{endpoint}"
-                    response = requests.get(
-                        url,
-                        auth=(self.username, self.password),
-                        verify=False,
-                        timeout=3
-                    )
-                    # 200 = supported, 404 = not supported, 403 = no permission (but endpoint exists)
-                    if response.status_code == 200:
-                        return True
-                    elif response.status_code == 404:
-                        return False
-                    elif response.status_code == 403:
-                        # Endpoint exists but no permission - consider it supported
-                        return True
-                    else:
-                        return False
-                return False
-            except Exception:
-                return False
+        try:
+            # Get capabilities XML
+            xml = self._get("/ISAPI/System/capabilities")
+            
+            # Check for supplement light capability
+            supplement_light = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportSupplementLight")
+            has_lights = supplement_light is not None and supplement_light.text and supplement_light.text.strip().lower() == "true"
+            
+            # Check for two-way audio capability
+            two_way_audio = xml.find(f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio")
+            has_two_way_audio = two_way_audio is not None and two_way_audio.text and two_way_audio.text.strip().lower() == "true"
+            
+            # Check for I/O ports (already in capabilities dict, but check XML too)
+            io_inputs = xml.find(f".//{XML_NS}SysCap/{XML_NS}IOCap/{XML_NS}IOInputPortNums")
+            has_io_inputs = io_inputs is not None and io_inputs.text and int(io_inputs.text.strip()) > 0
+            
+            io_outputs = xml.find(f".//{XML_NS}SysCap/{XML_NS}IOCap/{XML_NS}IOOutputPortNums")
+            has_io_outputs = io_outputs is not None and io_outputs.text and int(io_outputs.text.strip()) > 0
+            
+            # Check for smart detection capabilities
+            smart_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}SmartCap")
+            has_smart_detection = smart_cap is not None
+            
+            # Check for image adjustment (color, sharpness) - usually always available
+            image_cap = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap")
+            has_image_adjustment = image_cap is not None
+            
+            # Check for IR cut filter (day/night mode)
+            has_ir_cut = xml.find(f".//{XML_NS}SysCap/{XML_NS}ImageCap/{XML_NS}isSupportIRCutFilter") is not None
+            
+            # Check for audio alarm capability
+            audio_alarm = xml.find(f".//{XML_NS}SysCap/{XML_NS}EventCap/{XML_NS}isSupportAudioAlarm")
+            has_audio_alarm = audio_alarm is not None and audio_alarm.text and audio_alarm.text.strip().lower() == "true"
+            
+            _LOGGER.info("Feature categories detected - Lights: %s, Two-way Audio: %s, I/O: %s/%s, Smart: %s, Image: %s, Audio Alarm: %s",
+                        has_lights, has_two_way_audio, has_io_inputs, has_io_outputs, has_smart_detection, has_image_adjustment, has_audio_alarm)
+            
+        except Exception as e:
+            _LOGGER.warning("Failed to parse capabilities XML, will enable all features: %s", e)
+            # If capabilities parsing fails, enable everything (fallback to old behavior)
+            has_lights = True
+            has_two_way_audio = True
+            has_io_inputs = True
+            has_io_outputs = True
+            has_smart_detection = True
+            has_image_adjustment = True
+            has_ir_cut = True
+            has_audio_alarm = True
         
-        # Number entities - test GET endpoints
-        features["ir_sensitivity"] = test_endpoint("/ircutFilter")
-        features["ir_filter_time"] = test_endpoint("/ircutFilter")
-        features["speaker_volume"] = test_endpoint("/ISAPI/System/TwoWayAudio/channels/1")
-        features["microphone_volume"] = test_endpoint("/ISAPI/System/TwoWayAudio/channels/1")
-        features["white_light_time"] = test_endpoint("/supplementLight")
-        features["white_light_brightness"] = test_endpoint("/supplementLight")
-        features["ir_light_brightness"] = test_endpoint("/supplementLight")
-        features["white_light_brightness_limit"] = test_endpoint("/supplementLight")
-        features["ir_light_brightness_limit"] = test_endpoint("/supplementLight")
-        features["motion_sensitivity"] = test_endpoint("/ISAPI/Smart/Image/1/motionDetection")
-        features["motion_start_trigger_time"] = test_endpoint("/ISAPI/Smart/Image/1/motionDetection")
-        features["motion_end_trigger_time"] = test_endpoint("/ISAPI/Smart/Image/1/motionDetection")
-        features["brightness"] = test_endpoint("/color")
-        features["contrast"] = test_endpoint("/color")
-        features["saturation"] = test_endpoint("/color")
-        features["sharpness"] = test_endpoint("/ISAPI/Image/channels/1/sharpness")
-        features["alarm_times"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
-        features["loudspeaker_volume"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+        # Enable features based on categories
         
-        # Switch entities - test GET endpoints
-        features["noise_reduce"] = test_endpoint("/ISAPI/System/TwoWayAudio/channels/1")
-        features["motion_detection"] = test_endpoint("/ISAPI/Smart/Image/1/motionDetection")
-        features["tamper_detection"] = test_endpoint("/ISAPI/Smart/Image/1/tamperDetection")
-        features["intrusion_detection"] = test_endpoint("/ISAPI/Smart/Image/1/fieldDetection")
-        features["line_crossing_detection"] = test_endpoint("/ISAPI/Smart/Image/1/lineDetection")
-        features["scene_change_detection"] = test_endpoint("/ISAPI/Smart/Image/1/sceneChangeDetection")
-        features["region_entrance_detection"] = test_endpoint("/ISAPI/Smart/Image/1/regionEntrance")
-        features["region_exiting_detection"] = test_endpoint("/ISAPI/Smart/Image/1/regionExiting")
-        features["alarm_input"] = test_endpoint(f"/ISAPI/System/IO/inputs/{self.channel}")
-        features["alarm_output"] = test_endpoint(f"/ISAPI/System/IO/outputs/{self.channel}")
+        # IR Cut / Day-Night features
+        if has_ir_cut:
+            features["ir_sensitivity"] = True
+            features["ir_filter_time"] = True
+            features["day_night_mode"] = True
         
-        # Select entities - test GET endpoints
-        features["day_night_mode"] = test_endpoint("/ircutFilter")
-        features["supplement_light_mode"] = test_endpoint("/supplementLight")
-        features["audio_alarm_type"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
-        features["audio_alarm_sound"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+        # Two-way Audio features
+        if has_two_way_audio:
+            features["speaker_volume"] = True
+            features["microphone_volume"] = True
+            features["noise_reduce"] = True
+            features["media_player"] = True
         
-        # Media player - test two-way audio
-        features["media_player"] = test_endpoint("/ISAPI/System/TwoWayAudio/channels/1")
+        # Light features (all or nothing - if lights exist, all light controls exist)
+        if has_lights:
+            features["white_light_time"] = True
+            features["white_light_brightness"] = True
+            features["ir_light_brightness"] = True
+            features["white_light_brightness_limit"] = True
+            features["ir_light_brightness_limit"] = True
+            features["supplement_light_mode"] = True
         
-        # Button entities
-        features["restart"] = True  # System restart is usually always available
-        features["test_audio_alarm"] = test_endpoint("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+        # Smart Detection features
+        if has_smart_detection:
+            features["motion_sensitivity"] = True
+            features["motion_start_trigger_time"] = True
+            features["motion_end_trigger_time"] = True
+            features["motion_detection"] = True
+            features["tamper_detection"] = True
+            features["intrusion_detection"] = True
+            features["line_crossing_detection"] = True
+            features["scene_change_detection"] = True
+            features["region_entrance_detection"] = True
+            features["region_exiting_detection"] = True
+        
+        # Image adjustment features
+        if has_image_adjustment:
+            features["brightness"] = True
+            features["contrast"] = True
+            features["saturation"] = True
+            features["sharpness"] = True
+        
+        # I/O features
+        if has_io_inputs:
+            features["alarm_input"] = True
+        if has_io_outputs:
+            features["alarm_output"] = True
+        
+        # Audio Alarm features
+        if has_audio_alarm:
+            features["alarm_times"] = True
+            features["loudspeaker_volume"] = True
+            features["audio_alarm_type"] = True
+            features["audio_alarm_sound"] = True
+            features["test_audio_alarm"] = True
+        
+        # Button entities (always available)
+        features["restart"] = True
         
         # Count supported features
         supported_count = sum(1 for v in features.values() if v)
