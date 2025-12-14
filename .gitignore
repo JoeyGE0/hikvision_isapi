@@ -3,4 +3,5 @@ isapi.text
 __pycache__/
 camera_capabilities_*.json
 *.json
+test_*.py
 
