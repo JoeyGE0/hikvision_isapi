@@ -330,22 +330,27 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         
         # Check if it's a WAV file (starts with "RIFF" and "WAVE")
         if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
-            return self._extract_ulaw_from_wav(audio_data)
+            result = self._extract_ulaw_from_wav(audio_data)
+            if result is not None:
+                return result
+            # If WAV parsing failed, don't fall back to raw - the file is malformed
+            _LOGGER.error("WAV file detected but parsing failed. File may be corrupted.")
+            return None
         
         # Check file extension for raw ulaw files
         if media_id:
             media_lower = media_id.lower()
             if media_lower.endswith('.ulaw') or media_lower.endswith('.pcm'):
-                _LOGGER.info("Treating as raw G.711ulaw file")
+                _LOGGER.info("Treating as raw G.711ulaw file (based on extension)")
                 return audio_data
         
-        # If it's not a WAV and not a known raw format, try to detect if it's raw ulaw
-        # (no header, just raw data - this is a guess)
-        if len(audio_data) > 1000:  # Reasonable size for audio
-            _LOGGER.warning("File doesn't appear to be WAV or raw ulaw. Attempting as raw ulaw...")
-            return audio_data
-        
-        _LOGGER.error("Unsupported audio format. Only G.711ulaw WAV files or raw ulaw files are supported.")
+        # Don't guess - if we can't identify the format, fail
+        _LOGGER.error(
+            "Unsupported audio format. File must be:\n"
+            "1. A WAV file with G.711ulaw codec (starts with 'RIFF' and 'WAVE')\n"
+            "2. A raw G.711ulaw file with .ulaw or .pcm extension\n"
+            "File appears to be neither. Size: %d bytes", len(audio_data)
+        )
         return None
     
     def _extract_ulaw_from_wav(self, wav_data: bytes) -> bytes | None:
