@@ -401,14 +401,16 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 chunk_id = wav_data[offset:offset+4]
                 chunk_size = int.from_bytes(wav_data[offset+4:offset+8], byteorder='little')
                 
-                # Validate chunk size - if invalid, handle it properly
-                if chunk_size > len(wav_data) or (offset + 8 + chunk_size) > len(wav_data):
+                # Validate chunk size - catch obviously invalid sizes (e.g., > 100MB for a small file)
+                # Also check if it extends beyond file
+                max_reasonable_size = len(wav_data) * 2  # Allow up to 2x file size (for padding)
+                if chunk_size > max_reasonable_size or chunk_size < 0 or (offset + 8 + chunk_size) > len(wav_data):
                     # Invalid chunk size
                     if chunk_id == b'data':
                         # This is the data chunk - extract what's available
                         data_start = offset + 8
                         available_bytes = len(wav_data) - data_start
-                        _LOGGER.warning(
+                        _LOGGER.debug(
                             "WAV file data chunk header claims %d bytes, but only %d bytes available in file. "
                             "Using available data (file may be truncated or header incorrect).",
                             chunk_size, available_bytes

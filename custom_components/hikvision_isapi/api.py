@@ -1251,6 +1251,16 @@ class HikvisionISAPI:
             xml = ET.fromstring(response.text)
             session_id = xml.find(f".//{XML_NS}sessionId")
             return session_id.text.strip() if session_id is not None else None
+        except requests.exceptions.HTTPError as e:
+            if hasattr(e, 'response') and e.response:
+                error_msg = _extract_error_message(e.response)
+                if error_msg:
+                    _LOGGER.error("Failed to open audio session: %s", error_msg)
+                else:
+                    _LOGGER.error("Failed to open audio session: %s %s", e.response.status_code, e.response.reason)
+            else:
+                _LOGGER.error("Failed to open audio session: %s", e)
+            return None
         except Exception as e:
             _LOGGER.error("Failed to open audio session: %s", e)
             return None
