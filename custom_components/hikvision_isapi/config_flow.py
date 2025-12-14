@@ -5,7 +5,7 @@ import logging
 import voluptuous as vol
 import requests
 
-from homeassistant import config_entries
+from homeassistant import config_entries, data_entry_flow
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.components.network import async_get_source_ip
@@ -76,9 +76,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(mac_address)
         try:
             self._abort_if_unique_id_configured()
-        except config_entries.ConfigFlowAbort:
+        except data_entry_flow.AbortFlow:
             # Device already configured, abort discovery
-            raise
+            return self.async_abort(reason="already_configured")
         
         # Try to get device info for better discovery display
         device_name = discovery_info.hostname or host
