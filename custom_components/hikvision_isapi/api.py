@@ -1451,7 +1451,19 @@ class HikvisionISAPI:
             return False
 
     def open_audio_session(self) -> Optional[str]:
-        """Open two-way audio session. Returns sessionId."""
+        """Open two-way audio session. Returns sessionId.
+        
+        Automatically closes any existing session first to handle cases where
+        another application (e.g., Frigate) may have left a session open.
+        """
+        import time
+        
+        # First, try to close any existing session (ignore errors - there may not be one)
+        # This handles the 403 Forbidden error when Frigate or other apps leave sessions open
+        _LOGGER.debug("Closing any existing audio session before opening new one...")
+        self._close_audio_session_silent()
+        time.sleep(0.3)  # Brief pause to let camera clean up
+        
         try:
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/open"
             response = requests.put(
@@ -1478,6 +1490,26 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to open audio session: %s", e)
             return None
 
+    def _close_audio_session_silent(self) -> bool:
+        """Close two-way audio session silently (no error logging).
+        
+        Used internally to clean up potentially stale sessions before opening new ones.
+        """
+        try:
+            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/close"
+            response = requests.put(
+                url,
+                auth=(self.username, self.password),
+                verify=self.verify_ssl,
+                timeout=5
+            )
+            if response.status_code == 200:
+                _LOGGER.debug("Successfully closed existing audio session")
+            return response.status_code == 200
+        except Exception:
+            # Silently ignore - there may not be an active session to close
+            return False
+
     def close_audio_session(self) -> bool:
         """Close two-way audio session."""
         try:
@@ -1491,7 +1523,8 @@ class HikvisionISAPI:
             response.raise_for_status()
             return True
         except Exception as e:
-            _LOGGER.error("Failed to close audio session: %s", e)
+            # Log at debug level since this may fail if no session is active
+            _LOGGER.debug("Failed to close audio session (may not have been active): %s", e)
             return False
 
     def play_test_tone(self) -> bool:
@@ -1527,12 +1560,8 @@ class HikvisionISAPI:
         import math
         
         try:
-            # Step 1: Close any existing sessions
-            _LOGGER.info("Closing any existing audio sessions...")
-            self.close_audio_session()
-            time.sleep(0.5)
-            
-            # Step 2: Enable two-way audio
+            # Step 1: Enable two-way audio
+            # Note: open_audio_session() now automatically closes any existing sessions first
             _LOGGER.info("Enabling two-way audio...")
             xml_data = """<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
@@ -1556,14 +1585,14 @@ class HikvisionISAPI:
             response.raise_for_status()
             time.sleep(0.5)
             
-            # Step 3: Open session
+            # Step 2: Open session
             _LOGGER.info("Opening audio session...")
             session_id = self.open_audio_session()
             if not session_id:
                 _LOGGER.error("Failed to open audio session")
                 return False
             
-            # Step 4: Generate 3-second test tone
+            # Step 3: Generate 3-second test tone
             _LOGGER.info("Generating 3-second test tone...")
             sample_rate = 8000
             duration = 3.0
@@ -1634,7 +1663,7 @@ class HikvisionISAPI:
             
             _LOGGER.info("Generated %d bytes of audio", len(ulaw_data))
             
-            # Step 5: Send all audio in one request
+            # Step 4: Send all audio in one request
             _LOGGER.info("Sending audio data to camera...")
             
             # According to ISAPI PDF: sessionId is a query parameter (required for multi-channel, optional for single channel)
@@ -1655,7 +1684,7 @@ class HikvisionISAPI:
             
             _LOGGER.info("Test tone sent successfully!")
             
-            # Step 6: Close session
+            # Step 5: Close session
             self.close_audio_session()
             return True
             
@@ -3350,10 +3379,25 @@ class HikvisionISAPI:
                 return False
 
             audio_alarm = current["AudioAlarm"].copy()
+            current_audio_class = audio_alarm.get("audioClass")
 
             # Update only provided values
             if audio_class is not None:
                 audio_alarm["audioClass"] = audio_class
+                
+                # When switching FROM customAudio to alertAudio/promptAudio, the camera requires
+                # a valid alertAudioID to be set. If none provided and none exists, set a default.
+                if (current_audio_class == "customAudio" and 
+                    audio_class in ("alertAudio", "promptAudio") and
+                    alert_audio_id is None):
+                    # Check if there's already a valid alertAudioID
+                    existing_alert_id = audio_alarm.get("alertAudioID")
+                    if not existing_alert_id or existing_alert_id == 0:
+                        # Set default alertAudioID (1 = Siren)
+                        _LOGGER.debug("Setting default alertAudioID=1 when switching from customAudio to %s", audio_class)
+                        audio_alarm["alertAudioID"] = 1
+                        audio_alarm["audioID"] = 1
+                        
             if alert_audio_id is not None:
                 audio_alarm["alertAudioID"] = alert_audio_id
                 # If setting alertAudioID, ensure audioClass is "alertAudio" (required for alertAudioID to work)
