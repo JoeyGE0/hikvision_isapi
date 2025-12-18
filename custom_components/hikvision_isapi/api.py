@@ -1479,7 +1479,13 @@ class HikvisionISAPI:
         except requests.exceptions.HTTPError as e:
             if hasattr(e, 'response') and e.response:
                 error_msg = _extract_error_message(e.response)
-                if error_msg:
+                if e.response.status_code == 403:
+                    # 403 after close attempt means something else still has the session locked
+                    _LOGGER.warning(
+                        "Failed to open audio session (403 Forbidden) - another application may be using the audio channel. "
+                        "Tried closing existing session first but camera still refused."
+                    )
+                elif error_msg:
                     _LOGGER.error("Failed to open audio session: %s", error_msg)
                 else:
                     _LOGGER.error("Failed to open audio session: %s %s", e.response.status_code, e.response.reason)
