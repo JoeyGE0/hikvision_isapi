@@ -43,17 +43,18 @@ class EventNotificationsView(HomeAssistantView):
 
     async def post(self, request: web.Request):
         """Accept the POST request from camera."""
-        _LOGGER.debug("=== WEBHOOK RECEIVED === Source: %s, Headers: %s", request.remote, dict(request.headers))
+        _LOGGER.info("=== WEBHOOK RECEIVED === Source IP: %s", request.remote)
 
         try:
-            _LOGGER.debug("--- Incoming event notification from %s ---", request.remote)
             xml = await self.parse_event_request(request)
-            _LOGGER.debug("Received XML (first 500 chars): %s", xml[:500] if xml else "None")
-            _LOGGER.debug("Full XML: %s", xml)
+            _LOGGER.info("Received notification XML (first 300 chars): %s", xml[:300] if xml else "None")
             alert = self.parse_event_notification(xml)
-            _LOGGER.debug("Parsed alert: event=%s, channel=%s, io_port=%s", alert.event_id, alert.channel_id, alert.io_port_id)
+            _LOGGER.info("Parsed alert: event=%s, channel=%s, io_port=%s, activeState=%s", 
+                        alert.event_id, alert.channel_id, alert.io_port_id, alert.active_state)
             device_entry = self.get_isapi_device(request.remote, alert)
-            _LOGGER.debug("Found device entry: %s", device_entry.entry_id)
+            _LOGGER.info("Matched device entry: %s (entry_id: %s)", 
+                        device_entry.title if hasattr(device_entry, 'title') else 'unknown', 
+                        device_entry.entry_id)
             self.update_alert_channel(device_entry, alert)
             self.trigger_sensor(device_entry, alert)
         except Exception as ex:  # pylint: disable=broad-except
@@ -61,8 +62,10 @@ class EventNotificationsView(HomeAssistantView):
             # These are expected when DurationList exists but relationEvent is missing
             if "Cannot extract event type from DurationList" in str(ex):
                 _LOGGER.debug("Skipping duration event notification: %s", ex)
+            elif "Entity not found" in str(ex):
+                _LOGGER.warning("=== EVENT PROCESSING FAILED === %s", ex)
             else:
-                _LOGGER.error("Cannot process incoming event: %s", ex, exc_info=True)
+                _LOGGER.error("=== EVENT PROCESSING ERROR === %s", ex, exc_info=True)
 
         response = web.Response(status=HTTPStatus.OK, content_type=CONTENT_TYPE_TEXT_PLAIN)
         return response
@@ -434,13 +437,17 @@ class EventNotificationsView(HomeAssistantView):
 
     def trigger_sensor(self, entry, alert: AlertInfo) -> None:
         """Determine entity and set binary sensor state."""
-        _LOGGER.debug("Alert: %s", alert)
-
         device_data = self.hass.data[DOMAIN][entry.entry_id]
         device_info = device_data.get("device_info", {})
         host = device_data.get("host", entry.data.get("host", ""))
         device_name = device_info.get("deviceName", host)
+        cameras = device_data.get("cameras", [])
         from homeassistant.util import slugify
+        
+        device_name_slug = slugify(device_name.lower())
+        
+        _LOGGER.info("=== EVENT TRIGGER === event=%s, channel=%s, io_port=%s, activeState=%s, device=%s",
+                    alert.event_id, alert.channel_id, alert.io_port_id, alert.active_state, device_name)
         
         # Build unique_id matching binary sensor format (using device name, NO prefix - ENTITY_ID_FORMAT adds it)
         # Format must match exactly what binary_sensor.py creates
@@ -457,30 +464,44 @@ class EventNotificationsView(HomeAssistantView):
             io_port_id_param = f"_{alert.io_port_id}"  # I/O events always include io_port_id
         else:
             io_port_id_param = ""  # Non-I/O events don't include io_port_id
-        unique_id = f"{slugify(device_name.lower())}{device_id_param}{io_port_id_param}_{alert.event_id}"
+        unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{alert.event_id}"
 
-        _LOGGER.debug("Looking for entity with unique_id: %s (event: %s, channel: %s, io_port: %s)", 
-                     unique_id, alert.event_id, alert.channel_id, alert.io_port_id)
+        _LOGGER.info("Looking for entity: unique_id=%s (device_name_slug=%s, device_id_param=%s)", 
+                    unique_id, device_name_slug, device_id_param)
 
         entity_registry = async_get(self.hass)
         entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, unique_id)
+        
+        # Log all registered entities for this domain to help debug
+        if not entity_id:
+            _LOGGER.info("Entity NOT found with unique_id=%s, searching for similar entities...", unique_id)
+            # Find all hikvision binary sensors to help debug
+            all_entities = [
+                (ent.unique_id, ent.entity_id) 
+                for ent in entity_registry.entities.values() 
+                if ent.platform == DOMAIN and ent.domain == "binary_sensor"
+            ]
+            _LOGGER.info("Registered hikvision binary_sensor entities: %s", all_entities)
+        
         if entity_id:
+            _LOGGER.info("Found entity: %s", entity_id)
             entity = self.hass.states.get(entity_id)
             if entity:
                 current_state = entity.state
+                _LOGGER.info("Entity current state: %s", current_state)
                 
                 # Check activeState: "inactive" means event ended, otherwise it's starting/active
                 if alert.active_state and alert.active_state.lower() == "inactive":
                     # Only clear if currently ON (state change)
                     if current_state == STATE_ON:
-                        _LOGGER.debug("Clearing entity: %s (event: %s, activeState: inactive)", entity_id, alert.event_id)
+                        _LOGGER.info(">>> CLEARING entity: %s (event: %s, activeState: inactive)", entity_id, alert.event_id)
                         self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
                     else:
                         _LOGGER.debug("Entity %s already OFF, ignoring inactive notification", entity_id)
                 else:
                     # Only trigger if currently OFF (state change) - prevents duplicate notifications during continuous detection
                     if current_state == STATE_OFF:
-                        _LOGGER.debug("Triggering entity: %s (event: %s, activeState: %s)", 
+                        _LOGGER.info(">>> TRIGGERING entity: %s (event: %s, activeState: %s)", 
                                    entity_id, alert.event_id, alert.active_state or "active")
                         self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                         self.fire_hass_event(entry, alert)
@@ -488,13 +509,11 @@ class EventNotificationsView(HomeAssistantView):
                         _LOGGER.debug("Entity %s already ON, ignoring duplicate active notification", entity_id)
                 return
         
-        # Fallback: If lookup failed with channel_id=0, try with channel_id=1 (for single cameras)
+        # Fallback 1: If lookup failed with channel_id=0, try with first camera's channel_id
         # Some cameras send notifications with channel_id=0 but entities are created with channel_id=1
         if not entity_id and alert.channel_id == 0 and alert.event_id != EVENT_IO:
-            device_data = self.hass.data[DOMAIN][entry.entry_id]
-            cameras = device_data.get("cameras", [])
+            _LOGGER.info("Fallback 1: Trying with first camera's channel_id (alert had channel_id=0)")
             is_nvr = device_data.get("capabilities", {}).get("is_nvr", False)
-            # Try with channel_id=1 (first camera)
             if cameras:
                 camera_id = cameras[0].get("id", 1)
                 if camera_id != 0:
@@ -503,44 +522,81 @@ class EventNotificationsView(HomeAssistantView):
                         fallback_device_id_param = f"_{camera_id}"
                     else:
                         fallback_device_id_param = ""  # Single camera - no need for channel_id
-                    fallback_unique_id = f"{slugify(device_name.lower())}{fallback_device_id_param}_{alert.event_id}"
+                    fallback_unique_id = f"{device_name_slug}{fallback_device_id_param}_{alert.event_id}"
+                    _LOGGER.info("Fallback 1: Trying unique_id=%s", fallback_unique_id)
                     entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, fallback_unique_id)
                     if entity_id:
+                        _LOGGER.info("Fallback 1: Found entity %s", entity_id)
                         entity = self.hass.states.get(entity_id)
                         if entity:
                             current_state = entity.state
-                            
-                            # Check activeState: "inactive" means event ended, otherwise it's starting/active
                             if alert.active_state and alert.active_state.lower() == "inactive":
-                                # Only clear if currently ON (state change)
                                 if current_state == STATE_ON:
-                                    _LOGGER.debug("Clearing entity with fallback channel_id=%d: %s (event: %s, activeState: inactive)", 
-                                               camera_id, entity_id, alert.event_id)
+                                    _LOGGER.info(">>> CLEARING entity (fallback 1): %s", entity_id)
                                     self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
-                                else:
-                                    _LOGGER.debug("Entity %s already OFF, ignoring inactive notification", entity_id)
                             else:
-                                # Only trigger if currently OFF (state change) - prevents duplicate notifications during continuous detection
                                 if current_state == STATE_OFF:
-                                    _LOGGER.debug("Triggering entity with fallback channel_id=%d: %s (event: %s, activeState: %s)", 
-                                               camera_id, entity_id, alert.event_id, alert.active_state or "active")
+                                    _LOGGER.info(">>> TRIGGERING entity (fallback 1): %s", entity_id)
                                     self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
                                     self.fire_hass_event(entry, alert)
-                                else:
-                                    _LOGGER.debug("Entity %s already ON, ignoring duplicate active notification", entity_id)
                             return
         
-        _LOGGER.debug(
-            "Skipping ISAPI event %s for %s (entity not registered, unique_id=%s)",
-            alert.event_id,
-            device_name,
-            unique_id,
+        # Fallback 2: If lookup failed with channel_id > 0, try without channel_id (device-level entity)
+        # Some setups might have entities created with channel_id=0
+        if not entity_id and alert.channel_id != 0 and alert.event_id != EVENT_IO:
+            _LOGGER.info("Fallback 2: Trying without channel_id (device-level entity)")
+            fallback_unique_id = f"{device_name_slug}_{alert.event_id}"
+            _LOGGER.info("Fallback 2: Trying unique_id=%s", fallback_unique_id)
+            entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, fallback_unique_id)
+            if entity_id:
+                _LOGGER.info("Fallback 2: Found entity %s", entity_id)
+                entity = self.hass.states.get(entity_id)
+                if entity:
+                    current_state = entity.state
+                    if alert.active_state and alert.active_state.lower() == "inactive":
+                        if current_state == STATE_ON:
+                            _LOGGER.info(">>> CLEARING entity (fallback 2): %s", entity_id)
+                            self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
+                    else:
+                        if current_state == STATE_OFF:
+                            _LOGGER.info(">>> TRIGGERING entity (fallback 2): %s", entity_id)
+                            self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                            self.fire_hass_event(entry, alert)
+                    return
+        
+        # Fallback 3: Try all cameras' channel IDs
+        if not entity_id and alert.event_id != EVENT_IO:
+            _LOGGER.info("Fallback 3: Trying all camera channel IDs")
+            for camera in cameras:
+                camera_id = camera.get("id")
+                if camera_id is not None and camera_id != alert.channel_id:
+                    fallback_unique_id = f"{device_name_slug}_{camera_id}_{alert.event_id}"
+                    _LOGGER.info("Fallback 3: Trying unique_id=%s (camera_id=%s)", fallback_unique_id, camera_id)
+                    entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, fallback_unique_id)
+                    if entity_id:
+                        _LOGGER.info("Fallback 3: Found entity %s", entity_id)
+                        entity = self.hass.states.get(entity_id)
+                        if entity:
+                            current_state = entity.state
+                            if alert.active_state and alert.active_state.lower() == "inactive":
+                                if current_state == STATE_ON:
+                                    _LOGGER.info(">>> CLEARING entity (fallback 3): %s", entity_id)
+                                    self.hass.states.async_set(entity_id, STATE_OFF, entity.attributes)
+                            else:
+                                if current_state == STATE_OFF:
+                                    _LOGGER.info(">>> TRIGGERING entity (fallback 3): %s", entity_id)
+                                    self.hass.states.async_set(entity_id, STATE_ON, entity.attributes)
+                                    self.fire_hass_event(entry, alert)
+                            return
+        
+        # Gracefully log when entity not found (don't raise - could be disabled/renamed entity)
+        _LOGGER.warning(
+            "=== ENTITY NOT FOUND === event=%s, channel=%s, device=%s, unique_id=%s. "
+            "Entity may be disabled or renamed. Registered hikvision binary_sensors: %s",
+            alert.event_id, alert.channel_id, device_name, unique_id,
+            [(ent.unique_id, ent.entity_id) for ent in entity_registry.entities.values() 
+             if ent.platform == DOMAIN and ent.domain == "binary_sensor"]
         )
-
-        # Gracefully ignore events for entities that are not registered (for example,
-        # when entities have been renamed or disabled in the UI). Previously this
-        # raised a ValueError which surfaced as a noisy error in the logs.
-        return
 
     def fire_hass_event(self, entry, alert: AlertInfo):
         """Fire HASS event for Hikvision camera events."""
