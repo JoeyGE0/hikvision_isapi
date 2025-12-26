@@ -453,11 +453,9 @@ class EventNotificationsView(HomeAssistantView):
         # Format must match exactly what binary_sensor.py creates
         # Only include channel_id if there are multiple cameras/channels (NVR or multi-channel)
         cameras = device_data.get("cameras", [])
-        is_nvr = device_data.get("capabilities", {}).get("is_nvr", False)
-        if len(cameras) > 1 or is_nvr:
-            device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
-        else:
-            device_id_param = ""  # Single camera - no need for channel_id
+        
+        # Always include channel_id for non-zero channels (must match binary_sensor.py format)
+        device_id_param = f"_{alert.channel_id}" if alert.channel_id != 0 and alert.event_id != EVENT_IO else ""
         # For I/O events: always include io_port_id (even if 0) to match binary_sensor format
         # For other events: don't include io_port_id (should be 0 anyway)
         if alert.event_id == EVENT_IO:
@@ -513,16 +511,11 @@ class EventNotificationsView(HomeAssistantView):
         # Some cameras send notifications with channel_id=0 but entities are created with channel_id=1
         if not entity_id and alert.channel_id == 0 and alert.event_id != EVENT_IO:
             _LOGGER.info("Fallback 1: Trying with first camera's channel_id (alert had channel_id=0)")
-            is_nvr = device_data.get("capabilities", {}).get("is_nvr", False)
             if cameras:
                 camera_id = cameras[0].get("id", 1)
                 if camera_id != 0:
-                    # Only include channel_id if there are multiple cameras/channels
-                    if len(cameras) > 1 or is_nvr:
-                        fallback_device_id_param = f"_{camera_id}"
-                    else:
-                        fallback_device_id_param = ""  # Single camera - no need for channel_id
-                    fallback_unique_id = f"{device_name_slug}{fallback_device_id_param}_{alert.event_id}"
+                    # Always include channel_id (must match binary_sensor.py format)
+                    fallback_unique_id = f"{device_name_slug}_{camera_id}_{alert.event_id}"
                     _LOGGER.info("Fallback 1: Trying unique_id=%s", fallback_unique_id)
                     entity_id = entity_registry.async_get_entity_id(Platform.BINARY_SENSOR, DOMAIN, fallback_unique_id)
                     if entity_id:
