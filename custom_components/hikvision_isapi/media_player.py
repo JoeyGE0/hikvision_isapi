@@ -345,6 +345,12 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         # If it's not a WAV and not a known raw format, try to detect if it's raw ulaw
         # (no header, just raw data - this is a guess)
         if len(audio_data) > 1000:  # Reasonable size for audio
+            # TODO: Improve audio format detection and conversion
+            # Issues to address:
+            # - Better detection of audio formats (MP3, AAC, etc.) and conversion to G.711ulaw
+            # - Currently falls back to treating unknown formats as raw ulaw, which often fails
+            # - Should integrate audio conversion library (e.g., ffmpeg-python) to convert
+            #   common formats (MP3, WAV with other codecs, etc.) to G.711ulaw
             _LOGGER.warning("File doesn't appear to be WAV or raw ulaw. Attempting as raw ulaw...")
             return audio_data
         
@@ -455,6 +461,12 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 if offset % 2:
                     offset += 1
             
+            # TODO: Fix WAV file parsing issues
+            # Issues to address:
+            # - Some WAV files have malformed headers or non-standard chunk ordering
+            # - "Could not find 'data' chunk" error occurs with some valid WAV files
+            # - Should use a proper WAV parsing library (e.g., wave module or scipy.io.wavfile)
+            #   instead of manual byte parsing to handle edge cases
             _LOGGER.error("Could not find 'data' chunk in WAV file")
             return None
             
@@ -511,6 +523,12 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 audio_duration = len(ulaw_data) / 8000.0
                 import time
                 _LOGGER.info("Waiting %.2f seconds for audio to play before closing session", audio_duration)
+                # TODO: Fix audio playback issues - audio only plays for a few ms
+                # Issues to address:
+                # - Audio often only plays the start or end portion instead of full file
+                # - May be related to session timing, chunking, or camera buffer issues
+                # - Investigate if camera requires different endpoint or streaming method
+                # - Consider using WebSocket or RTSP for audio streaming instead of single PUT
                 time.sleep(audio_duration + 0.5)  # Add 0.5s buffer
             else:
                 error_text = response.text[:200] if response.text else 'No response body'

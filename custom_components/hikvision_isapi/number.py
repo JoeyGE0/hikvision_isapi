@@ -226,7 +226,7 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
 
 
 class HikvisionSpeakerVolumeNumber(NumberEntity):
-    """Number entity for speaker volume."""
+    """Number entity for speaker volume (two-way audio / media player volume)."""
 
     _attr_unique_id = "hikvision_speaker_volume"
     _attr_native_min_value = 0
@@ -303,7 +303,7 @@ class HikvisionSpeakerVolumeNumber(NumberEntity):
 
 
 class HikvisionMicrophoneVolumeNumber(NumberEntity):
-    """Number entity for microphone volume."""
+    """Number entity for microphone input volume (two-way audio)."""
 
     _attr_unique_id = "hikvision_microphone_volume"
     _attr_native_min_value = 0
@@ -1321,7 +1321,11 @@ class HikvisionAlarmTimesNumber(NumberEntity):
 
 
 class HikvisionLoudspeakerVolumeNumber(NumberEntity):
-    """Number entity for loudspeaker volume (alarm output volume)."""
+    """Number entity for alarm output volume (NOT media player volume).
+    
+    This controls the volume for alarm audio output, which is separate from
+    the two-way audio speaker volume used by the media player.
+    """
 
     _attr_unique_id = "hikvision_loudspeaker_volume"
     _attr_native_min_value = 1
@@ -1337,7 +1341,7 @@ class HikvisionLoudspeakerVolumeNumber(NumberEntity):
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Loudspeaker Volume"
+        self._attr_name = f"{device_name} Alarm Output Volume"
         self._attr_unique_id = f"{host}_loudspeaker_volume"
         self._optimistic_value = None
 

@@ -1323,7 +1323,8 @@ class HikvisionISAPI:
             enabled = "true" if current.get("enabled", False) else "false"
             mic_volume = current.get("microphoneVolume", 100)
             compression = current.get("audioCompressionType", "G.711ulaw")
-            noise_reduce = "true"  # Default
+            # Preserve current noise reduction state instead of defaulting to true
+            noise_reduce = "true" if current.get("noisereduce", True) else "false"
             
             xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
@@ -1369,7 +1370,8 @@ class HikvisionISAPI:
             enabled = "true" if current.get("enabled", False) else "false"
             speaker_volume = current.get("speakerVolume", 50)
             compression = current.get("audioCompressionType", "G.711ulaw")
-            noise_reduce = "true"  # Default
+            # Preserve current noise reduction state instead of defaulting to true
+            noise_reduce = "true" if current.get("noisereduce", True) else "false"
             
             xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
