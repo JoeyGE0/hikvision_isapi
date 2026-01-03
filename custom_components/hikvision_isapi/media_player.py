@@ -135,20 +135,16 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 import xml.etree.ElementTree as ET
                 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
                 
-                # Get current values or use defaults
+                # Only send required fields when enabling for streaming
+                # According to ISAPI schema: only id, enabled, and audioCompressionType are required
+                # All other fields (noisereduce, speakerVolume, microphoneVolume, audioInputType) are optional
+                # We omit them so we don't accidentally change any settings when just enabling for streaming
                 compression = audio_data.get('audioCompressionType', 'G.711ulaw') if audio_data else 'G.711ulaw'
-                speaker_vol = audio_data.get('speakerVolume', 100) if audio_data else 100
-                mic_vol = audio_data.get('microphoneVolume', 100) if audio_data else 100
                 
                 xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
 <enabled>true</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
-<speakerVolume>{speaker_vol}</speakerVolume>
-<microphoneVolume>{mic_vol}</microphoneVolume>
-<noisereduce>true</noisereduce>
-<audioInputType>MicIn</audioInputType>
-<audioOutputType>Speaker</audioOutputType>
 </TwoWayAudioChannel>"""
                 
                 url = f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1"
