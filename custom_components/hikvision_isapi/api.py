@@ -1570,16 +1570,14 @@ class HikvisionISAPI:
         try:
             # Step 1: Enable two-way audio
             # Note: open_audio_session() now automatically closes any existing sessions first
+            # For enabling to play test tone, we only need required fields
+            # Optional fields (speakerVolume, microphoneVolume, noisereduce, audioInputType) are not needed
             _LOGGER.info("Enabling two-way audio...")
+            
             xml_data = """<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
 <enabled>true</enabled>
 <audioCompressionType>G.711ulaw</audioCompressionType>
-<speakerVolume>100</speakerVolume>
-<microphoneVolume>100</microphoneVolume>
-<noisereduce>true</noisereduce>
-<audioInputType>MicIn</audioInputType>
-<audioOutputType>Speaker</audioOutputType>
 </TwoWayAudioChannel>"""
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
             response = requests.put(
