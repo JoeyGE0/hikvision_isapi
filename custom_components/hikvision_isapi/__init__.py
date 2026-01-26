@@ -143,7 +143,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
+        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch", "update"]
     )
 
     # Only register notification view once if multiple instances
@@ -182,7 +182,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # This prevents the camera from being reset to "/" which breaks notifications
     
     await hass.config_entries.async_unload_platforms(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch"]
+        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch", "update"]
     )
     hass.data[DOMAIN].pop(entry.entry_id, None)
     return True
