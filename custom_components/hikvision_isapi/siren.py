@@ -20,6 +20,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIREN_RETRIGGER_INTERVAL_SECONDS
 from .device_helpers import get_primary_device_info
+from .api import HikvisionISAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,14 +103,24 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         volume_level = kwargs.get(ATTR_VOLUME_LEVEL)
 
         tone_id = self._resolve_tone_id(tone)
-        if tone_id is not None:
-            await self.hass.async_add_executor_job(self.api.set_audio_alarm, None, tone_id, None, None)
-            self._active_tone_id = tone_id
+        if tone_id is None:
+            tone_id = self._current_audio_id_from_coordinator()
 
         volume_percent = self._resolve_volume_percent(volume_level)
         if volume_percent is not None:
-            await self.hass.async_add_executor_job(self.api.set_audio_alarm, None, None, volume_percent, None)
             self._active_volume_level = volume_percent / 100.0
+
+        cap_rows = self._capability_warning_rows_only()
+        if tone_id is not None:
+            audio_class = HikvisionISAPI.resolve_audio_class_for_sound_id(tone_id, cap_rows)
+            await self.hass.async_add_executor_job(
+                self.api.set_audio_alarm, audio_class, tone_id, volume_percent, None
+            )
+            self._active_tone_id = tone_id
+        elif volume_percent is not None:
+            await self.hass.async_add_executor_job(
+                self.api.set_audio_alarm, None, None, volume_percent, None
+            )
 
         await self.async_turn_off()
         self._stop_event.clear()
@@ -140,6 +151,26 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         self.async_on_remove(
             self.coordinator.async_add_listener(self.async_write_ha_state)
         )
+
+    def _capability_warning_rows_only(self) -> list[dict]:
+        """Capability warning sounds only (no synthetic current-ID row)."""
+        norm = (self.coordinator.data or {}).get("audio_alarm_capabilities") or {}
+        return [
+            dict(r) for r in (norm.get("warning_sounds") or []) if isinstance(r, dict)
+        ]
+
+    def _current_audio_id_from_coordinator(self) -> int | None:
+        """Active audio ID from coordinator snapshot."""
+        audio_alarm = (self.coordinator.data or {}).get("audio_alarm") or {}
+        raw = audio_alarm.get("audioID")
+        if raw is None:
+            raw = audio_alarm.get("alertAudioID")
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
 
     def _tone_options_from_capabilities(self) -> dict[int, str]:
         """Build id -> label map (mirrors Warning Sound select logic)."""

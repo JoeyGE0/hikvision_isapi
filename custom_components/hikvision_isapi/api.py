@@ -13,6 +13,47 @@ _LOGGER = logging.getLogger(__name__)
 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
 
 
+def _normalize_alert_sound_label_for_compare(label: str) -> str:
+    """Normalize alarm sound descriptions so camera strings match our known list."""
+    s = (label or "").replace("\u00a0", " ").strip()
+    # Firmware often omits spaces after punctuation before the next word.
+    s = re.sub(r"([,.!&\)])(?=[A-Za-z])", r"\1 ", s)
+    s = re.sub(r"\s+", " ", s).strip().casefold()
+    s = s.replace(", ", ",").replace(" ,", ",")
+    return s
+
+
+def _known_alert_sound_label_source_strings() -> tuple[str, ...]:
+    """Exact ``audioDescription`` strings from a live camera probe only → ``alertAudio``.
+
+    Anything not in this tuple (after :func:`_normalize_alert_sound_label_for_compare`)
+    is treated as ``customAudio``. Extend this tuple only after probing another device’s
+    ``GET .../AudioAlarm/capabilities`` ``audioTypeListCap`` (exclude user uploads).
+    """
+    # Live probe 2026-04-15 — audioTypeListCap strings (ids 1–12). Id 14 on device was user
+    # "security audio" (not included). No other sources — do not add ISAPI doc defaults here.
+    return (
+        "Siren",
+        "Warning,this is a restricted area",
+        "Warning,this is a restricted area,please keep away",
+        "Warning,this is a no-parking zone",
+        "Warning,this is a no-parking zone,please keep away",
+        "Attention please.The area is under surveillance",
+        "Welcome,Please notice that the area is under surveillance",
+        "Welcome",
+        "Danger!Please keep away",
+        "(Siren)&Danger,please keep away",
+        "Audio Warning",
+        "Beep Sound",
+    )
+
+
+_KNOWN_ALERT_SOUND_LABELS_NORMALIZED: frozenset[str] = frozenset(
+    _normalize_alert_sound_label_for_compare(x)
+    for x in _known_alert_sound_label_source_strings()
+)
+
+
 def _extract_error_message(response) -> str:
     """Extract error message from camera response (XML or JSON).
     
@@ -3568,6 +3609,44 @@ class HikvisionISAPI:
 
         return {"warning_sounds": deduped, "audio_classes": audio_classes}
 
+    @staticmethod
+    def normalize_alert_sound_label_for_compare(label: str) -> str:
+        """Normalize a sound label for comparison to :data:`_KNOWN_ALERT_SOUND_LABELS_NORMALIZED`."""
+        return _normalize_alert_sound_label_for_compare(label)
+
+    @staticmethod
+    def resolve_audio_class_for_sound_id(
+        audio_id: int,
+        capability_warning_sounds: list[dict],
+    ) -> str:
+        """Return ``alertAudio`` or ``customAudio`` so the camera plays the requested sound.
+
+        Looks up the capability row for ``audio_id`` and compares its ``label`` to the
+        built-in list of known stock strings (from ISAPI + live device probes). Any label
+        not in that set (uploads like ``security audio``, unknown files, etc.) uses
+        ``customAudio``. If the id is missing from capabilities, treat as custom.
+        """
+        label: str | None = None
+        for row in capability_warning_sounds:
+            if not isinstance(row, dict):
+                continue
+            try:
+                aid = int(row["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if aid != audio_id:
+                continue
+            label = str(row.get("label") or "")
+            break
+
+        if label is None:
+            return "customAudio"
+
+        norm = _normalize_alert_sound_label_for_compare(label)
+        if norm in _KNOWN_ALERT_SOUND_LABELS_NORMALIZED:
+            return "alertAudio"
+        return "customAudio"
+
     def set_audio_alarm(self, audio_class: Optional[str] = None, alert_audio_id: Optional[int] = None,
                         audio_volume: Optional[int] = None, alarm_times: Optional[int] = None) -> bool:
         """Set audio alarm configuration."""
@@ -3654,9 +3733,54 @@ class HikvisionISAPI:
                 _LOGGER.error("Failed to set audio alarm: %s", e)
             return False
 
+    def ensure_audio_alarm_class_for_current_sound(self) -> bool:
+        """PUT ``audioClass`` (and ids) so it matches the current sound; no-op if already aligned.
+
+        Call before ``trigger_audio_alarm`` so stock tones work without manually switching
+        ``select.*_audio_type`` when the device was left in ``customAudio`` (or vice versa).
+        """
+        current = self.get_audio_alarm()
+        if not current or "AudioAlarm" not in current:
+            _LOGGER.debug("Cannot align audio class - failed to get current configuration")
+            return False
+
+        audio_alarm = current["AudioAlarm"]
+        raw_id = audio_alarm.get("audioID")
+        if raw_id is None:
+            raw_id = audio_alarm.get("alertAudioID")
+        if raw_id is None:
+            _LOGGER.debug("Cannot align audio class - no audioID in configuration")
+            return False
+        try:
+            audio_id = int(raw_id)
+        except (TypeError, ValueError):
+            _LOGGER.debug("Cannot align audio class - invalid audioID: %s", raw_id)
+            return False
+
+        cap_raw = self.get_audio_alarm_capabilities()
+        norm = self.normalize_audio_alarm_capabilities(cap_raw)
+        rows = [dict(r) for r in (norm.get("warning_sounds") or []) if isinstance(r, dict)]
+        desired = self.resolve_audio_class_for_sound_id(audio_id, rows)
+        current_class = audio_alarm.get("audioClass")
+
+        if current_class == desired:
+            return True
+
+        _LOGGER.debug(
+            "Aligning AudioAlarm audioClass %s -> %s for audioID %s",
+            current_class,
+            desired,
+            audio_id,
+        )
+        return self.set_audio_alarm(desired, audio_id, None, None)
+
     def trigger_audio_alarm(self) -> bool:
         """Trigger audio alarm playback for the currently selected sound."""
         try:
+            if not self.ensure_audio_alarm_class_for_current_sound():
+                _LOGGER.debug("Cannot trigger audio alarm - failed to align audio class")
+                return False
+
             # Get current audio alarm config to get the audioID
             current = self.get_audio_alarm()
             if not current or "AudioAlarm" not in current:
