@@ -34,6 +34,7 @@ def mock_api():
     api.get_alarm_server = Mock(return_value={})
     api.get_alarm_output = Mock(return_value={})
     api.detect_features = Mock(return_value={"restart": True})
+    api.get_audio_alarm_capabilities = Mock(return_value=None)
     return api
 
 

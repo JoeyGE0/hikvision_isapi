@@ -372,21 +372,11 @@ class HikvisionMotionTargetTypeSelect(SelectEntity):
 
 
 class HikvisionAudioTypeSelect(SelectEntity):
-    """Select entity for audio alarm type."""
+    """Select entity for audio alarm type (options from device capabilities when available)."""
 
     _attr_unique_id = "hikvision_audio_type"
-    _attr_options = ["Alert Audio", "Prompt Audio", "Custom Audio"]
     _attr_icon = "mdi:waveform"
     _attr_entity_registry_enabled_default = False
-
-    # Map display names to API values
-    _api_value_map = {
-        "Alert Audio": "alertAudio",
-        "Prompt Audio": "promptAudio",
-        "Custom Audio": "customAudio",
-    }
-    # Reverse map for reading
-    _display_value_map = {v: k for k, v in _api_value_map.items()}
 
     def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the select entity."""
@@ -397,6 +387,46 @@ class HikvisionAudioTypeSelect(SelectEntity):
         self._attr_name = f"{device_name} Audio Type"
         self._attr_unique_id = f"{host}_audio_type"
         self._optimistic_value = None
+        self._label_to_api: dict[str, str] = {}
+        self._api_to_label: dict[str, str] = {}
+        self._attr_options: list[str] = []
+        self._sync_audio_class_options()
+
+    def _sync_audio_class_options(self) -> None:
+        """Rebuild labels from coordinator capability snapshot."""
+        norm = (self.coordinator.data or {}).get("audio_alarm_capabilities") or {}
+        rows: list[dict] = [
+            dict(r) for r in (norm.get("audio_classes") or []) if isinstance(r, dict)
+        ]
+        known_api = {str(r.get("value")) for r in rows if r.get("value")}
+        audio_alarm = (self.coordinator.data or {}).get("audio_alarm") or {}
+        cur_cls = audio_alarm.get("audioClass")
+        if isinstance(cur_cls, str) and cur_cls and cur_cls not in known_api:
+            pretty = {
+                "alertAudio": "Alert Audio",
+                "promptAudio": "Prompt Audio",
+                "customAudio": "Custom Audio",
+            }.get(cur_cls, cur_cls)
+            rows.append({"value": cur_cls, "label": pretty})
+
+        self._label_to_api.clear()
+        self._api_to_label.clear()
+        labels: list[str] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            val = row.get("value")
+            lbl = row.get("label")
+            if not val or not lbl:
+                continue
+            labels.append(str(lbl))
+            self._label_to_api[str(lbl)] = str(val)
+            self._api_to_label[str(val)] = str(lbl)
+        self._attr_options = labels
+
+    def _on_coordinator_update(self) -> None:
+        self._sync_audio_class_options()
+        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -420,14 +450,18 @@ class HikvisionAudioTypeSelect(SelectEntity):
             audio_alarm = self.coordinator.data["audio_alarm"]
             if audio_alarm:
                 api_value = audio_alarm.get("audioClass")
-                display_value = self._display_value_map.get(api_value)
-                if display_value in self._attr_options:
-                    return display_value
+                if api_value is not None:
+                    api_str = str(api_value)
+                    display_value = self._api_to_label.get(api_str)
+                    if display_value and display_value in self._attr_options:
+                        return display_value
         return None
 
     async def async_select_option(self, option: str):
         """Change the selected option."""
-        api_value = self._api_value_map.get(option, option)
+        api_value = self._label_to_api.get(option)
+        if api_value is None:
+            return
 
         self._optimistic_value = option
         self.async_write_ha_state()
@@ -438,8 +472,9 @@ class HikvisionAudioTypeSelect(SelectEntity):
 
         if success:
             await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("audio_alarm", {}).get("audioClass") == api_value):
+            if self.coordinator.data and self.coordinator.data.get(
+                "audio_alarm", {}
+            ).get("audioClass") == str(api_value):
                 self._optimistic_value = None
         else:
             self._optimistic_value = None
@@ -447,47 +482,18 @@ class HikvisionAudioTypeSelect(SelectEntity):
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
         await super().async_added_to_hass()
+        self._sync_audio_class_options()
         self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
+            self.coordinator.async_add_listener(self._on_coordinator_update)
         )
 
 
 class HikvisionWarningSoundSelect(SelectEntity):
-    """Select entity for warning sound selection."""
+    """Select entity for warning sound (options from AudioAlarm/capabilities + fallbacks)."""
 
     _attr_unique_id = "hikvision_warning_sound"
-    _attr_options = [
-        "Siren",
-        "Warning, this is a restricted area",
-        "Warning, this is a restricted area, please keep away",
-        "Warning, this is a no-parking zone",
-        "Warning, this is a no-parking zone, please keep away",
-        "Attention please. The area is under surveillance",
-        "Welcome, Please notice that the area is under surveillance",
-        "Welcome",
-        "Danger! Please keep away",
-        "(Siren)&Danger, please keep away",
-        "Audio Warning",
-    ]
     _attr_icon = "mdi:alert"
     _attr_entity_registry_enabled_default = False
-
-    # Map display names to audio IDs (1-11)
-    _audio_id_map = {
-        "Siren": 1,
-        "Warning, this is a restricted area": 2,
-        "Warning, this is a restricted area, please keep away": 3,
-        "Warning, this is a no-parking zone": 4,
-        "Warning, this is a no-parking zone, please keep away": 5,
-        "Attention please. The area is under surveillance": 6,
-        "Welcome, Please notice that the area is under surveillance": 7,
-        "Welcome": 8,
-        "Danger! Please keep away": 9,
-        "(Siren)&Danger, please keep away": 10,
-        "Audio Warning": 11,
-    }
-    # Reverse map for reading
-    _id_to_display_map = {v: k for k, v in _audio_id_map.items()}
 
     def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the select entity."""
@@ -498,6 +504,53 @@ class HikvisionWarningSoundSelect(SelectEntity):
         self._attr_name = f"{device_name} Warning Sound"
         self._attr_unique_id = f"{host}_warning_sound"
         self._optimistic_value = None
+        self._label_to_id: dict[str, int] = {}
+        self._id_to_label: dict[int, str] = {}
+        self._attr_options: list[str] = []
+        self._sync_warning_sound_options()
+
+    def _sync_warning_sound_options(self) -> None:
+        """Rebuild labels from coordinator capability snapshot."""
+        norm = (self.coordinator.data or {}).get("audio_alarm_capabilities") or {}
+        rows: list[dict] = [dict(r) for r in (norm.get("warning_sounds") or []) if isinstance(r, dict)]
+        seen_ids = set()
+        for r in rows:
+            try:
+                seen_ids.add(int(r["id"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+        audio_alarm = (self.coordinator.data or {}).get("audio_alarm") or {}
+        raw_cur = audio_alarm.get("audioID")
+        if raw_cur is None:
+            raw_cur = audio_alarm.get("alertAudioID")
+        if raw_cur is not None:
+            try:
+                cur_id = int(raw_cur)
+            except (TypeError, ValueError):
+                cur_id = None
+            if cur_id is not None and cur_id not in seen_ids:
+                rows.append(
+                    {"id": cur_id, "label": f"Sound #{cur_id} (current)"}
+                )
+        rows.sort(key=lambda r: int(r["id"]))
+
+        self._label_to_id.clear()
+        self._id_to_label.clear()
+        labels: list[str] = []
+        for row in rows:
+            try:
+                aid = int(row["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            lbl = str(row.get("label") or f"Sound {aid}")
+            labels.append(lbl)
+            self._label_to_id[lbl] = aid
+            self._id_to_label[aid] = lbl
+        self._attr_options = labels
+
+    def _on_coordinator_update(self) -> None:
+        self._sync_warning_sound_options()
+        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -520,19 +573,22 @@ class HikvisionWarningSoundSelect(SelectEntity):
         if self.coordinator.data and "audio_alarm" in self.coordinator.data:
             audio_alarm = self.coordinator.data["audio_alarm"]
             if audio_alarm:
-                audio_id = audio_alarm.get("alertAudioID")
+                audio_id = audio_alarm.get("audioID")
+                if audio_id is None:
+                    audio_id = audio_alarm.get("alertAudioID")
                 if audio_id is not None:
                     try:
-                        display_value = self._id_to_display_map.get(int(audio_id))
-                        if display_value in self._attr_options:
-                            return display_value
+                        aid = int(audio_id)
                     except (ValueError, TypeError):
-                        pass
+                        return None
+                    display_value = self._id_to_label.get(aid)
+                    if display_value and display_value in self._attr_options:
+                        return display_value
         return None
 
     async def async_select_option(self, option: str):
         """Change the selected option."""
-        audio_id = self._audio_id_map.get(option)
+        audio_id = self._label_to_id.get(option)
         if audio_id is None:
             return
 
@@ -545,8 +601,15 @@ class HikvisionWarningSoundSelect(SelectEntity):
 
         if success:
             await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("audio_alarm", {}).get("alertAudioID") == audio_id):
+            cur = self.coordinator.data.get("audio_alarm", {}) if self.coordinator.data else {}
+            try:
+                cur_raw = cur.get("audioID")
+                if cur_raw is None:
+                    cur_raw = cur.get("alertAudioID")
+                cur_id = int(cur_raw) if cur_raw is not None else None
+            except (ValueError, TypeError):
+                cur_id = None
+            if cur_id == audio_id:
                 self._optimistic_value = None
         else:
             self._optimistic_value = None
@@ -554,7 +617,8 @@ class HikvisionWarningSoundSelect(SelectEntity):
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
         await super().async_added_to_hass()
+        self._sync_warning_sound_options()
         self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
+            self.coordinator.async_add_listener(self._on_coordinator_update)
         )
 
