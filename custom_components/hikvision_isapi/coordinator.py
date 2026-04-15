@@ -141,6 +141,9 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             audio_alarm_data = await self.hass.async_add_executor_job(
                 self.api.get_audio_alarm
             )
+            audio_alarm_caps_raw = await self.hass.async_add_executor_job(
+                self.api.get_audio_alarm_capabilities
+            )
             system_status = await self.hass.async_add_executor_job(
                 self.api.get_system_status
             )
@@ -171,6 +174,9 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "color": color_data,
                 "sharpness": sharpness_data,
                 "audio_alarm": audio_alarm_data.get("AudioAlarm") if audio_alarm_data else None,
+                "audio_alarm_capabilities": HikvisionISAPI.normalize_audio_alarm_capabilities(
+                    audio_alarm_caps_raw
+                ),
                 "system_status": system_status,
                 "streaming_status": streaming_status,
                 "alarm_input": alarm_input,

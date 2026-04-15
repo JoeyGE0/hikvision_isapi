@@ -26,6 +26,26 @@ from .const import (
 )
 from .api import _extract_error_message
 
+
+def _optional_rtsp_port_schema():
+    """Optional RTSP port: empty / omitted means unset (fixes '' vs vol.Coerce(int))."""
+
+    def _coerce(v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str) and not str(v).strip():
+            return None
+        try:
+            port = int(v)
+        except (ValueError, TypeError) as err:
+            raise vol.Invalid("invalid_rtsp_port") from err
+        if not 1 <= port <= 65535:
+            raise vol.Invalid("invalid_rtsp_port")
+        return port
+
+    return vol.All(vol.Any(None, "", int, str, float), _coerce)
+
+
 def get_basic_schema(default_host=None):
     """Get basic schema with required fields only."""
     return vol.Schema({
@@ -43,7 +63,7 @@ def get_advanced_schema(default_alarm_server=None, set_alarm_server=True):
             vol.Coerce(int), vol.Range(min=5, max=300)
         ),
         vol.Required(CONF_SET_ALARM_SERVER, default=set_alarm_server): bool,
-        vol.Optional(RTSP_PORT_FORCED): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+        vol.Optional(RTSP_PORT_FORCED): _optional_rtsp_port_schema(),
     }
     
     # Only show alarm server if set_alarm_server is enabled
@@ -391,12 +411,12 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): str,
             })
         
-        # Add RTSP port forced option
+        # Add RTSP port forced option (empty field must not go through vol.Coerce(int))
         reconfigure_schema = reconfigure_schema.extend({
             vol.Optional(
                 RTSP_PORT_FORCED,
-                default=entry.data.get(RTSP_PORT_FORCED)
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+                default=entry.data.get(RTSP_PORT_FORCED),
+            ): _optional_rtsp_port_schema(),
         })
 
         return self.async_show_form(
