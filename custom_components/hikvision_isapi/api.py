@@ -1300,6 +1300,14 @@ class HikvisionISAPI:
                     else:
                         audio_info[key] = element.text.strip()
             
+            # Physical speaker output vs mic input are reversed relative to XML tag names on
+            # some firmware; normalize so speakerVolume/microphoneVolume match real ports.
+            if "speakerVolume" in audio_info and "microphoneVolume" in audio_info:
+                xml_speaker = audio_info["speakerVolume"]
+                xml_mic = audio_info["microphoneVolume"]
+                audio_info["speakerVolume"] = xml_mic
+                audio_info["microphoneVolume"] = xml_speaker
+
             return audio_info
         except AuthenticationError:
             raise
@@ -1321,7 +1329,7 @@ class HikvisionISAPI:
             
             # Build full XML with all required fields
             enabled = "true" if current.get("enabled", False) else "false"
-            mic_volume = current.get("microphoneVolume", 100)
+            mic_semantic = current.get("microphoneVolume", 100)
             compression = current.get("audioCompressionType", "G.711ulaw")
             # Preserve current noise reduction state instead of defaulting to true
             noise_reduce = "true" if current.get("noisereduce", True) else "false"
@@ -1330,8 +1338,8 @@ class HikvisionISAPI:
 <id>1</id>
 <enabled>{enabled}</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
-<speakerVolume>{volume}</speakerVolume>
-<microphoneVolume>{mic_volume}</microphoneVolume>
+<speakerVolume>{mic_semantic}</speakerVolume>
+<microphoneVolume>{volume}</microphoneVolume>
 <noisereduce>{noise_reduce}</noisereduce>
 <audioInputType>MicIn</audioInputType>
 <audioOutputType>Speaker</audioOutputType>
@@ -1368,7 +1376,7 @@ class HikvisionISAPI:
             
             # Build full XML with all required fields
             enabled = "true" if current.get("enabled", False) else "false"
-            speaker_volume = current.get("speakerVolume", 50)
+            speaker_semantic = current.get("speakerVolume", 50)
             compression = current.get("audioCompressionType", "G.711ulaw")
             # Preserve current noise reduction state instead of defaulting to true
             noise_reduce = "true" if current.get("noisereduce", True) else "false"
@@ -1377,8 +1385,8 @@ class HikvisionISAPI:
 <id>1</id>
 <enabled>{enabled}</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
-<speakerVolume>{speaker_volume}</speakerVolume>
-<microphoneVolume>{volume}</microphoneVolume>
+<speakerVolume>{volume}</speakerVolume>
+<microphoneVolume>{speaker_semantic}</microphoneVolume>
 <noisereduce>{noise_reduce}</noisereduce>
 <audioInputType>MicIn</audioInputType>
 <audioOutputType>Speaker</audioOutputType>
@@ -1415,8 +1423,8 @@ class HikvisionISAPI:
             
             # Build full XML with all required fields
             audio_enabled = "true" if current.get("enabled", False) else "false"
-            speaker_volume = current.get("speakerVolume", 50)
-            mic_volume = current.get("microphoneVolume", 100)
+            speaker_semantic = current.get("speakerVolume", 50)
+            mic_semantic = current.get("microphoneVolume", 100)
             compression = current.get("audioCompressionType", "G.711ulaw")
             noise_reduce = "true" if enabled else "false"
             
@@ -1424,8 +1432,8 @@ class HikvisionISAPI:
 <id>1</id>
 <enabled>{audio_enabled}</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
-<speakerVolume>{speaker_volume}</speakerVolume>
-<microphoneVolume>{mic_volume}</microphoneVolume>
+<speakerVolume>{mic_semantic}</speakerVolume>
+<microphoneVolume>{speaker_semantic}</microphoneVolume>
 <noisereduce>{noise_reduce}</noisereduce>
 <audioInputType>MicIn</audioInputType>
 <audioOutputType>Speaker</audioOutputType>
@@ -3646,20 +3654,20 @@ class HikvisionISAPI:
                 _LOGGER.error("Failed to set audio alarm: %s", e)
             return False
 
-    def test_audio_alarm(self) -> bool:
-        """Test/trigger audio alarm playback."""
+    def trigger_audio_alarm(self) -> bool:
+        """Trigger audio alarm playback for the currently selected sound."""
         try:
             # Get current audio alarm config to get the audioID
             current = self.get_audio_alarm()
             if not current or "AudioAlarm" not in current:
-                _LOGGER.debug("Cannot test audio alarm - failed to get current configuration")
+                _LOGGER.debug("Cannot trigger audio alarm - failed to get current configuration")
                 return False
             
             audio_alarm = current["AudioAlarm"]
             # Use audioID if available, otherwise use alertAudioID
             audio_id = audio_alarm.get("audioID") or audio_alarm.get("alertAudioID")
             if not audio_id:
-                _LOGGER.debug("Cannot test audio alarm - no audioID found in configuration")
+                _LOGGER.debug("Cannot trigger audio alarm - no audioID found in configuration")
                 return False
             
             # The test endpoint requires the audioID in the path: /AudioAlarm/{audioID}/test
@@ -3677,24 +3685,28 @@ class HikvisionISAPI:
                 error_msg = _extract_error_message(response)
                 if response.status_code == 403:
                     if error_msg:
-                        _LOGGER.debug("Audio alarm test endpoint not accessible (403): %s", error_msg)
+                        _LOGGER.debug("Audio alarm trigger endpoint busy/not accessible (403): %s", error_msg)
                     else:
-                        _LOGGER.debug("Audio alarm test endpoint not accessible (403)")
+                        _LOGGER.debug("Audio alarm trigger endpoint busy/not accessible (403)")
                 elif response.status_code == 404:
-                    _LOGGER.debug("Audio alarm test endpoint not found (404)")
+                    _LOGGER.debug("Audio alarm trigger endpoint not found (404)")
                 else:
                     if error_msg:
-                        _LOGGER.debug("Audio alarm test returned status %d: %s", response.status_code, error_msg)
+                        _LOGGER.debug("Audio alarm trigger returned status %d: %s", response.status_code, error_msg)
                     else:
-                        _LOGGER.debug("Audio alarm test returned status %d", response.status_code)
+                        _LOGGER.debug("Audio alarm trigger returned status %d", response.status_code)
             
             return False
         except Exception as e:
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
-                _LOGGER.warning("Failed to test audio alarm (timeout): %s", e)
+                _LOGGER.warning("Failed to trigger audio alarm (timeout): %s", e)
             else:
-                _LOGGER.debug("Failed to test audio alarm: %s", e)
+                _LOGGER.debug("Failed to trigger audio alarm: %s", e)
             return False
+
+    def test_audio_alarm(self) -> bool:
+        """Backward-compatible alias for trigger_audio_alarm."""
+        return self.trigger_audio_alarm()
 
     def _test_endpoint_exists(self, endpoint: str) -> bool:
         """Return True only if the endpoint responds with HTTP 200.
