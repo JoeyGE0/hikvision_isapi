@@ -65,6 +65,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     _attr_media_content_type = MediaType.MUSIC
     _attr_unique_id = "hikvision_media_player"
     _attr_icon = "mdi:speaker"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the media player."""
