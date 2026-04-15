@@ -8,6 +8,7 @@ from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
 from .device_helpers import get_primary_device_info
+from .api import HikvisionISAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -595,8 +596,13 @@ class HikvisionWarningSoundSelect(SelectEntity):
         self._optimistic_value = option
         self.async_write_ha_state()
 
+        norm = (self.coordinator.data or {}).get("audio_alarm_capabilities") or {}
+        cap_rows = [
+            dict(r) for r in (norm.get("warning_sounds") or []) if isinstance(r, dict)
+        ]
+        audio_class = HikvisionISAPI.resolve_audio_class_for_sound_id(audio_id, cap_rows)
         success = await self.hass.async_add_executor_job(
-            self.api.set_audio_alarm, None, audio_id, None, None
+            self.api.set_audio_alarm, audio_class, audio_id, None, None
         )
 
         if success:
