@@ -3374,6 +3374,192 @@ class HikvisionISAPI:
                 _LOGGER.debug("Failed to get audio alarm: %s", e)
             return None
 
+    def get_audio_alarm_capabilities(self) -> Optional[dict]:
+        """GET AudioAlarm capabilities (lists device-specific warning sounds and class options)."""
+        try:
+            url = (
+                f"http://{self.host}/ISAPI/Event/triggers/notifications/"
+                f"AudioAlarm/capabilities?format=json"
+            )
+            response = requests.get(
+                url,
+                auth=(self.username, self.password),
+                verify=self.verify_ssl,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(
+                    "Authentication failed - check username and password (401)"
+                )
+            if response.status_code in (403, 404):
+                _LOGGER.debug(
+                    "AudioAlarm capabilities not available (%s)", response.status_code
+                )
+                return None
+            response.raise_for_status()
+            return json.loads(response.text)
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            if isinstance(
+                e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+            ):
+                _LOGGER.debug("AudioAlarm capabilities request failed: %s", e)
+            else:
+                _LOGGER.debug("AudioAlarm capabilities parse/request failed: %s", e)
+            return None
+
+    @staticmethod
+    def normalize_audio_alarm_capabilities(
+        cap_response: Optional[dict],
+    ) -> dict[str, list[dict]]:
+        """Build UI-ready lists from GET .../AudioAlarm/capabilities JSON.
+
+        Returns:
+            ``warning_sounds``: ``[{"id": int, "label": str}, ...]`` sorted by id.
+            ``audio_classes``: ``[{"value": str, "label": str}, ...]`` for the type select.
+        """
+        # Built-in labels when the device omits audioDescription (ISAPI doc table).
+        default_sound_labels: dict[int, str] = {
+            1: "Siren",
+            2: "Warning, this is a restricted area",
+            3: "Warning, this is a restricted area, please keep away",
+            4: "Warning, this is a no-parking zone",
+            5: "Warning, this is a no-parking zone, please keep away",
+            6: "Attention please. The area is under surveillance",
+            7: "Welcome, Please notice that the area is under surveillance",
+            8: "Welcome",
+            9: "Danger! Please keep away",
+            10: "(Siren)&Danger, please keep away",
+            11: "Audio Warning",
+            12: "Beep Sound",
+            13: "Temperature abnormality, please deal with it as soon as possible",
+            14: "Smoking is prohibited in this area",
+            15: "Fire detected, please deal with it as soon as possible",
+        }
+        default_audio_classes: list[dict[str, str]] = [
+            {"value": "alertAudio", "label": "Alert Audio"},
+            {"value": "promptAudio", "label": "Prompt Audio"},
+            {"value": "customAudio", "label": "Custom Audio"},
+        ]
+
+        cap: dict = {}
+        if cap_response and isinstance(cap_response, dict):
+            inner = cap_response.get("AudioAlarmCap")
+            if isinstance(inner, dict):
+                cap = inner
+
+        warning_rows: list[dict[str, object]] = []
+        raw_list = (
+            cap.get("audioTypeListCap")
+            or cap.get("audioTypeList")
+            or cap.get("AudioTypeListCap")
+            or cap.get("AudioTypeList")
+        )
+        if isinstance(raw_list, list):
+            for item in raw_list:
+                if not isinstance(item, dict):
+                    continue
+                raw_id = item.get("audioID")
+                if raw_id is None:
+                    continue
+                try:
+                    aid = int(raw_id)
+                except (TypeError, ValueError):
+                    continue
+                desc = (
+                    item.get("audioDescription")
+                    or item.get("audioName")
+                    or item.get("name")
+                    or ""
+                )
+                if isinstance(desc, str):
+                    desc = desc.strip()
+                else:
+                    desc = ""
+                if not desc:
+                    desc = default_sound_labels.get(aid, f"Sound {aid}")
+                warning_rows.append({"id": aid, "label": desc})
+
+        warning_rows.sort(key=lambda r: int(r["id"]))
+
+        if not warning_rows:
+            for aid, lbl in sorted(default_sound_labels.items()):
+                warning_rows.append({"id": aid, "label": lbl})
+
+        used: set[str] = set()
+        deduped: list[dict[str, object]] = []
+        for row in warning_rows:
+            lbl = str(row["label"])
+            aid = int(row["id"])
+            if lbl in used:
+                lbl = f"{lbl} (#{aid})"
+            used.add(lbl)
+            deduped.append({"id": aid, "label": lbl})
+
+        audio_classes: list[dict[str, str]] = []
+        acl = (
+            cap.get("audioClassList")
+            or cap.get("audioClassListCap")
+            or cap.get("supportAudioClassList")
+        )
+        if isinstance(acl, list):
+            for item in acl:
+                if not isinstance(item, dict):
+                    continue
+                val = (
+                    item.get("audioClass")
+                    or item.get("type")
+                    or item.get("value")
+                    or item.get("id")
+                )
+                if not val or not isinstance(val, str):
+                    continue
+                lbl = (
+                    item.get("audioClassName")
+                    or item.get("name")
+                    or item.get("description")
+                    or val
+                )
+                if isinstance(lbl, str):
+                    lbl = lbl.strip() or val
+                else:
+                    lbl = val
+                pretty = {
+                    "alertAudio": "Alert Audio",
+                    "promptAudio": "Prompt Audio",
+                    "customAudio": "Custom Audio",
+                }.get(val, lbl)
+                audio_classes.append({"value": val, "label": pretty})
+
+        if not audio_classes:
+            seen_tokens: set[str] = set()
+            for key in ("audioClass", "supportAudioClass", "audioType"):
+                node = cap.get(key)
+                if isinstance(node, dict):
+                    opt = node.get("@opt") or node.get("opt")
+                    if isinstance(opt, str) and opt.strip():
+                        for token in [
+                            t.strip()
+                            for t in opt.replace(" ", "").split(",")
+                            if t.strip()
+                        ]:
+                            if token in seen_tokens:
+                                continue
+                            seen_tokens.add(token)
+                            pretty = {
+                                "alertAudio": "Alert Audio",
+                                "promptAudio": "Prompt Audio",
+                                "customAudio": "Custom Audio",
+                            }.get(token, token)
+                            audio_classes.append({"value": token, "label": pretty})
+                        break
+
+        if not audio_classes:
+            audio_classes = list(default_audio_classes)
+
+        return {"warning_sounds": deduped, "audio_classes": audio_classes}
+
     def set_audio_alarm(self, audio_class: Optional[str] = None, alert_audio_id: Optional[int] = None,
                         audio_volume: Optional[int] = None, alarm_times: Optional[int] = None) -> bool:
         """Set audio alarm configuration."""
@@ -3405,12 +3591,31 @@ class HikvisionISAPI:
                         audio_alarm["audioID"] = 1
                         
             if alert_audio_id is not None:
-                audio_alarm["alertAudioID"] = alert_audio_id
-                # If setting alertAudioID, ensure audioClass is "alertAudio" (required for alertAudioID to work)
-                if audio_class != "alertAudio" and audio_alarm.get("audioClass") != "alertAudio":
-                    audio_alarm["audioClass"] = "alertAudio"
-                # Also update audioID when using alertAudio
-                audio_alarm["audioID"] = alert_audio_id
+                try:
+                    selected_audio_id = int(alert_audio_id)
+                except (TypeError, ValueError):
+                    _LOGGER.error("Invalid audio ID provided: %s", alert_audio_id)
+                    return False
+
+                # audioID is the canonical selected sound ID across classes
+                audio_alarm["audioID"] = selected_audio_id
+
+                # Keep class-aware behavior:
+                # - alert/prompt use alertAudioID
+                # - customAudio can use custom IDs not present in AlertAudioTypeListCap
+                target_class = audio_class or audio_alarm.get("audioClass")
+                if target_class in ("alertAudio", "promptAudio"):
+                    audio_alarm["alertAudioID"] = selected_audio_id
+                elif target_class == "customAudio":
+                    # Leave alertAudioID unchanged while using custom audio class
+                    pass
+                else:
+                    # Fallback: for known alert IDs (<=11), preserve prior behavior;
+                    # for higher/custom IDs, avoid forcing alert class.
+                    if selected_audio_id <= 11:
+                        audio_alarm["alertAudioID"] = selected_audio_id
+                        if audio_class is None and audio_alarm.get("audioClass") not in ("alertAudio", "promptAudio"):
+                            audio_alarm["audioClass"] = "alertAudio"
             if audio_volume is not None:
                 audio_alarm["audioVolume"] = audio_volume
             if alarm_times is not None:
