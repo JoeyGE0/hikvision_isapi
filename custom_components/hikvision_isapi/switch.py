@@ -9,6 +9,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .device_helpers import get_primary_device_info
 from .api import HikvisionISAPI, EventMutexError
 from .coordinator import HikvisionDataUpdateCoordinator
 
@@ -74,9 +75,7 @@ class HikvisionNoiseReduceSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -157,9 +156,7 @@ class HikvisionMotionDetectionSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -246,9 +243,7 @@ class HikvisionTamperDetectionSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -329,9 +324,7 @@ class HikvisionIntrusionDetectionSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -417,9 +410,7 @@ class HikvisionLineCrossingDetectionSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -505,9 +496,7 @@ class HikvisionSceneChangeDetectionSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -593,9 +582,7 @@ class HikvisionRegionEntranceDetectionSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -676,9 +663,7 @@ class HikvisionRegionExitingDetectionSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -759,9 +744,7 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -840,9 +823,7 @@ class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
         self.entity_id = ENTITY_ID_FORMAT.format(f"{slugify(device_name.lower())}_{port_no}_alarm_output")
         self._attr_unique_id = self.entity_id
         self._attr_name = f"{device_name} Alarm Output {port_no}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        self._attr_device_info = get_primary_device_info(coordinator.hass, entry)
 
     @property
     def is_on(self) -> bool | None:

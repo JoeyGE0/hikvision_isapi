@@ -7,6 +7,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
 from .const import DOMAIN
+from .device_helpers import get_primary_device_info
 from .api import HikvisionISAPI
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,9 +56,7 @@ class HikvisionRestartButton(ButtonEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.hass, self._entry)
 
     async def async_press(self) -> None:
         """Handle the button press."""
@@ -88,9 +87,7 @@ class HikvisionTestToneButton(ButtonEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.hass, self._entry)
 
     async def async_press(self) -> None:
         """Handle the button press."""
@@ -121,9 +118,7 @@ class HikvisionTestAudioAlarmButton(ButtonEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.hass, self._entry)
 
     async def async_press(self) -> None:
         """Handle the button press."""

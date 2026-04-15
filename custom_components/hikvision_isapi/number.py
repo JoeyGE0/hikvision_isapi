@@ -8,6 +8,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .device_helpers import get_primary_device_info
 from .api import HikvisionISAPI
 from .coordinator import HikvisionDataUpdateCoordinator
 
@@ -92,9 +93,7 @@ class HikvisionIRSensitivityNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -170,9 +169,7 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -247,9 +244,7 @@ class HikvisionSpeakerVolumeNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -324,9 +319,7 @@ class HikvisionMicrophoneVolumeNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -395,9 +388,7 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -467,9 +458,7 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -539,9 +528,7 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -611,9 +598,7 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -685,9 +670,7 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -758,9 +741,7 @@ class HikvisionMotionSensitivityNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -829,9 +810,7 @@ class HikvisionMotionStartTriggerTimeNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -905,9 +884,7 @@ class HikvisionMotionEndTriggerTimeNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -981,9 +958,7 @@ class HikvisionBrightnessNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1053,9 +1028,7 @@ class HikvisionContrastNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1125,9 +1098,7 @@ class HikvisionSaturationNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1197,9 +1168,7 @@ class HikvisionSharpnessNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1267,9 +1236,7 @@ class HikvisionAlarmTimesNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1348,9 +1315,7 @@ class HikvisionLoudspeakerVolumeNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:

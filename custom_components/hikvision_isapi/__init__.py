@@ -8,6 +8,7 @@ from homeassistant.components.network import async_get_source_ip
 from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
+from .device_helpers import build_primary_device_info
 from .notifications import EventNotificationsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         nvr_device_identifier = host  # For via_device on NVR cameras
     
     if mac_address := device_info.get("macAddress"):
-        # Add MAC address identifier for auto-linking with other integrations (UniFi, etc.)
+        # Add MAC address identifier for registry linking with other local integrations
         identifiers.add(("mac", mac_address.lower()))
     
     # Build connections - MAC address for display in device info
@@ -132,6 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "detected_features": detected_features,
         "host": host,
         "nvr_device_identifier": nvr_device_identifier,  # For via_device on NVR cameras
+        "ha_device_info": build_primary_device_info(DOMAIN, device_info, host),
         **entry.data
     }
     

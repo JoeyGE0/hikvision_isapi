@@ -3492,10 +3492,11 @@ class HikvisionISAPI:
             return False
 
     def _test_endpoint_exists(self, endpoint: str) -> bool:
-        """Test if an endpoint exists (returns 200 or 403 = exists, 404 = doesn't exist).
-        
-        This checks if a feature EXISTS, not if it's currently enabled.
-        Works even if feature is temporarily disabled by a mode setting.
+        """Return True only if the endpoint responds with HTTP 200.
+
+        Used for exposing controls in Home Assistant. 403 means the account cannot
+        use the feature — treat as unsupported so we do not create entities that
+        only error in the log. 404 = not present on device.
         """
         try:
             # Use same URL logic as _get() - if endpoint already has full path, use it directly
@@ -3510,10 +3511,7 @@ class HikvisionISAPI:
                 verify=self.verify_ssl,
                 timeout=3  # Shorter timeout for detection
             )
-            # 200 = exists and accessible
-            # 403 = exists but no permission (still means feature exists)
-            # 404 = doesn't exist (feature not supported)
-            return response.status_code in (200, 403)
+            return response.status_code == 200
         except requests.exceptions.HTTPError:
             # 404 means endpoint doesn't exist
             return False
@@ -3522,11 +3520,13 @@ class HikvisionISAPI:
             return False
     
     def detect_features(self) -> dict:
-        """Detect which features are supported by testing actual endpoints.
-        
-        Tests endpoints to see if features exist (not if they're currently enabled).
-        This works even if features are temporarily disabled by mode settings.
-        Works reliably across different camera types.
+        """Detect which features Home Assistant may control (200 OK on probe endpoints).
+
+        Re-run periodically (coordinator); when the returned dict changes, the
+        config entry reloads so entities match current firmware, permissions, and
+        hardware.
+
+        Motion/tamper use capability flags; smart/VCA probes require successful GET.
         
         Returns a dict with feature names as keys and True/False as values.
         """
