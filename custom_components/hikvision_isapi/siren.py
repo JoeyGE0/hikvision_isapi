@@ -87,9 +87,13 @@ class HikvisionAudioAlarmSiren(SirenEntity):
 
     @property
     def available_tones(self) -> dict[str, int] | list[str] | None:
-        """Return supported tones."""
-        options = self._tone_options_from_capabilities()
-        return {label: audio_id for audio_id, label in options.items()} if options else None
+        """Return supported tones (human-readable labels, same as Warning Sound select).
+
+        Home Assistant often displays **values** for dict-based tones (showing 1–14). Use a
+        sorted list of labels so the UI matches ``select.*_warning_sound``.
+        """
+        labels = self._tone_labels_ordered()
+        return labels if labels else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the siren on."""
@@ -138,9 +142,30 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         )
 
     def _tone_options_from_capabilities(self) -> dict[int, str]:
-        """Build tone options from normalized capability snapshot."""
+        """Build id -> label map (mirrors Warning Sound select logic)."""
         norm = (self.coordinator.data or {}).get("audio_alarm_capabilities") or {}
-        rows = [dict(r) for r in (norm.get("warning_sounds") or []) if isinstance(r, dict)]
+        rows: list[dict] = [
+            dict(r) for r in (norm.get("warning_sounds") or []) if isinstance(r, dict)
+        ]
+        seen_ids: set[int] = set()
+        for r in rows:
+            try:
+                seen_ids.add(int(r["id"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+        audio_alarm = (self.coordinator.data or {}).get("audio_alarm") or {}
+        raw_cur = audio_alarm.get("audioID")
+        if raw_cur is None:
+            raw_cur = audio_alarm.get("alertAudioID")
+        if raw_cur is not None:
+            try:
+                cur_id = int(raw_cur)
+            except (TypeError, ValueError):
+                cur_id = None
+            if cur_id is not None and cur_id not in seen_ids:
+                rows.append({"id": cur_id, "label": f"Sound #{cur_id} (current)"})
+        rows.sort(key=lambda r: int(r["id"]))
+
         options: dict[int, str] = {}
         for row in rows:
             try:
@@ -150,6 +175,11 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             label = str(row.get("label") or f"Sound {aid}")
             options[aid] = label
         return options
+
+    def _tone_labels_ordered(self) -> list[str]:
+        """Labels sorted by audio id (for siren.tone UI)."""
+        options = self._tone_options_from_capabilities()
+        return [options[aid] for aid in sorted(options.keys())]
 
     def _resolve_tone_id(self, tone: Any) -> int | None:
         """Resolve tone parameter to an audio ID."""
