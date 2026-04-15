@@ -100,7 +100,7 @@ class HikvisionTestToneButton(ButtonEntity):
 
 
 class HikvisionTestAudioAlarmButton(ButtonEntity):
-    """Button entity for testing audio alarm playback."""
+    """Button entity for triggering audio alarm playback."""
 
     _attr_unique_id = "hikvision_test_audio_alarm_button"
     _attr_icon = "mdi:alarm"
@@ -112,7 +112,7 @@ class HikvisionTestAudioAlarmButton(ButtonEntity):
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Test Audio Alarm"
+        self._attr_name = f"{device_name} Trigger Alarm"
         self._attr_unique_id = f"{host}_test_audio_alarm_button"
 
     @property
@@ -122,11 +122,11 @@ class HikvisionTestAudioAlarmButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        _LOGGER.info("Test audio alarm button pressed for %s", self._host)
-        success = await self.hass.async_add_executor_job(self.api.test_audio_alarm)
+        _LOGGER.info("Trigger alarm button pressed for %s", self._host)
+        success = await self.hass.async_add_executor_job(self.api.trigger_audio_alarm)
         if success:
-            _LOGGER.info("Audio alarm test triggered successfully")
+            _LOGGER.info("Audio alarm trigger sent successfully")
         else:
-            # Error details are already logged by test_audio_alarm() method
-            _LOGGER.debug("Audio alarm test failed - check logs above for camera error message")
+            # Error details are already logged by trigger_audio_alarm() method
+            _LOGGER.debug("Audio alarm trigger failed - check logs above for camera error message")
 

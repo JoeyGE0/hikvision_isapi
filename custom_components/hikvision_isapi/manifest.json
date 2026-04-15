@@ -11,7 +11,7 @@
   "after_dependencies": ["dhcp"],
   "quality_scale": "gold",
   "domains": [],
-  "platforms": ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch", "update"],
+  "platforms": ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch", "update", "siren"],
   "dhcp": [
     {"macaddress": "00BC99*"},
     {"macaddress": "040312*"},
