@@ -18,13 +18,13 @@
 
 ## Important Notes
 
-> **Limited Offical Suuport**: Tested only on the DS-2CD2387G3 (ColorVu G3). Other NVRs and standalone cameras may not have full suuport. Compatibility will improve as bugs are reported and PRs are contributed.
+> **Limited official support**: Tested mainly on the DS-2CD2387G3 (ColorVu G3). Other NVRs and standalone cameras may not have full support. Compatibility improves as issues are reported and PRs land.
 
 
 ### Known Issues
 
-- **Binary Sensors**: Motion detection is working! Other event types (Intrusion, Line Crossing, etc.) may require proper configuration on the camera to work.
-- **Media Player (Speaker)**: Media player functionality doesn't work properly (audio playback via TTS/MP3 is not functional).
+- **Binary sensors**: Motion is working. Other event types (intrusion, line crossing, etc.) usually need correct linkage and notification host on the camera.
+- **Media player (Speaker)**: Playback is limited / unreliable for typical HA use (TTS and arbitrary MP3 are not really supported; see code notes on G.711 formats). The entity is also **disabled by default** in the entity registry for new setups.
 
 ---
 
@@ -48,7 +48,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Video Loss Detection**      | Video loss events                  |
 | **Video Tampering Detection** | Tamper detection events            |
 
-**Note**: Motion detection is confirmed working. Other event types require proper camera configuration (see [Event Notifications Setup](#-event-notifications-setup-real-time-events)).
+**Note**: Motion detection is confirmed working. Other event types require proper camera configuration (see [Event Notifications Setup](#event-notifications-setup-real-time-events)).
 
 ### Video/Image Controls
 
@@ -57,7 +57,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Day/Night Switch**             | Day, Night, or Auto mode           |
 | **Day/Night Switch Sensitivity** | 0-7                                |
 | **Day/Night Switch Delay**       | 5-120 seconds                      |
-| **Supplement Light Mode**        | Smart, IR Supplement Light, or Off |
+| **Supplement Light Mode**        | Smart, White Supplement Light, IR Supplement Light, or Off |
 | **Light Brightness Control**     | Auto or Manual mode                |
 | **White Light Brightness**       | 0-100%                             |
 | **IR Light Brightness**          | 0-100%                             |
@@ -71,8 +71,8 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | ----------------------------- | ----------------------- |
 | **Motion Sensitivity**        | 0-100%                  |
 | **Motion Target Type**        | Human, Vehicle, or Both |
-| **Motion Start Trigger Time** | 0-10000ms               |
-| **Motion End Trigger Time**   | 0-10000ms               |
+| **Motion Start Trigger Time** | 0–10000 ms (100 ms steps) |
+| **Motion End Trigger Time**   | 0–10000 ms (100 ms steps) |
 
 ### Audio Controls
 
@@ -81,7 +81,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Speaker Volume**    | 0-100%                                                            |
 | **Microphone Volume** | 0-100%                                                            |
 | **Noise Reduction**   | Enable/disable                                                    |
-| **Speaker**           | Media player for audio playback (TTS supported) - **NOT WORKING** |
+| **Speaker**           | Media player entity (experimental; **disabled by default**; not suitable for normal TTS/MP3) |
 
 ### System Monitoring (Diagnostic)
 
@@ -93,10 +93,10 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Total Reboots**              | Total reboot count (disabled by default)                |
 | **Active Streaming Sessions**  | Number of active video streams                          |
 | **Streaming Clients**          | List of client IP addresses streaming                   |
-| **Notification Host**          | Notification host IP address                            |
-| **Notification Host Path**     | Notification host URL path                              |
-| **Notification Host Port**     | Notification host port number                           |
-| **Notification Host Protocol** | Notification host protocol (HTTP/HTTPS)                 |
+| **Notifications Host**          | Surveillance / HTTP notification host IP                 |
+| **Notifications Host Path**     | URL path on the notification host                      |
+| **Notifications Host Port**     | Port on the notification host                         |
+| **Notifications Host Protocol** | Protocol (HTTP/HTTPS)                                  |
 
 ### Camera Streams
 
@@ -127,9 +127,11 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 
 ### Other Features
 
-- **Camera Snapshots** - Get snapshots from any available stream
-- **Restart Button** - Remote camera restart
-- **Test Tone Button** - Play test tone (partially working)
+- **Camera snapshots** – from any available stream
+- **Firmware update** – diagnostic **Update** entity compares your firmware to the [community firmware archive](https://github.com/JoeyGE0/hikvision-fw-archive) (install is still manual on the device)
+- **Audio alarm siren** – **Siren** entity when the camera exposes audio-alarm capabilities (tone, duration, volume)
+- **Restart** – remote reboot
+- **Test tone / trigger alarm** – diagnostic buttons when supported (often disabled by default in the registry)
 
 ---
 
@@ -152,7 +154,7 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 
 1. Open HACS → Integrations
 2. Click the three dots (⋮) → Custom repositories
-3. Add repository: `YOUR_GITHUB_USERNAME/hikvision-isapi-integration`
+3. Add repository: `JoeyGE0/hikvision_isapi`
 4. Category: Integration
 5. Install and restart Home Assistant
 
@@ -202,37 +204,49 @@ Once configured, binary sensors will update in real-time when events occur.
 
 ## Entities
 
-All entities are prefixed with your device name (e.g., `Garage`).
+Friendly names start with your device name (e.g. `Garage`). **Entity IDs** are slugs derived by Home Assistant from those names (examples below use common patterns). Only entities whose features are detected on the device are created.
 
-### Select Entities
+### Select entities
 
-| Entity ID                                       | Description                                 | Default Status |
+| Entity ID (typical)                             | Description                                 | Default status |
 | ----------------------------------------------- | ------------------------------------------- | -------------- |
-| `select.{device_name}_day_night_switch`         | Day/Night/Auto mode                         | Enabled        |
+| `select.{device_name}_day_night_switch`         | Day / Night / Auto                          | Enabled        |
 | `select.{device_name}_supplement_light`         | Supplement light mode                       | Enabled        |
-| `select.{device_name}_light_brightness_control` | Light brightness control mode (Auto/Manual) | Disabled       |
-| `select.{device_name}_motion_target_type`       | Motion detection target type                | Enabled        |
+| `select.{device_name}_light_brightness_control` | Light brightness Auto / Manual              | Disabled       |
+| `select.{device_name}_motion_target_type`       | Motion target: `human`, `vehicle`, or both (`human,vehicle`) | Enabled        |
+| `select.{device_name}_audio_type`               | Audio alarm class (from device capabilities) | Disabled\*     |
+| `select.{device_name}_warning_sound`            | Warning sound (from device capabilities)    | Disabled\*     |
 
-### Number Entities
+\*Created only when the camera reports audio-alarm capabilities.
 
-| Entity ID                                           | Description                  | Range     | Default Status |
+### Number entities
+
+| Entity ID (typical)                                 | Description                  | Range     | Default status |
 | --------------------------------------------------- | ---------------------------- | --------- | -------------- |
-| `number.{device_name}_day_night_switch_sensitivity` | IR sensitivity               | 0-7       | Enabled        |
-| `number.{device_name}_day_night_switch_delay`       | IR filter delay              | 5-120s    | Enabled        |
-| `number.{device_name}_speaker_volume`               | Speaker volume               | 0-100%    | Enabled        |
-| `number.{device_name}_microphone_volume`            | Microphone volume            | 0-100%    | Enabled        |
-| `number.{device_name}_led_on_duration`              | LED duration                 | 10-300s   | Enabled        |
-| `number.{device_name}_white_light_brightness`       | White light brightness       | 0-100%    | Enabled        |
-| `number.{device_name}_ir_light_brightness`          | IR light brightness          | 0-100%    | Enabled        |
-| `number.{device_name}_white_light_brightness_limit` | White light brightness limit | 0-100%    | Enabled        |
-| `number.{device_name}_ir_light_brightness_limit`    | IR light brightness limit    | 0-100%    | Enabled        |
-| `number.{device_name}_motion_sensitivity`           | Motion sensitivity           | 0-100%    | Enabled        |
-| `number.{device_name}_motion_start_trigger_time`    | Motion start time            | 0-10000ms | Enabled        |
-| `number.{device_name}_motion_end_trigger_time`      | Motion end time              | 0-10000ms | Disabled       |
+| `number.{device_name}_day_night_switch_sensitivity` | Day/Night IR sensitivity     | 0–7       | Enabled        |
+| `number.{device_name}_day_night_switch_delay`       | Day/Night IR filter delay    | 5–120 s   | Enabled        |
+| `number.{device_name}_speaker_volume`               | Two-way / speaker volume     | 0–100%    | Enabled        |
+| `number.{device_name}_microphone_volume`            | Microphone volume            | 0–100%    | Enabled        |
+| `number.{device_name}_led_on_duration`              | White-light LED on duration  | 10–300 s  | Enabled        |
+| `number.{device_name}_white_light_brightness`       | White light brightness       | 0–100%    | Disabled       |
+| `number.{device_name}_ir_light_brightness`          | IR light brightness          | 0–100%    | Disabled       |
+| `number.{device_name}_white_light_brightness_limit` | White light brightness cap   | 0–100%    | Disabled       |
+| `number.{device_name}_ir_light_brightness_limit`    | IR light brightness cap      | 0–100%    | Disabled       |
+| `number.{device_name}_motion_sensitivity`           | Motion sensitivity           | 0–100%    | Enabled        |
+| `number.{device_name}_motion_start_trigger_time`    | Motion start trigger         | 0–10000 ms (100 ms steps) | Enabled        |
+| `number.{device_name}_motion_end_trigger_time`      | Motion end trigger           | 0–10000 ms (100 ms steps) | Disabled       |
+| `number.{device_name}_brightness`                   | Image brightness             | 0–100%    | Disabled       |
+| `number.{device_name}_contrast`                     | Image contrast               | 0–100%    | Disabled       |
+| `number.{device_name}_saturation`                   | Image saturation             | 0–100%    | Disabled       |
+| `number.{device_name}_sharpness`                    | Image sharpness              | 0–100%    | Disabled       |
+| `number.{device_name}_alarm_times`                  | Audio alarm repeat count     | 1–50      | Disabled\*     |
+| `number.{device_name}_alarm_output_volume`          | Audio alarm output volume (not media speaker) | 1–100% | Disabled\*     |
 
-### Switch Entities
+\*Created when audio-alarm features are detected on the device.
 
-| Entity ID                                        | Description                              | Default Status |
+### Switch entities
+
+| Entity ID                                        | Description                              | Default status |
 | ------------------------------------------------ | ---------------------------------------- | -------------- |
 | `switch.{device_name}_noise_reduction`           | Noise reduction on/off                   | Enabled        |
 | `switch.{device_name}_motion_detection`          | Motion detection enable/disable          | Enabled        |
@@ -245,11 +259,11 @@ All entities are prefixed with your device name (e.g., `Garage`).
 | `switch.{device_name}_alarm_input_1`             | Alarm input port 1 enable/disable        | Enabled        |
 | `switch.{device_name}_alarm_output_1`            | Alarm output port 1 control (high/low)   | Enabled        |
 
-### Binary Sensor Entities (Real-Time Events)
+### Binary sensor entities (real-time events)
 
 Real-time event detection via webhook notifications. Motion detection is confirmed working!
 
-| Entity ID                                              | Description                    | Device Class | Status             |
+| Entity ID                                              | Description                    | Device class | Status             |
 | ------------------------------------------------------ | ------------------------------ | ------------ | ------------------ |
 | `binary_sensor.{device_name}_motion`                   | Motion detection events        | `motion`     | ✅ Working         |
 | `binary_sensor.{device_name}_intrusion`                | Intrusion detection events     | `motion`     | ⚠️ Requires config |
@@ -262,9 +276,9 @@ Real-time event detection via webhook notifications. Motion detection is confirm
 | `binary_sensor.{device_name}_tamper_detection_enabled` | Tamper detection enabled state | `tamper`     | ✅ Working         |
 | `binary_sensor.{device_name}_alarm_input_{port}`       | Alarm input events (I/O port)  | `motion`     | ⚠️ Requires config |
 
-### Sensor Entities (Diagnostic)
+### Sensor entities (diagnostic)
 
-| Entity ID                                         | Description                  | Unit         | Default Status |
+| Entity ID (typical)                                | Description                  | Unit         | Default status |
 | ------------------------------------------------- | ---------------------------- | ------------ | -------------- |
 | `sensor.{device_name}_cpu_utilization`            | CPU usage                    | %            | Enabled        |
 | `sensor.{device_name}_memory_usage`               | Memory usage                 | %            | Enabled        |
@@ -272,14 +286,14 @@ Real-time event detection via webhook notifications. Motion detection is confirm
 | `sensor.{device_name}_total_reboots`              | Total reboot count           | count        | Disabled       |
 | `sensor.{device_name}_active_streaming_sessions`  | Active stream count          | count        | Enabled        |
 | `sensor.{device_name}_streaming_clients`          | Streaming client IPs         | IP addresses | Enabled        |
-| `sensor.{device_name}_notification_host`          | Notification host IP address | -            | Enabled        |
-| `sensor.{device_name}_notification_host_path`     | Notification host URL path   | -            | Enabled        |
-| `sensor.{device_name}_notification_host_port`     | Notification host port       | -            | Enabled        |
-| `sensor.{device_name}_notification_host_protocol` | Notification host protocol   | -            | Enabled        |
+| `sensor.{device_name}_notifications_host`         | Notifications host IP        | —            | Enabled        |
+| `sensor.{device_name}_notifications_host_path`    | Notifications host URL path  | —            | Enabled        |
+| `sensor.{device_name}_notifications_host_port`    | Notifications host port      | —            | Enabled        |
+| `sensor.{device_name}_notifications_host_protocol` | Notifications host protocol | —            | Enabled        |
 
 **Note**: CPU and Memory sensors display aggregated graphs with smoothed data visualization (similar to Home Assistant's system monitor).
 
-### Camera Entities
+### Camera entities
 
 | Entity ID                                | Description                      | Status       |
 | ---------------------------------------- | -------------------------------- | ------------ |
@@ -292,18 +306,31 @@ Real-time event detection via webhook notifications. Motion detection is confirm
 
 **Note**: If your camera doesn't support multiple streams, you'll see a single `camera.{device_name}_snapshot` entity instead.
 
-### Button Entities
+### Button entities
 
-| Entity ID                        | Description    | Status               |
-| -------------------------------- | -------------- | -------------------- |
-| `button.{device_name}_restart`   | Restart camera | ✅ Working           |
-| `button.{device_name}_test_tone` | Play test tone | ⚠️ Partially Working |
+| Entity ID (typical)                    | Description        | Notes |
+| -------------------------------------- | ------------------ | ----- |
+| `button.{device_name}_restart`         | Restart camera     | ✅    |
+| `button.{device_name}_test_tone`       | Play test tone     | ⚠️ Partial; **disabled by default** in the registry |
+| `button.{device_name}_trigger_alarm`   | Fire audio alarm once | When audio alarm is supported; **disabled by default** |
 
-### Media Player Entities
+### Siren entities
 
-| Entity ID                            | Description    | Status         |
-| ------------------------------------ | -------------- | -------------- |
-| `media_player.{device_name}_speaker` | Audio playback | ❌ Not Working |
+| Entity ID (typical)           | Description | Notes |
+| ----------------------------- | ----------- | ----- |
+| `siren.{device_name}_alarm`   | Audio alarm | Only when the device reports audio-alarm / test-audio support |
+
+### Update entities
+
+| Entity ID (typical)                    | Description | Notes |
+| -------------------------------------- | ----------- | ----- |
+| `update.{device_name}_firmware_update` | Firmware vs archive | Diagnostic; **install from HA is not supported**—download and flash with Hikvision tools or the web UI |
+
+### Media player entities
+
+| Entity ID (typical)                  | Description    | Default / status |
+| ------------------------------------ | -------------- | ---------------- |
+| `media_player.{device_name}_speaker` | Speaker entity | **Disabled by default** in the registry; ❌ not suitable for normal TTS/MP3 playback |
 
 ---
 
@@ -351,7 +378,8 @@ automation:
 | Home Assistant   | 2023.1+                        |
 | Python           | 3.10+                          |
 | Hikvision Camera | ISAPI enabled                  |
-| `requests`       | Latest                         |
+| `requests`       | Installed with the integration (`manifest.json`) |
+| `aiohttp`        | Installed with the integration (`manifest.json`) |
 | `pydub`          | >=0.25.1 (optional, for audio) |
 
 ---
@@ -360,7 +388,7 @@ automation:
 
 | Model                         | Status   | Notes                                     |
 | ----------------------------- | -------- | ----------------------------------------- |
-| **DS-2CD2387G3 (ColorVu G3)** | Tested   | Fully working (except binary sensors)     |
+| **DS-2CD2387G3 (ColorVu G3)** | Tested   | Core controls + motion events; other ISAPI events vary by firmware/config |
 | Other Hikvision models        | Untested | May work depending on ISAPI compatibility |
 
 ---
@@ -416,17 +444,17 @@ automation:
 
 **Solution:**
 
-1. Configure event notifications (see [Event Notifications Setup](#-event-notifications-setup-real-time-events))
+1. Configure event notifications (see [Event Notifications Setup](#event-notifications-setup-real-time-events))
 2. Ensure webhook URL is correct: `http://YOUR_HA_IP:8123/api/hikvision`
 3. Verify "Notify Surveillance Center" is enabled for each event type you want
 4. Check Home Assistant logs for event type received (enable debug logging)
 5. Verify the event type is supported (check logs for "Unsupported event type" messages)
 
-### Audio Not Working
+### Audio / media player
 
-**Status:** Media player functionality is currently not working properly.
+**Status:** The speaker **media player** is not reliable for normal playback; prefer **Speaker volume** (number entity) for level control.
 
-**Workaround:** Use speaker volume control instead.
+**Tip:** Enable the media player in the entity registry if you removed it or started from a template that hides it.
 
 ### Camera Streams Not Showing
 
@@ -471,7 +499,7 @@ This project is licensed under the **MIT License**.
 
 This integration was partially inspired by the [hikvision_next](https://github.com/maciej-or/hikvision_next) integration by [@maciej-or](https://github.com/maciej-or).
 
-Workflow improved with cursor AI models 
+Workflow improvements assisted by Cursor AI.
 
 ---
 
