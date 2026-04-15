@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
 from .const import DOMAIN
+from .device_helpers import get_primary_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,9 +64,7 @@ class HikvisionCPUUtilizationSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -108,9 +107,7 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -153,9 +150,7 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -198,9 +193,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -243,9 +236,7 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -290,9 +281,7 @@ class HikvisionMemoryUsageSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -335,9 +324,7 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -380,9 +367,7 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -425,9 +410,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -470,9 +453,7 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -517,9 +498,7 @@ class HikvisionDeviceUptimeSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -580,9 +559,7 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -625,9 +602,7 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -670,9 +645,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -715,9 +688,7 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -760,9 +731,7 @@ class HikvisionStreamingSessionsSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -810,9 +779,7 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -855,9 +822,7 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -900,9 +865,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -945,9 +908,7 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -990,9 +951,7 @@ class HikvisionStreamingClientsSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1040,9 +999,7 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1085,9 +1042,7 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1130,9 +1085,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1175,9 +1128,7 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1221,9 +1172,7 @@ class HikvisionRebootCountSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1271,9 +1220,7 @@ class HikvisionNotificationHostSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1316,9 +1263,7 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1361,9 +1306,7 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -1406,9 +1349,7 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:

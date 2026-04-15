@@ -19,6 +19,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
+from .device_helpers import get_primary_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,9 +80,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -477,8 +476,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         Must send all audio data in a single PUT request with Content-Length header.
         This matches how play_test_tone() works and what the ISAPI PDF example shows.
         
-        For future streaming support, we may need to investigate how Frigate does it,
-        or use a different approach (e.g., WebSocket or RTSP audio streaming).
+        For future streaming support, consider WebSocket or RTSP audio paths.
         """
         session_id = None
         try:

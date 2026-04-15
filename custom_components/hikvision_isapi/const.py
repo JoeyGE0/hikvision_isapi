@@ -1,8 +1,17 @@
 """Constants for Hikvision ISAPI integration."""
+from datetime import timedelta
 from typing import Final
+
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 
 DOMAIN = "hikvision_isapi"
+
+# After this interval from the previous scan, re-run feature detection; if the
+# capability dict changes, the config entry reloads so entities match the device.
+FEATURE_CAPABILITY_RESCAN_INTERVAL: Final = timedelta(hours=6)
+# First scheduled scan relative to coordinator startup (so new firmware/options
+# show up without waiting a full 6h).
+FEATURE_CAPABILITY_FIRST_SCAN: Final = timedelta(minutes=15)
 
 CONF_HOST = "host"
 CONF_USERNAME = "username"

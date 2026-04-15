@@ -16,6 +16,17 @@ from .models import EventInfo
 
 _LOGGER = logging.getLogger(__name__)
 
+# Map event type -> detect_features key; binary sensors only if feature probe passed.
+EVENT_ID_TO_DETECTED_FEATURE = {
+    "motiondetection": "motion_detection",
+    "tamperdetection": "tamper_detection",
+    "fielddetection": "intrusion_detection",
+    "linedetection": "line_crossing_detection",
+    "scenechangedetection": "scene_change_detection",
+    "regionentrance": "region_entrance_detection",
+    "regionexiting": "region_exiting_detection",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -34,6 +45,7 @@ async def async_setup_entry(
     nvr_device_identifier = data.get("nvr_device_identifier", host)
     device_name = device_info.get("deviceName", host)
     is_nvr = capabilities.get("is_nvr", False)
+    detected_features = data.get("detected_features", {})
 
     entities = []
     device_name_slug = slugify(device_name.lower())
@@ -60,6 +72,10 @@ async def async_setup_entry(
         for event_id, event_config in EVENTS.items():
             # Skip I/O events here - they're created at device level (channel 0)
             if event_id == EVENT_IO:
+                continue
+
+            feat_key = EVENT_ID_TO_DETECTED_FEATURE.get(event_id)
+            if feat_key is not None and not detected_features.get(feat_key, False):
                 continue
             
             # Use channel_id from Event/triggers if available, otherwise use camera_id

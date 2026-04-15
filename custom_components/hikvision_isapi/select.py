@@ -7,6 +7,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
+from .device_helpers import get_primary_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,9 +73,7 @@ class HikvisionLightModeSelect(SelectEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -160,9 +159,7 @@ class HikvisionBrightnessControlSelect(SelectEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -249,9 +246,7 @@ class HikvisionIRModeSelect(SelectEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -328,9 +323,7 @@ class HikvisionMotionTargetTypeSelect(SelectEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -408,9 +401,7 @@ class HikvisionAudioTypeSelect(SelectEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
@@ -511,9 +502,7 @@ class HikvisionWarningSoundSelect(SelectEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
-        )
+        return get_primary_device_info(self.coordinator.hass, self._entry)
 
     @property
     def available(self) -> bool:
