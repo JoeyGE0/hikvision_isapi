@@ -131,7 +131,7 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 - **Firmware update** – diagnostic **Update** entity compares your firmware to the [community firmware archive](https://github.com/JoeyGE0/hikvision-fw-archive) (install is still manual on the device)
 - **Audio alarm siren** – **Siren** entity when the camera exposes audio-alarm capabilities (tone, duration, volume)
 - **Restart** – remote reboot
-- **Test tone / trigger alarm** – diagnostic buttons when supported (often disabled by default in the registry)
+- **Trigger alarm** – diagnostic button when supported (disabled by default in the registry)
 
 ---
 
@@ -311,8 +311,42 @@ Real-time event detection via webhook notifications. Motion detection is confirm
 | Entity ID (typical)                    | Description        | Notes |
 | -------------------------------------- | ------------------ | ----- |
 | `button.{device_name}_restart`         | Restart camera     | ✅    |
-| `button.{device_name}_test_tone`       | Play test tone     | ⚠️ Partial; **disabled by default** in the registry |
 | `button.{device_name}_trigger_alarm`   | Fire audio alarm once | When audio alarm is supported; **disabled by default** |
+
+### Manual command reference (audio alarm trigger)
+
+If someone wants to implement alarm triggering outside Home Assistant, these are the ISAPI calls used:
+
+1. Read current alarm config (gets selected sound ID):
+
+   `GET /ISAPI/Event/triggers/notifications/AudioAlarm?format=json`
+
+2. Trigger the selected sound once:
+
+   `PUT /ISAPI/Event/triggers/notifications/AudioAlarm/{audioID}/test?format=json`
+
+Authentication is Hikvision Digest auth. Most cameras accept an empty JSON body (`{}`) on the trigger call.
+
+Example using curl:
+
+```bash
+# Read current config and note AudioAlarm.audioID
+curl --digest -u 'admin:YOUR_PASSWORD' \
+  'http://CAMERA_IP/ISAPI/Event/triggers/notifications/AudioAlarm?format=json'
+
+# Trigger one playback for audioID 14
+curl --digest -u 'admin:YOUR_PASSWORD' \
+  -X PUT \
+  -H 'Content-Type: application/json' \
+  -d '{}' \
+  'http://CAMERA_IP/ISAPI/Event/triggers/notifications/AudioAlarm/14/test?format=json'
+```
+
+Common responses:
+
+- `200`: trigger accepted
+- `403`: unsupported, busy, or insufficient permissions
+- `404`: endpoint or `audioID` not available on that model/firmware
 
 ### Siren entities
 
