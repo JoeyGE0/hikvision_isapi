@@ -30,8 +30,6 @@ async def async_setup_entry(
     # Only add entities if their features are detected
     if detected_features.get("restart", True):  # Restart is usually always available
         entities.append(HikvisionRestartButton(api, entry, host, device_name))
-    if detected_features.get("media_player", False):  # Test tone requires two-way audio
-        entities.append(HikvisionTestToneButton(api, entry, host, device_name))
     if detected_features.get("test_audio_alarm", False):
         entities.append(HikvisionTestAudioAlarmButton(api, entry, host, device_name))
 
@@ -66,37 +64,6 @@ class HikvisionRestartButton(ButtonEntity):
             _LOGGER.info("Camera restart command sent successfully")
         else:
             _LOGGER.error("Failed to send restart command")
-
-
-class HikvisionTestToneButton(ButtonEntity):
-    """Button entity for playing test tone (testing purposes)."""
-
-    _attr_unique_id = "hikvision_test_tone_button"
-    _attr_icon = "mdi:music-note"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
-        """Initialize the button."""
-        self.api = api
-        self._host = host
-        self._entry = entry
-        self._attr_name = f"{device_name} Test Tone"
-        self._attr_unique_id = f"{host}_test_tone_button"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return get_primary_device_info(self.hass, self._entry)
-
-    async def async_press(self) -> None:
-        """Handle the button press."""
-        _LOGGER.info("Test tone button pressed for %s", self._host)
-        success = await self.hass.async_add_executor_job(self.api.play_test_tone)
-        if success:
-            _LOGGER.info("Test tone played successfully")
-        else:
-            _LOGGER.error("Failed to play test tone")
 
 
 class HikvisionTestAudioAlarmButton(ButtonEntity):

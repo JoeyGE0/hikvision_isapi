@@ -45,6 +45,7 @@ async def async_setup_entry(
     nvr_device_identifier = data.get("nvr_device_identifier", host)
     device_name = device_info.get("deviceName", host)
     is_nvr = capabilities.get("is_nvr", False)
+    has_io_inputs = capabilities.get("input_ports", 0) > 0
     detected_features = data.get("detected_features", {})
 
     entities = []
@@ -122,9 +123,8 @@ async def async_setup_entry(
                 )
             )
     
-    # Create channel 0 entities for I/O events (device-level)
-    # Use I/O events from Event/triggers if available, otherwise create for all I/O ports
-    if supported_events:
+    # Create channel 0 entities for I/O events only when input ports are present.
+    if has_io_inputs and supported_events:
         # Use I/O events from Event/triggers
         device_io_events = [e for e in supported_events if e.id == EVENT_IO]
         for event in device_io_events:
@@ -149,33 +149,6 @@ async def async_setup_entry(
                     None,  # No via_device for device-level events
                 )
             )
-    else:
-        # Fallback: Create default I/O entity if Event/triggers doesn't return I/O events
-        device_id_param = ""  # No channel_id for I/O events
-        io_port_id_param = "_0"  # Default to port 0
-        unique_id = f"{device_name_slug}{device_id_param}{io_port_id_param}_{EVENT_IO}"
-        
-        entities.append(
-            EventBinarySensor(
-                coordinator,
-                api,
-                entry,
-                host,
-                device_name,
-                EventInfo(
-                    id=EVENT_IO,
-                    channel_id=0,
-                    io_port_id=0,
-                    unique_id=unique_id,
-                    disabled=False,
-                ),
-                None,  # No camera serial for device-level events
-                None,  # No camera model for device-level events
-                None,  # No camera firmware for device-level events
-                None,  # No via_device for device-level events
-            )
-        )
-
     async_add_entities(entities)
 
 

@@ -2210,6 +2210,15 @@ class HikvisionISAPI:
                     if audio_enabled is not None:
                         audio = audio_enabled.text.strip().lower() == "true"
                 
+                if not enabled:
+                    _LOGGER.debug(
+                        "Skipping disabled stream %s (ID %d) for channel %d",
+                        stream_type_name,
+                        stream_id,
+                        channel_id,
+                    )
+                    continue
+
                 streams.append({
                     "id": stream_id,
                     "type_id": stream_type_id,
@@ -3890,8 +3899,12 @@ class HikvisionISAPI:
             # 4. IR CUT - Test endpoint
             has_ir_cut = self._test_endpoint_exists(f"/ISAPI/Image/channels/{self.channel}/IrcutFilter")
             
-            # 5. AUDIO ALARM - Test JSON endpoint
-            has_audio_alarm = self._test_endpoint_exists("/ISAPI/Event/triggers/notifications/AudioAlarm?format=json")
+            # 5. AUDIO ALARM - Require valid payload, not just HTTP 200 with error JSON.
+            audio_alarm_payload = self.get_audio_alarm()
+            has_audio_alarm = (
+                isinstance(audio_alarm_payload, dict)
+                and "AudioAlarm" in audio_alarm_payload
+            )
             
             # 6. MOTION DETECTION - Check EventCap flag (this works reliably)
             motion_elem = xml.find(f".//{XML_NS}EventCap/{XML_NS}isSupportMotionDetection")
