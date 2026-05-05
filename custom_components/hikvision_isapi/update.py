@@ -27,6 +27,13 @@ FIRMWARES_MANUAL_URL = f"{FIRMWARE_ARCHIVE_BASE}/firmwares_manual.json"
 UPDATE_INTERVAL = timedelta(hours=6)
 
 
+def _normalize_hw_version(hw_version: str | None) -> str:
+    """Normalize hardware version for matching."""
+    if not hw_version:
+        return "UNKNOWN"
+    return str(hw_version).strip().upper()
+
+
 def parse_version(version_str: str) -> tuple[int, ...]:
     """Parse version string into tuple for comparison.
     
@@ -107,20 +114,26 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
         """Fetch firmware update data from GitHub archive."""
         try:
             async with aiohttp.ClientSession() as session:
+                async def _fetch_firmware_json(url: str) -> dict[str, Any]:
+                    """Fetch JSON with tolerant parsing for GitHub raw content-types."""
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                        if response.status != 200:
+                            _LOGGER.warning("Failed to fetch firmware archive %s: HTTP %s", url, response.status)
+                            return {}
+                        text = await response.text()
+                        if not text:
+                            return {}
+                        try:
+                            # GitHub raw can occasionally send text/plain; parse manually.
+                            import json
+                            return json.loads(text)
+                        except Exception as err:
+                            _LOGGER.warning("Failed to parse firmware archive JSON from %s: %s", url, err)
+                            return {}
+
                 # Fetch both live and manual firmware lists
-                async with session.get(FIRMWARES_LIVE_URL, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                    if response.status == 200:
-                        live_firmwares = await response.json()
-                    else:
-                        _LOGGER.warning("Failed to fetch live firmwares: HTTP %s", response.status)
-                        live_firmwares = {}
-                
-                async with session.get(FIRMWARES_MANUAL_URL, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                    if response.status == 200:
-                        manual_firmwares = await response.json()
-                    else:
-                        _LOGGER.warning("Failed to fetch manual firmwares: HTTP %s", response.status)
-                        manual_firmwares = {}
+                live_firmwares = await _fetch_firmware_json(FIRMWARES_LIVE_URL)
+                manual_firmwares = await _fetch_firmware_json(FIRMWARES_MANUAL_URL)
             
             # Combine firmware lists - GitHub JSON structure is flat dict with keys like "DS-2CD1043G0-I_UNKNOWN_5.7.23"
             # Each value is a dict with: model, version, download_url, date, supported_models, etc.
@@ -165,6 +178,7 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
             
             # Find matching firmware for this device
             normalized_model = normalize_model(self.device_model)
+            normalized_hw = _normalize_hw_version(self.hardware_version)
             matching_firmwares = []
             
             # Try exact match first
@@ -232,7 +246,12 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                 return parse_version(version)
             
             valid_firmwares.sort(key=get_version_key, reverse=True)
-            matching_firmwares = valid_firmwares
+            # Prefer exact hardware-version matches first when available.
+            exact_hw_firmwares = [
+                fw for fw in valid_firmwares
+                if _normalize_hw_version(fw.get("hardware_version")) == normalized_hw
+            ]
+            matching_firmwares = exact_hw_firmwares if exact_hw_firmwares else valid_firmwares
             
             # Find latest version that's newer than current
             latest_firmware = None
@@ -301,9 +320,6 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
         except aiohttp.ClientError as err:
             _LOGGER.warning("Error fetching firmware data from archive: %s", err)
             raise UpdateFailed(f"Error fetching firmware data: {err}") from err
-        except aiohttp.ContentTypeError as err:
-            _LOGGER.error("Invalid response format from firmware archive: %s", err)
-            raise UpdateFailed(f"Invalid response format: {err}") from err
         except Exception as err:
             _LOGGER.exception("Unexpected error while checking for firmware updates: %s", err)
             raise UpdateFailed(f"Unexpected error: {err}") from err
@@ -424,14 +440,10 @@ class HikvisionFirmwareUpdate(UpdateEntity):
     
     @property
     def release_url(self) -> str | None:
-        """Return release URL (link to GitHub archive README for this model)."""
+        """Return release URL (firmware download URL when available)."""
         if not self.available or not self.coordinator.data:
             return None
-        
-        # Link to GitHub archive README which has firmware info
-        # The README has anchor links for each model
-        model_slug = self._model.replace(" ", "-").replace("/", "-")
-        return f"https://github.com/JoeyGE0/hikvision-fw-archive#{model_slug.lower()}"
+        return self.coordinator.data.get("download_url")
     
     async def async_release_notes(self) -> str | None:
         """Return release notes (link to PDF from Hikvision)."""
