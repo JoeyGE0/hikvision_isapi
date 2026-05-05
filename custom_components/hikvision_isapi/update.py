@@ -25,6 +25,7 @@ FIRMWARES_MANUAL_URL = f"{FIRMWARE_ARCHIVE_BASE}/firmwares_manual.json"
 
 # Update interval: check for firmware updates every 6 hours (archive updates twice daily)
 UPDATE_INTERVAL = timedelta(hours=6)
+FIRMWARE_ARCHIVE_RELEASES_URL = "https://github.com/JoeyGE0/hikvision-fw-archive/releases"
 
 
 def _normalize_hw_version(hw_version: str | None) -> str:
@@ -53,6 +54,28 @@ def parse_version(version_str: str) -> tuple[int, ...]:
         return tuple(parts) if parts else (0,)
     except (ValueError, AttributeError):
         return (0,)
+
+
+def format_version_display(version_str: str | None) -> str | None:
+    """Return version in consistent display format (Vx.y.z)."""
+    if not version_str:
+        return None
+    cleaned = re.sub(r"[^\d.]", "", str(version_str))
+    if not cleaned:
+        return None
+    return f"V{cleaned}"
+
+
+def to_github_download_url(download_url: str | None, filename: str | None) -> str | None:
+    """Prefer GitHub release-style download URL for consistency/reliability."""
+    fname = (filename or "").strip()
+    if not fname and download_url:
+        inferred = str(download_url).split("/")[-1].split("?")[0].strip()
+        if inferred and any(inferred.lower().endswith(ext) for ext in (".zip", ".dav", ".pak", ".bin")):
+            fname = inferred
+    if fname:
+        return f"{FIRMWARE_ARCHIVE_RELEASES_URL}/latest/download/{fname}"
+    return download_url
 
 
 def compare_versions(current: str, available: str) -> bool:
@@ -280,7 +303,10 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                     "available": True,
                     "latest_version": latest_firmware.get("version"),
                     "release_date": latest_firmware.get("date"),
-                    "download_url": latest_firmware.get("download_url"),
+                    "download_url": to_github_download_url(
+                        latest_firmware.get("download_url"),
+                        latest_firmware.get("filename"),
+                    ),
                     "release_notes": release_notes,  # This will be a PDF URL
                 }
             else:
@@ -305,7 +331,10 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                         "available": False,
                         "latest_version": latest_version,
                         "release_date": latest.get("date"),
-                        "download_url": latest.get("download_url"),
+                        "download_url": to_github_download_url(
+                            latest.get("download_url"),
+                            latest.get("filename"),
+                        ),
                         "release_notes": release_notes,  # This will be a PDF URL
                     }
             
@@ -433,14 +462,15 @@ class HikvisionFirmwareUpdate(UpdateEntity):
     @property
     def installed_version(self) -> str | None:
         """Return the currently installed version."""
-        return self._current_firmware
+        return format_version_display(self._current_firmware) or self._current_firmware
     
     @property
     def latest_version(self) -> str | None:
         """Return the latest available version."""
         if not self.available or not self.coordinator.data:
             return None
-        return self.coordinator.data.get("latest_version")
+        latest = self.coordinator.data.get("latest_version")
+        return format_version_display(latest) or latest
     
     @property
     def release_summary(self) -> str | None:
@@ -451,10 +481,13 @@ class HikvisionFirmwareUpdate(UpdateEntity):
     
     @property
     def release_url(self) -> str | None:
-        """Return release URL (firmware download URL when available)."""
+        """Return announcement URL (release notes URL if available, else releases page)."""
         if not self.available or not self.coordinator.data:
             return None
-        return self.coordinator.data.get("download_url")
+        release_notes = self.coordinator.data.get("release_notes")
+        if release_notes and str(release_notes).startswith("http"):
+            return release_notes
+        return FIRMWARE_ARCHIVE_RELEASES_URL
     
     async def async_release_notes(self) -> str | None:
         """Return release notes (link to PDF from Hikvision)."""
@@ -472,7 +505,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         lines = []
         
         if latest_version:
-            lines.append(f"Latest version: {latest_version}")
+            lines.append(f"Latest version: {format_version_display(latest_version) or latest_version}")
         
         if release_date:
             lines.append(f"Release date: {release_date}")
