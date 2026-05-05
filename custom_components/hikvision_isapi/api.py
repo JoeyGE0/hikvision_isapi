@@ -355,10 +355,23 @@ class HikvisionISAPI:
                 raise AuthenticationError(f"Authentication failed: {e}") from e
             # Extract detailed error message from camera response
             error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
-            if error_msg:
-                _LOGGER.error("HTTP error GET %s: %s - %s", endpoint, e.response.status_code, error_msg)
+            status_code = e.response.status_code if hasattr(e, "response") and e.response else None
+            is_event_trigger_5xx = endpoint.startswith("/ISAPI/Event/triggers") and status_code and status_code >= 500
+            if is_event_trigger_5xx:
+                if error_msg:
+                    _LOGGER.warning(
+                        "HTTP error GET %s: %s - %s",
+                        endpoint,
+                        status_code,
+                        error_msg,
+                    )
+                else:
+                    _LOGGER.warning("HTTP error GET %s: %s", endpoint, e)
             else:
-                _LOGGER.error("HTTP error GET %s: %s", endpoint, e)
+                if error_msg:
+                    _LOGGER.error("HTTP error GET %s: %s - %s", endpoint, status_code, error_msg)
+                else:
+                    _LOGGER.error("HTTP error GET %s: %s", endpoint, e)
             raise
         except requests.exceptions.RequestException as e:
             # Connection errors are expected during camera restarts - log as warning

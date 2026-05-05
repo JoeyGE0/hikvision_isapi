@@ -303,7 +303,6 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                     self.api.get_alarm_output, 1
                 )
                 # Get device name from stored data (with fallback if not available yet)
-                from .const import DOMAIN
                 device_info = {}
                 if DOMAIN in self.hass.data and self.entry.entry_id in self.hass.data[DOMAIN]:
                     device_info = self.hass.data[DOMAIN][self.entry.entry_id].get("device_info", {})

@@ -88,6 +88,12 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         if not host or not macaddress:
             return self.async_abort(reason="invalid_discovery_info")
+
+        # Prevent duplicate "discovered" cards when the same host is already configured
+        # under a different unique_id (e.g. host-based manual setup vs MAC-based DHCP).
+        for existing_entry in self._async_current_entries():
+            if existing_entry.data.get(CONF_HOST) == host:
+                return self.async_abort(reason="already_configured")
         
         # Format MAC address using Home Assistant's helper (normalizes to uppercase without separators)
         mac_address = format_mac(macaddress)
@@ -121,6 +127,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.context.update({
             "discovered_host": host,
             "discovered_device_name": device_name,
+            # Improve discovery card title in HA UI (camera name > generic integration name)
+            "title_placeholders": {"name": device_name or host},
         })
         
         # Show form with pre-filled values (will use same schema as user step)
