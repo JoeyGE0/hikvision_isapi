@@ -336,13 +336,24 @@ async def async_setup_entry(
     host = data["host"]
     device_name = device_info.get("deviceName", host)
     
-    model = device_info.get("model", "")
-    firmware_version = device_info.get("firmwareVersion", "")
+    model = (device_info.get("model") or "").strip()
+    firmware_version = (device_info.get("firmwareVersion") or "").strip()
     hardware_version = device_info.get("hardwareVersion")
-    
-    if not model or not firmware_version:
-        _LOGGER.warning("Missing model or firmware version, skipping update entity")
+
+    # Fallbacks: some devices/NVR-proxied cameras may omit root device fields.
+    cameras = data.get("cameras", []) or []
+    if not model and cameras:
+        model = (cameras[0].get("model") or "").strip()
+    if not firmware_version and cameras:
+        firmware_version = (cameras[0].get("firmware") or "").strip()
+
+    if not model:
+        _LOGGER.warning("Missing model, skipping firmware update entity for %s", host)
         return
+    if not firmware_version:
+        # Keep entity available with unknown installed version so users still see
+        # archive metadata and can diagnose mapping.
+        firmware_version = "0.0.0"
     
     # Create coordinator for firmware updates
     coordinator = FirmwareUpdateCoordinator(
@@ -351,9 +362,9 @@ async def async_setup_entry(
         firmware_version,
         hardware_version,
     )
-    
-    # Fetch initial data
-    await coordinator.async_config_entry_first_refresh()
+
+    # Avoid failing platform setup if archive fetch is temporarily unavailable.
+    await coordinator.async_refresh()
     
     entity = HikvisionFirmwareUpdate(
         coordinator,
