@@ -66,16 +66,29 @@ def format_version_display(version_str: str | None) -> str | None:
     return f"V{cleaned}"
 
 
-def to_github_download_url(download_url: str | None, filename: str | None) -> str | None:
-    """Prefer GitHub release-style download URL for consistency/reliability."""
-    fname = (filename or "").strip()
-    if not fname and download_url:
-        inferred = str(download_url).split("/")[-1].split("?")[0].strip()
-        if inferred and any(inferred.lower().endswith(ext) for ext in (".zip", ".dav", ".pak", ".bin")):
-            fname = inferred
+def resolve_firmware_download_url(fw: dict) -> str | None:
+    """Resolve download URL from a firmware archive entry.
+
+    ``/releases/latest/download/<file>`` only works for assets on the *current*
+    GitHub latest release. Older zips need ``github_release_tag`` + ``filename``
+    (``.../releases/download/<tag>/<file>``) or a full ``github_download_url``.
+    """
+    explicit = (fw.get("github_download_url") or "").strip()
+    if explicit:
+        return explicit
+
+    tag = (fw.get("github_release_tag") or fw.get("release_tag") or "").strip()
+    fname = (fw.get("filename") or "").strip()
+    if tag and fname:
+        return f"{FIRMWARE_ARCHIVE_RELEASES_URL}/download/{tag}/{fname}"
+
+    download_url = (fw.get("download_url") or "").strip()
+    if download_url:
+        return download_url
+
     if fname:
         return f"{FIRMWARE_ARCHIVE_RELEASES_URL}/latest/download/{fname}"
-    return download_url
+    return None
 
 
 def compare_versions(current: str, available: str) -> bool:
@@ -159,7 +172,8 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                 manual_firmwares = await _fetch_firmware_json(FIRMWARES_MANUAL_URL)
             
             # Combine firmware lists - GitHub JSON structure is flat dict with keys like "DS-2CD1043G0-I_UNKNOWN_5.7.23"
-            # Each value is a dict with: model, version, download_url, date, supported_models, etc.
+            # Each value is a dict with: model, version, download_url, date, supported_models,
+            # optional github_release_tag / github_download_url for stable GitHub mirror URLs.
             all_firmwares = {}
             
             def process_firmware_dict(firmware_dict: dict) -> None:
@@ -251,7 +265,7 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
             # Filter out invalid firmware entries and sort by version (newest first)
             valid_firmwares = []
             for fw in matching_firmwares:
-                if isinstance(fw, dict) and fw.get("version") and fw.get("download_url"):
+                if isinstance(fw, dict) and fw.get("version") and resolve_firmware_download_url(fw):
                     valid_firmwares.append(fw)
             
             if not valid_firmwares:
@@ -303,10 +317,7 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                     "available": True,
                     "latest_version": latest_firmware.get("version"),
                     "release_date": latest_firmware.get("date"),
-                    "download_url": to_github_download_url(
-                        latest_firmware.get("download_url"),
-                        latest_firmware.get("filename"),
-                    ),
+                    "download_url": resolve_firmware_download_url(latest_firmware),
                     "release_notes": release_notes,  # This will be a PDF URL
                 }
             else:
@@ -331,10 +342,7 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                         "available": False,
                         "latest_version": latest_version,
                         "release_date": latest.get("date"),
-                        "download_url": to_github_download_url(
-                            latest.get("download_url"),
-                            latest.get("filename"),
-                        ),
+                        "download_url": resolve_firmware_download_url(latest),
                         "release_notes": release_notes,  # This will be a PDF URL
                     }
             
