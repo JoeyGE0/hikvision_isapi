@@ -314,9 +314,10 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
 
             return data
         except AuthenticationError as err:
+            self.entry.async_start_reauth(self.hass)
             raise UpdateFailed(
-                f"Authentication failed. Please check your username and password in the integration settings. "
-                f"Note: Username is case-sensitive (e.g., 'admin' not 'Admin'). Error: {err}"
+                f"Authentication failed. Use the re-authenticate flow to enter the current "
+                f"camera password. Error: {err}"
             ) from err
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
