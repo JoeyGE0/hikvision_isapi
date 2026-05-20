@@ -7,6 +7,7 @@ from typing import Any
 import xml.etree.ElementTree as ET
 
 import requests
+from requests.auth import HTTPDigestAuth
 import voluptuous as vol
 
 from homeassistant import config_entries, data_entry_flow
@@ -33,7 +34,7 @@ from .const import (
     CONF_VERIFY_SSL,
     RTSP_PORT_FORCED,
 )
-from .api import _extract_error_message
+from .api import _extract_error_message, _normalize_host
 
 _XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
 
@@ -229,13 +230,15 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         serial_number = None
 
         try:
+            host = _normalize_host(host)
             url = f"http://{host}/ISAPI/System/deviceInfo"
+            auth = HTTPDigestAuth(username, password)
             response = await self.hass.async_add_executor_job(
                 lambda: requests.get(
                     url,
-                    auth=(username, password),
+                    auth=auth,
                     verify=verify_ssl,
-                    timeout=10,
+                    timeout=15,
                 )
             )
             device_name, serial_number = _parse_device_info_response(response, host)

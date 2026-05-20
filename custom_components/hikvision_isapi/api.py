@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import re
 import requests
+from requests.auth import HTTPDigestAuth
 import json
 import xml.etree.ElementTree as ET
 from typing import Optional
@@ -11,6 +12,15 @@ from typing import Optional
 _LOGGER = logging.getLogger(__name__)
 
 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+
+
+def _normalize_host(host: str) -> str:
+    """Strip scheme/path from host field (users sometimes paste a full URL)."""
+    host = host.strip()
+    for prefix in ("https://", "http://"):
+        if host.lower().startswith(prefix):
+            host = host[len(prefix):]
+    return host.split("/")[0].strip()
 
 
 def _normalize_alert_sound_label_for_compare(label: str) -> str:
@@ -315,9 +325,10 @@ class HikvisionISAPI:
 
     def __init__(self, host: str, username: str, password: str, channel: int = 1, verify_ssl: bool = False, rtsp_port_forced: Optional[int] = None):
         """Initialize the API helper."""
-        self.host = host
+        self.host = _normalize_host(host)
         self.username = username
         self.password = password
+        self._auth = HTTPDigestAuth(username, password)
         self.channel = channel
         self.verify_ssl = verify_ssl
         self.rtsp_port_forced = rtsp_port_forced
@@ -340,7 +351,7 @@ class HikvisionISAPI:
         try:
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -396,7 +407,7 @@ class HikvisionISAPI:
         try:
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -481,7 +492,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -502,7 +513,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -526,7 +537,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -547,7 +558,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -571,7 +582,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -592,7 +603,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -616,7 +627,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5,
             )
@@ -645,7 +656,7 @@ class HikvisionISAPI:
 
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -669,7 +680,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5,
             )
@@ -691,7 +702,7 @@ class HikvisionISAPI:
 
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -715,7 +726,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5,
             )
@@ -737,7 +748,7 @@ class HikvisionISAPI:
 
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -778,7 +789,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -799,7 +810,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -897,7 +908,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -918,7 +929,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -943,7 +954,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -964,7 +975,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -989,7 +1000,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1010,7 +1021,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1052,7 +1063,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1073,7 +1084,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1104,8 +1115,20 @@ class HikvisionISAPI:
     def get_device_info(self) -> dict:
         """Get device information from ISAPI."""
         try:
-            xml = self._get("/ISAPI/System/deviceInfo")
-            
+            url = f"http://{self.host}/ISAPI/System/deviceInfo"
+            response = requests.get(
+                url,
+                auth=self._auth,
+                verify=self.verify_ssl,
+                timeout=15,
+            )
+            if response.status_code in (401, 403):
+                raise AuthenticationError(
+                    f"Authentication failed for {self.host} ({response.status_code})"
+                )
+            response.raise_for_status()
+            xml = ET.fromstring(response.text)
+
             device_info = {}
             device_info["deviceName"] = xml.find(f".//{XML_NS}deviceName")
             device_info["model"] = xml.find(f".//{XML_NS}model")
@@ -1115,21 +1138,29 @@ class HikvisionISAPI:
             device_info["macAddress"] = xml.find(f".//{XML_NS}macAddress")
             device_info["deviceID"] = xml.find(f".//{XML_NS}deviceID")
             device_info["manufacturer"] = xml.find(f".//{XML_NS}manufacturer")
-            
-            # Extract text values
+
             result = {}
             for key, element in device_info.items():
                 if element is not None and element.text:
                     result[key] = element.text.strip()
-            
+
             return result
+        except AuthenticationError:
+            raise
+        except requests.exceptions.SSLError as e:
+            _LOGGER.error("SSL error connecting to %s: %s", self.host, e)
+            raise
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            _LOGGER.warning("Cannot reach %s (camera offline or still booting): %s", self.host, e)
+            raise
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code in (401, 403):
+                raise AuthenticationError(f"Authentication failed for {self.host}") from e
+            _LOGGER.error("HTTP error getting device info from %s: %s", self.host, e)
+            raise
         except Exception as e:
-            # Connection errors are expected during camera restarts - log as debug
-            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
-                _LOGGER.debug("Failed to get device info (camera may be restarting): %s", e)
-            else:
-                _LOGGER.error("Failed to get device info: %s", e)
-            return {}
+            _LOGGER.error("Failed to get device info from %s: %s", self.host, e)
+            raise
 
     def get_capabilities(self) -> dict:
         """Get device capabilities to detect NVR vs camera, multi-channel support."""
@@ -1172,6 +1203,8 @@ class HikvisionISAPI:
             capabilities["is_multi_channel"] = False
             
             return capabilities
+        except AuthenticationError:
+            raise
         except Exception as e:
             # Connection errors are expected during camera restarts - log as debug
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
@@ -1402,7 +1435,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1449,7 +1482,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1496,7 +1529,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1532,7 +1565,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/open"
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1569,7 +1602,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/close"
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1586,7 +1619,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/close"
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1644,7 +1677,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1738,7 +1771,7 @@ class HikvisionISAPI:
             endpoint = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/audioData?sessionId={session_id}"
             response = requests.put(
                 endpoint,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=bytes(ulaw_data),
                 headers={"Content-Type": "application/octet-stream"},
                 verify=self.verify_ssl,
@@ -1770,7 +1803,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1841,7 +1874,7 @@ class HikvisionISAPI:
             # Get full XML to preserve other settings
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1860,7 +1893,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1886,7 +1919,7 @@ class HikvisionISAPI:
             # Get current settings
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1907,7 +1940,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1933,7 +1966,7 @@ class HikvisionISAPI:
             # Get current settings
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -1954,7 +1987,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -1980,7 +2013,7 @@ class HikvisionISAPI:
             # Get current settings
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2006,7 +2039,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2030,7 +2063,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/tamperDetection"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2065,7 +2098,7 @@ class HikvisionISAPI:
             # Get current settings
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2084,7 +2117,7 @@ class HikvisionISAPI:
             # PUT updated XML
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2125,7 +2158,7 @@ class HikvisionISAPI:
                 url = f"http://{self.host}/ISAPI/Streaming/channels/{snapshot_channel}/picture"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=10
             )
@@ -2407,7 +2440,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Smart/FieldDetection/{self.channel}"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2421,7 +2454,7 @@ class HikvisionISAPI:
             xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2485,7 +2518,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Smart/LineDetection/{self.channel}"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2499,7 +2532,7 @@ class HikvisionISAPI:
             xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2555,7 +2588,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Smart/SceneChangeDetection/{self.channel}"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2569,7 +2602,7 @@ class HikvisionISAPI:
             xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2613,7 +2646,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Smart/regionEntrance/{self.channel}"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2627,7 +2660,7 @@ class HikvisionISAPI:
             xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2671,7 +2704,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Smart/regionExiting/{self.channel}"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2685,7 +2718,7 @@ class HikvisionISAPI:
             xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2731,7 +2764,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/IO/inputs/{port_id}"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2745,7 +2778,7 @@ class HikvisionISAPI:
             xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2792,7 +2825,7 @@ class HikvisionISAPI:
             
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_data,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -2816,7 +2849,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/System/reboot"
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2843,7 +2876,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Event/notification/httpHosts"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -2981,7 +3014,7 @@ class HikvisionISAPI:
             _LOGGER.debug("Sending alarm server XML: %s", xml_str)
             response = requests.put(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
@@ -3009,7 +3042,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Event/notification/httpHosts"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -3360,7 +3393,7 @@ class HikvisionISAPI:
             
             response = requests.post(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 json=data,
                 headers={"Content-Type": "application/json"},
                 verify=self.verify_ssl,
@@ -3422,7 +3455,7 @@ class HikvisionISAPI:
             url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm?format=json"
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -3454,7 +3487,7 @@ class HikvisionISAPI:
             )
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5,
             )
@@ -3735,7 +3768,7 @@ class HikvisionISAPI:
             response = requests.put(
                 url,
                 json={"AudioAlarm": audio_alarm},
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=5
             )
@@ -3821,7 +3854,7 @@ class HikvisionISAPI:
             response = requests.put(
                 url,
                 json={},
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=10
             )
@@ -3870,7 +3903,7 @@ class HikvisionISAPI:
             
             response = requests.get(
                 url,
-                auth=(self.username, self.password),
+                auth=self._auth,
                 verify=self.verify_ssl,
                 timeout=3  # Shorter timeout for detection
             )
