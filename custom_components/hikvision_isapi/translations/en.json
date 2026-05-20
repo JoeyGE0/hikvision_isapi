@@ -20,6 +20,10 @@
           "configure_advanced": "Enable this to configure advanced options like update interval and event notifications"
         }
       },
+      "reauth_confirm": {
+        "title": "Re-authenticate {name}",
+        "description": "The camera rejected the stored password (common after a factory reset). Enter the current password."
+      },
       "reconfigure": {
         "title": "Reconfigure {name}",
         "description": "Update connection settings for this device",
