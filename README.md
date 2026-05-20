@@ -2,7 +2,7 @@
 
 # Hikvision ISAPI Controls
 
-<img src="icon.png" alt="Hikvision ISAPI Controls Icon" width="128" height="128">
+<img src="https://brands.home-assistant.io/hikvision/icon.png" alt="Hikvision ISAPI Controls Icon" width="128" height="128">
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

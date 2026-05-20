@@ -2,7 +2,7 @@ import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry as dr
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.components.network import async_get_source_ip
 
 from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED
@@ -77,9 +77,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                     len(cameras), host, capabilities.get("is_nvr", False), len(supported_events))
     except AuthenticationError as err:
         _LOGGER.error("Authentication failed for %s: %s", host, err)
-        raise ConfigEntryNotReady(
-            f"Authentication failed for {host}. Please check your username and password. "
-            f"Note: Username is case-sensitive (e.g., 'admin' not 'Admin')."
+        raise ConfigEntryAuthFailed(
+            f"Authentication failed for {host}. Re-authenticate with the current "
+            f"username and password (username is case-sensitive, e.g. 'admin' not 'Admin')."
         ) from err
     except Exception as err:
         _LOGGER.error("Failed to connect to %s: %s", host, err)

@@ -64,8 +64,8 @@ gold:
     notes: "async_step_reconfigure implemented in config_flow"
 
   - name: "Translations"
-    status: "not_started"
-    notes: "No translations directory found"
+    status: "completed"
+    notes: "translations/en.json with config flow, reconfigure, and reauth strings"
 
   - name: "Firmware Updates"
     status: "not_applicable"

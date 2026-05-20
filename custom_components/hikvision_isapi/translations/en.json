@@ -1,5 +1,6 @@
 {
   "config": {
+    "flow_title": "{name}",
     "step": {
       "user": {
         "title": "Hikvision ISAPI Controls",
@@ -19,6 +20,30 @@
           "configure_advanced": "Enable this to configure advanced options like update interval and event notifications"
         }
       },
+      "reconfigure": {
+        "title": "Reconfigure {name}",
+        "description": "Update connection settings for this device",
+        "data": {
+          "host": "IP Address or Hostname",
+          "verify_ssl": "Verify SSL certificate",
+          "username": "Username",
+          "password": "Password",
+          "update_interval": "Update Interval (seconds)",
+          "set_alarm_server": "Enable event notifications",
+          "alarm_server": "Home Assistant Address",
+          "rtsp_port_forced": "Force RTSP Port (Optional)"
+        },
+        "data_description": {
+          "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.12)",
+          "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
+          "username": "Username for camera login (usually 'admin')",
+          "password": "Password for camera login (required after a factory reset)",
+          "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
+          "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
+          "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
+          "rtsp_port_forced": "Force a specific RTSP port number (1-65535). Leave empty to use camera's default port."
+        }
+      },
       "advanced": {
         "title": "Advanced Options",
         "description": "Configure advanced settings (optional)",
@@ -34,30 +59,6 @@
           "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
           "rtsp_port_forced": "Force a specific RTSP port number (1-65535). Leave empty to use camera's default port."
         }
-      },
-      "reconfigure": {
-        "title": "Reconfigure Hikvision ISAPI Controls",
-        "description": "Update your camera/NVR configuration",
-        "data": {
-          "host": "IP Address or Hostname",
-          "verify_ssl": "Verify SSL certificate",
-          "username": "Username",
-          "password": "Password",
-          "update_interval": "Update Interval (seconds)",
-          "set_alarm_server": "Enable event notifications",
-          "alarm_server": "Home Assistant Address",
-          "rtsp_port_forced": "Force RTSP Port (Optional)"
-        },
-        "data_description": {
-          "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.12)",
-          "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
-          "username": "Username for camera login (usually 'admin')",
-          "password": "Password for camera login",
-          "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
-          "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
-          "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
-          "rtsp_port_forced": "Force a specific RTSP port number (1-65535). Leave empty to use camera's default port."
-        }
       }
     },
     "error": {
@@ -68,13 +69,14 @@
       "host_required": "IP address or hostname is required",
       "username_required": "Username is required",
       "password_required": "Password is required",
-      "alarm_server_required": "Home Assistant address is required when event notifications are enabled"
+      "alarm_server_required": "Home Assistant address is required when event notifications are enabled",
+      "invalid_rtsp_port": "RTSP port must be between 1 and 65535"
     },
     "abort": {
       "already_configured": "Device is already configured",
       "reconfigure_successful": "Re-configuration was successful",
-      "no_basic_data": "Basic configuration data is missing"
+      "no_basic_data": "Basic configuration data is missing",
+      "reauth_successful": "Re-authentication was successful"
     }
   }
 }
-
