@@ -71,6 +71,7 @@ class TestHikvisionISAPI:
         response = Mock()
         response.status_code = 200
         response.ok = True
+        response.raise_for_status = Mock()
         response.text = '''<?xml version="1.0" encoding="UTF-8"?>
         <DeviceInfo version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
             <deviceName>Test Camera</deviceName>
@@ -90,6 +91,16 @@ class TestHikvisionISAPI:
         assert result["serialNumber"] == "ABC123"
         assert result["firmwareVersion"] == "V5.8.10"
         assert result["macAddress"] == "84:94:59:E4:AA:9D"
+
+    @patch("custom_components.hikvision_isapi.api.requests.get")
+    def test_get_device_info_raises_auth_on_401(self, mock_get, api):
+        """Wrong password must raise AuthenticationError (not return empty dict)."""
+        response = Mock()
+        response.status_code = 401
+        mock_get.return_value = response
+
+        with pytest.raises(AuthenticationError):
+            api.get_device_info()
 
     @patch("custom_components.hikvision_isapi.api.requests.get")
     @patch("custom_components.hikvision_isapi.api.requests.put")

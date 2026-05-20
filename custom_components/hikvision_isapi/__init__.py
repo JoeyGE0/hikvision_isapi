@@ -1,4 +1,6 @@
 import logging
+
+import requests
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry as dr
@@ -37,7 +39,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         device_info = await hass.async_add_executor_job(api.get_device_info)
         if not device_info:
             raise ConfigEntryNotReady(
-                f"Failed to connect to {host}. Please check your credentials and network connection."
+                f"Connected to {host} but received no device information. "
+                f"Confirm ISAPI is enabled on the camera and try again."
             )
         
         # Store device info in API instance
@@ -78,13 +81,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     except AuthenticationError as err:
         _LOGGER.error("Authentication failed for %s: %s", host, err)
         raise ConfigEntryAuthFailed(
-            f"Authentication failed for {host}. Re-authenticate with the current "
-            f"username and password (username is case-sensitive, e.g. 'admin' not 'Admin')."
+            f"Authentication failed for {host}. Open the integration and use "
+            f"Re-authenticate to enter the password set on the camera after reset "
+            f"(username is case-sensitive, e.g. 'admin' not 'Admin')."
+        ) from err
+    except requests.exceptions.SSLError as err:
+        _LOGGER.error("SSL verification failed for %s: %s", host, err)
+        raise ConfigEntryNotReady(
+            f"SSL verification failed for {host}. Reconfigure the integration and "
+            f"disable 'Verify SSL certificate' if the camera uses HTTP."
+        ) from err
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as err:
+        _LOGGER.error("Cannot reach %s: %s", host, err)
+        raise ConfigEntryNotReady(
+            f"Cannot reach {host}. Check the camera is online, on the same network, "
+            f"and ISAPI is enabled (camera may still be booting after restore)."
         ) from err
     except Exception as err:
-        _LOGGER.error("Failed to connect to %s: %s", host, err)
+        _LOGGER.error("Failed to set up %s: %s", host, err)
         raise ConfigEntryNotReady(
-            f"Failed to connect to {host}: {err}. Please check your network connection and that the device is online."
+            f"Failed to set up {host}: {err}"
         ) from err
     
     device_registry = dr.async_get(hass)

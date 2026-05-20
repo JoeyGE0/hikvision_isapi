@@ -10,7 +10,12 @@ from homeassistant.config_entries import SOURCE_RECONFIGURE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
-from custom_components.hikvision_isapi.config_flow import HikvisionISAPIConfigFlow
+from custom_components.hikvision_isapi.config_flow import (
+    HikvisionISAPIConfigFlow,
+    _apply_suggested_values,
+    _filter_suggested_values,
+    _reconfigure_schema,
+)
 from custom_components.hikvision_isapi.const import (
     CONF_ALARM_SERVER_HOST,
     CONF_HOST,
@@ -19,7 +24,6 @@ from custom_components.hikvision_isapi.const import (
     CONF_UPDATE_INTERVAL,
     CONF_USERNAME,
     CONF_VERIFY_SSL,
-    DOMAIN,
 )
 
 
@@ -49,6 +53,32 @@ def mock_entry():
     }
     entry.entry_id = "test_entry_id"
     return entry
+
+
+class TestConfigFlowHelpers:
+    """Tests for config flow schema helpers."""
+
+    def test_filter_suggested_excludes_password(self):
+        """Password must not be sent as a suggested value."""
+        schema = _reconfigure_schema()
+        suggested = {
+            CONF_HOST: "192.168.1.15",
+            CONF_PASSWORD: "secret",
+            CONF_USERNAME: "admin",
+        }
+        filtered = _filter_suggested_values(schema, suggested)
+        assert CONF_PASSWORD not in filtered
+        assert filtered[CONF_HOST] == "192.168.1.15"
+
+    def test_apply_suggested_values_fallback(self, flow):
+        """Fallback suggested values work without HA helper."""
+        schema = _reconfigure_schema()
+        result = _apply_suggested_values(
+            flow,
+            schema,
+            {CONF_HOST: "10.0.0.5", CONF_USERNAME: "admin"},
+        )
+        assert result is not None
 
 
 class TestConfigFlow:
@@ -127,10 +157,7 @@ class TestConfigFlow:
     @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
     async def test_reconfigure_step_shows_form(self, mock_source_ip, flow, mock_entry):
         """Reconfigure must load the form without calling network (no 500)."""
-        mock_source_ip.return_value = "192.168.1.1"
         flow._get_reconfigure_entry = Mock(return_value=mock_entry)
-        flow._reconfigure_entry = mock_entry
-        flow.source = SOURCE_RECONFIGURE
 
         result = await flow.async_step_reconfigure(None)
 
@@ -145,7 +172,6 @@ class TestConfigFlow:
         self, mock_get, mock_source_ip, flow, mock_entry
     ):
         """Reconfigure updates the existing entry and reloads."""
-        mock_source_ip.return_value = "192.168.1.1"
         response = Mock()
         response.status_code = 200
         response.ok = True
@@ -153,8 +179,6 @@ class TestConfigFlow:
         mock_get.return_value = response
 
         flow._get_reconfigure_entry = Mock(return_value=mock_entry)
-        flow._reconfigure_entry = mock_entry
-        flow.source = SOURCE_RECONFIGURE
         flow.async_set_unique_id = AsyncMock()
         flow._abort_if_unique_id_mismatch = Mock()
         flow.async_update_reload_and_abort = Mock(

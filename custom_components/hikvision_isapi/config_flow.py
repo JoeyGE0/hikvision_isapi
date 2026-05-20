@@ -1,11 +1,13 @@
 """Config flow for the Hikvision ISAPI integration."""
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 import xml.etree.ElementTree as ET
 
 import requests
+from requests.auth import HTTPDigestAuth
 import voluptuous as vol
 
 from homeassistant import config_entries, data_entry_flow
@@ -32,9 +34,12 @@ from .const import (
     CONF_VERIFY_SSL,
     RTSP_PORT_FORCED,
 )
-from .api import _extract_error_message
+from .api import _extract_error_message, _normalize_host
 
 _XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+
+# Never pre-fill password in UI suggestions (HA security + avoids config flow crashes).
+_SENSITIVE_SUGGEST_KEYS = frozenset({CONF_PASSWORD})
 
 
 def _optional_rtsp_port_schema():
@@ -75,6 +80,62 @@ def _parse_device_info_response(response: requests.Response, fallback_host: str)
     return device_name, serial_number
 
 
+def _schema_field_names(data_schema: vol.Schema) -> set[str]:
+    """Return config field names from a voluptuous schema."""
+    names: set[str] = set()
+    for key in data_schema.schema:
+        if isinstance(key, vol.Marker):
+            names.add(key.schema)
+    return names
+
+
+def _filter_suggested_values(
+    data_schema: vol.Schema, suggested: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Keep only keys that exist in the schema; drop secrets and None RTSP."""
+    if not suggested:
+        return {}
+    allowed = _schema_field_names(data_schema)
+    filtered: dict[str, Any] = {}
+    for key, value in suggested.items():
+        if key not in allowed or key in _SENSITIVE_SUGGEST_KEYS:
+            continue
+        if key == RTSP_PORT_FORCED and value is None:
+            continue
+        filtered[key] = value
+    return filtered
+
+
+def _apply_suggested_values(
+    handler: config_entries.ConfigFlow,
+    data_schema: vol.Schema,
+    suggested: dict[str, Any] | None,
+) -> vol.Schema:
+    """Apply suggested values with HA helper when available, else safe fallback."""
+    suggested = _filter_suggested_values(data_schema, suggested)
+    if not suggested:
+        return data_schema
+    if hasattr(handler, "add_suggested_values_to_schema"):
+        try:
+            return handler.add_suggested_values_to_schema(data_schema, suggested)
+        except Exception:
+            _LOGGER.exception("add_suggested_values_to_schema failed, using fallback schema")
+    # Fallback for older HA: copy markers with suggested_value in description.
+    schema: dict = {}
+    for key, value in data_schema.schema.items():
+        if not isinstance(key, vol.Marker):
+            continue
+        if key.schema in suggested:
+            new_key = copy.copy(key)
+            description = dict(new_key.description or {})
+            description["suggested_value"] = suggested[key.schema]
+            new_key.description = description
+            schema[new_key] = value
+        else:
+            schema[key] = value
+    return vol.Schema(schema)
+
+
 def get_basic_schema(default_host: str | None = None):
     """Get basic schema for initial setup (legacy helper for tests)."""
     return vol.Schema({
@@ -100,6 +161,22 @@ def get_advanced_schema(default_alarm_server: str | None = None, set_alarm_serve
     return vol.Schema(schema)
 
 
+def _reconfigure_schema() -> vol.Schema:
+    """Static reconfigure/reauth schema (must not change shape between form loads)."""
+    return vol.Schema({
+        vol.Required(CONF_HOST): str,
+        vol.Optional(CONF_VERIFY_SSL): bool,
+        vol.Required(CONF_USERNAME): str,
+        vol.Required(CONF_PASSWORD): str,
+        vol.Optional(CONF_UPDATE_INTERVAL): vol.All(
+            vol.Coerce(int), vol.Range(min=5, max=300)
+        ),
+        vol.Required(CONF_SET_ALARM_SERVER): bool,
+        vol.Optional(CONF_ALARM_SERVER_HOST): str,
+        vol.Optional(RTSP_PORT_FORCED): _optional_rtsp_port_schema(),
+    })
+
+
 class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hikvision ISAPI."""
 
@@ -110,9 +187,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_host: str | None = None
         self._reconfigure_entry: config_entries.ConfigEntry | None = None
 
-    def _is_reconfigure_or_reauth(self) -> bool:
-        return self.source in (SOURCE_RECONFIGURE, SOURCE_REAUTH)
-
     async def _async_default_alarm_server(self) -> str:
         """Home Assistant URL for camera event notifications."""
         try:
@@ -122,48 +196,26 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("Could not resolve source IP for alarm server default")
             return "http://homeassistant.local:8123"
 
-    async def _async_get_credentials_schema(
+    async def _async_get_user_schema(
         self,
         user_input: dict[str, Any] | None = None,
     ) -> vol.Schema:
-        """Build credentials schema with suggested values (HA standard)."""
+        """Schema for new setup (user + DHCP discovery)."""
         suggested: dict[str, Any] = dict(user_input or {})
+        if self._discovered_host and CONF_HOST not in suggested:
+            suggested[CONF_HOST] = self._discovered_host
+        suggested.setdefault(CONF_USERNAME, "admin")
+        suggested.setdefault(CONF_VERIFY_SSL, True)
+        suggested.setdefault("configure_advanced", False)
 
-        if self.source == SOURCE_RECONFIGURE and self._reconfigure_entry:
-            suggested = {**self._reconfigure_entry.data, **suggested}
-        elif self.source == SOURCE_REAUTH and self._reconfigure_entry:
-            suggested = {**self._reconfigure_entry.data, **suggested}
-        else:
-            if self._discovered_host and CONF_HOST not in suggested:
-                suggested[CONF_HOST] = self._discovered_host
-            suggested.setdefault(CONF_USERNAME, "admin")
-            suggested.setdefault(CONF_VERIFY_SSL, True)
-            suggested.setdefault(CONF_SET_ALARM_SERVER, True)
-            suggested.setdefault(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
-            if CONF_ALARM_SERVER_HOST not in suggested:
-                suggested[CONF_ALARM_SERVER_HOST] = await self._async_default_alarm_server()
-
-        set_alarm_server = suggested.get(CONF_SET_ALARM_SERVER, True)
-
-        schema_dict: dict = {
+        schema = vol.Schema({
             vol.Required(CONF_HOST): str,
             vol.Optional(CONF_VERIFY_SSL): bool,
             vol.Required(CONF_USERNAME): str,
             vol.Required(CONF_PASSWORD): str,
-        }
-
-        if self._is_reconfigure_or_reauth():
-            schema_dict[vol.Optional(CONF_UPDATE_INTERVAL)] = vol.All(
-                vol.Coerce(int), vol.Range(min=5, max=300)
-            )
-            schema_dict[vol.Required(CONF_SET_ALARM_SERVER)] = bool
-            if set_alarm_server:
-                schema_dict[vol.Required(CONF_ALARM_SERVER_HOST)] = str
-            schema_dict[vol.Optional(RTSP_PORT_FORCED)] = _optional_rtsp_port_schema()
-        else:
-            schema_dict[vol.Optional("configure_advanced")] = bool
-
-        return self.add_suggested_values_to_schema(vol.Schema(schema_dict), suggested)
+            vol.Optional("configure_advanced"): bool,
+        })
+        return _apply_suggested_values(self, schema, suggested)
 
     async def _async_validate_connection(
         self,
@@ -178,13 +230,15 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         serial_number = None
 
         try:
+            host = _normalize_host(host)
             url = f"http://{host}/ISAPI/System/deviceInfo"
+            auth = HTTPDigestAuth(username, password)
             response = await self.hass.async_add_executor_job(
                 lambda: requests.get(
                     url,
-                    auth=(username, password),
+                    auth=auth,
                     verify=verify_ssl,
-                    timeout=10,
+                    timeout=15,
                 )
             )
             device_name, serial_number = _parse_device_info_response(response, host)
@@ -209,54 +263,143 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return errors, device_name, serial_number
 
-    def _build_entry_data(
-        self,
-        user_input: dict[str, Any],
-        *,
-        include_defaults: bool = False,
-    ) -> dict[str, Any]:
-        """Normalize user input into config entry data."""
+    def _build_entry_data(self, user_input: dict[str, Any]) -> dict[str, Any]:
+        """Normalize reconfigure/reauth form into config entry data."""
         host = user_input[CONF_HOST].strip()
         data: dict[str, Any] = {
             CONF_HOST: host,
             CONF_USERNAME: user_input[CONF_USERNAME].strip(),
             CONF_PASSWORD: user_input[CONF_PASSWORD],
             CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, True),
-        }
-
-        if self._is_reconfigure_or_reauth() or include_defaults:
-            default_alarm = None
-            data[CONF_UPDATE_INTERVAL] = user_input.get(
+            CONF_UPDATE_INTERVAL: user_input.get(
                 CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+            ),
+            CONF_SET_ALARM_SERVER: user_input.get(CONF_SET_ALARM_SERVER, True),
+        }
+        if data[CONF_SET_ALARM_SERVER]:
+            data[CONF_ALARM_SERVER_HOST] = user_input.get(CONF_ALARM_SERVER_HOST, "").strip()
+        elif self._reconfigure_entry:
+            data[CONF_ALARM_SERVER_HOST] = self._reconfigure_entry.data.get(
+                CONF_ALARM_SERVER_HOST, ""
             )
-            set_alarm_server = user_input.get(CONF_SET_ALARM_SERVER, True)
-            data[CONF_SET_ALARM_SERVER] = set_alarm_server
-            if set_alarm_server:
-                data[CONF_ALARM_SERVER_HOST] = (
-                    user_input.get(CONF_ALARM_SERVER_HOST) or default_alarm or ""
-                ).strip()
-            elif self._reconfigure_entry:
-                data[CONF_ALARM_SERVER_HOST] = self._reconfigure_entry.data.get(
-                    CONF_ALARM_SERVER_HOST, ""
-                )
-            if RTSP_PORT_FORCED in user_input:
-                data[RTSP_PORT_FORCED] = user_input[RTSP_PORT_FORCED]
-
+        if RTSP_PORT_FORCED in user_input:
+            data[RTSP_PORT_FORCED] = user_input[RTSP_PORT_FORCED]
+        elif self._reconfigure_entry and RTSP_PORT_FORCED in self._reconfigure_entry.data:
+            data[RTSP_PORT_FORCED] = self._reconfigure_entry.data[RTSP_PORT_FORCED]
         return data
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Reconfigure an existing entry (host, credentials, advanced options)."""
-        self._reconfigure_entry = self._get_reconfigure_entry()
-        return await self.async_step_user(user_input)
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+        self._reconfigure_entry = entry
+
+        if user_input is not None:
+            host = user_input.get(CONF_HOST, "").strip()
+            username = user_input.get(CONF_USERNAME, "").strip()
+            password = user_input.get(CONF_PASSWORD, "")
+
+            if not host:
+                errors[CONF_HOST] = "host_required"
+            if not username:
+                errors[CONF_USERNAME] = "username_required"
+            if not password:
+                errors[CONF_PASSWORD] = "password_required"
+            if (
+                user_input.get(CONF_SET_ALARM_SERVER, True)
+                and not user_input.get(CONF_ALARM_SERVER_HOST, "").strip()
+            ):
+                errors[CONF_ALARM_SERVER_HOST] = "alarm_server_required"
+
+            if not errors:
+                verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+                errors, device_name, serial_number = await self._async_validate_connection(
+                    host, username, password, verify_ssl
+                )
+                if not errors:
+                    entry_data = self._build_entry_data(user_input)
+                    if serial_number:
+                        await self.async_set_unique_id(
+                            serial_number, raise_on_progress=False
+                        )
+                    self._abort_if_unique_id_mismatch()
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates=entry_data,
+                        title=device_name,
+                    )
+
+        base_schema = _reconfigure_schema()
+        data_schema = _apply_suggested_values(self, base_schema, dict(entry.data))
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=data_schema,
+            errors=errors,
+        )
 
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> ConfigFlowResult:
         """Re-authenticate after invalid credentials (e.g. camera factory reset)."""
         self._reconfigure_entry = self._get_reauth_entry()
-        return await self.async_step_user(None)
+        return await self._async_reauth_form(None, {})
+
+    async def _async_reauth_form(
+        self,
+        user_input: dict[str, Any] | None,
+        errors: dict[str, str],
+    ) -> ConfigFlowResult:
+        """Show and process the reauth credentials form."""
+        entry = self._reconfigure_entry or self._get_reauth_entry()
+        self._reconfigure_entry = entry
+
+        if user_input is not None:
+            host = user_input.get(CONF_HOST, "").strip()
+            username = user_input.get(CONF_USERNAME, "").strip()
+            password = user_input.get(CONF_PASSWORD, "")
+
+            if not host:
+                errors[CONF_HOST] = "host_required"
+            if not username:
+                errors[CONF_USERNAME] = "username_required"
+            if not password:
+                errors[CONF_PASSWORD] = "password_required"
+
+            if not errors:
+                verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+                errors, _, _ = await self._async_validate_connection(
+                    host, username, password, verify_ssl
+                )
+                if not errors:
+                    entry_data = self._build_entry_data(user_input)
+                    self._abort_if_unique_id_mismatch()
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates=entry_data,
+                    )
+
+        # Reauth uses a smaller schema (credentials + host only)
+        base_schema = vol.Schema({
+            vol.Required(CONF_HOST): str,
+            vol.Optional(CONF_VERIFY_SSL): bool,
+            vol.Required(CONF_USERNAME): str,
+            vol.Required(CONF_PASSWORD): str,
+        })
+        data_schema = _apply_suggested_values(self, base_schema, dict(entry.data))
+        return self.async_show_form(
+            step_id="user",
+            data_schema=data_schema,
+            errors=errors,
+        )
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Reauth entry point used by newer Home Assistant versions."""
+        self._reconfigure_entry = self._get_reauth_entry()
+        return await self._async_reauth_form(user_input, {})
 
     async def async_step_dhcp(
         self, discovery_info: DhcpServiceInfo
@@ -310,14 +453,19 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle user, reconfigure, and reauth steps."""
+        """Handle initial setup only (not reconfigure/reauth)."""
+        if self.source == SOURCE_REAUTH:
+            return await self._async_reauth_form(user_input, {})
+
         errors: dict[str, str] = {}
-        step_id = "reconfigure" if self.source == SOURCE_RECONFIGURE else "user"
+        discovered_host = self.context.get("discovered_host")
 
         if user_input is not None:
             host = user_input.get(CONF_HOST, "").strip()
             username = user_input.get(CONF_USERNAME, "").strip()
             password = user_input.get(CONF_PASSWORD, "")
+            verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+            configure_advanced = user_input.get("configure_advanced", False)
 
             if not host:
                 errors[CONF_HOST] = "host_required"
@@ -326,43 +474,12 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not password:
                 errors[CONF_PASSWORD] = "password_required"
 
-            if (
-                self._is_reconfigure_or_reauth()
-                and user_input.get(CONF_SET_ALARM_SERVER, True)
-                and not user_input.get(CONF_ALARM_SERVER_HOST, "").strip()
-            ):
-                errors[CONF_ALARM_SERVER_HOST] = "alarm_server_required"
-
             if not errors:
-                verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
                 errors, device_name, serial_number = await self._async_validate_connection(
                     host, username, password, verify_ssl
                 )
 
                 if not errors:
-                    if self.source == SOURCE_RECONFIGURE:
-                        entry_data = self._build_entry_data(user_input)
-                        if serial_number:
-                            await self.async_set_unique_id(
-                                serial_number, raise_on_progress=False
-                            )
-                        self._abort_if_unique_id_mismatch()
-                        return self.async_update_reload_and_abort(
-                            self._reconfigure_entry,
-                            data_updates=entry_data,
-                            title=device_name,
-                        )
-
-                    if self.source == SOURCE_REAUTH:
-                        entry_data = self._build_entry_data(user_input)
-                        self._abort_if_unique_id_mismatch()
-                        return self.async_update_reload_and_abort(
-                            self._reconfigure_entry,
-                            data_updates=entry_data,
-                        )
-
-                    # New setup
-                    configure_advanced = user_input.get("configure_advanced", False)
                     self.context["user_input"] = {
                         CONF_HOST: host,
                         CONF_USERNAME: username,
@@ -374,14 +491,15 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if configure_advanced:
                         return await self.async_step_advanced()
 
-                    entry_data = self._build_entry_data(
-                        user_input, include_defaults=True
-                    )
-                    entry_data[CONF_UPDATE_INTERVAL] = DEFAULT_UPDATE_INTERVAL
-                    entry_data[CONF_SET_ALARM_SERVER] = True
-                    entry_data[CONF_ALARM_SERVER_HOST] = (
-                        await self._async_default_alarm_server()
-                    )
+                    entry_data = {
+                        CONF_HOST: host,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_VERIFY_SSL: verify_ssl,
+                        CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL,
+                        CONF_SET_ALARM_SERVER: True,
+                        CONF_ALARM_SERVER_HOST: await self._async_default_alarm_server(),
+                    }
 
                     unique_id = serial_number or self.unique_id or host
                     await self.async_set_unique_id(unique_id)
@@ -389,11 +507,12 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                     return self.async_create_entry(title=device_name, data=entry_data)
 
-        data_schema = await self._async_get_credentials_schema(user_input)
+        data_schema = await self._async_get_user_schema(user_input)
         return self.async_show_form(
-            step_id=step_id,
+            step_id="user",
             data_schema=data_schema,
             errors=errors,
+            description_placeholders={"discovered_host": discovered_host or ""},
         )
 
     async def async_step_advanced(self, user_input=None):
