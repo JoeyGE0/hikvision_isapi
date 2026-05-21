@@ -367,7 +367,11 @@ class HikvisionISAPI:
             # Extract detailed error message from camera response
             error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
             status_code = e.response.status_code if hasattr(e, "response") and e.response else None
-            is_event_trigger_5xx = endpoint.startswith("/ISAPI/Event/triggers") and status_code and status_code >= 500
+            is_event_trigger_5xx = (
+                endpoint.startswith("/ISAPI/Event/triggers")
+                and status_code
+                and status_code >= 500
+            )
             if is_event_trigger_5xx:
                 if error_msg:
                     _LOGGER.warning(
@@ -1823,20 +1827,20 @@ class HikvisionISAPI:
             layout = xml.find(f".//{XML_NS}MotionDetectionLayout")
             if layout is not None:
                 sensitivity = layout.find(f".//{XML_NS}sensitivityLevel")
-                if sensitivity is not None:
+                if sensitivity is not None and sensitivity.text:
                     result["sensitivityLevel"] = int(sensitivity.text.strip())
                 
                 target_type = layout.find(f".//{XML_NS}targetType")
-                if target_type is not None:
+                if target_type is not None and target_type.text:
                     result["targetType"] = target_type.text.strip()
             
             # Get trigger times
             start_time = xml.find(f".//{XML_NS}startTriggerTime")
-            if start_time is not None:
+            if start_time is not None and start_time.text:
                 result["startTriggerTime"] = int(start_time.text.strip())
             
             end_time = xml.find(f".//{XML_NS}endTriggerTime")
-            if end_time is not None:
+            if end_time is not None and end_time.text:
                 result["endTriggerTime"] = int(end_time.text.strip())
             
             return result
@@ -3110,7 +3114,18 @@ class HikvisionISAPI:
         events = []
         
         try:
-            xml = self._get("/ISAPI/Event/triggers")
+            try:
+                xml = self._get("/ISAPI/Event/triggers")
+            except requests.exceptions.HTTPError as err:
+                status = err.response.status_code if err.response is not None else None
+                if status is not None and status >= 500:
+                    _LOGGER.debug(
+                        "Event/triggers returned HTTP %s on %s; using fallback event list",
+                        status,
+                        self.host,
+                    )
+                    return events
+                raise
             
             # Debug: Log root element and first 500 chars of XML
             _LOGGER.debug("Event/triggers root tag: %s, root attrib: %s", xml.tag, xml.attrib)
