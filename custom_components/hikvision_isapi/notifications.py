@@ -43,18 +43,25 @@ class EventNotificationsView(HomeAssistantView):
 
     async def post(self, request: web.Request):
         """Accept the POST request from camera."""
-        _LOGGER.info("=== WEBHOOK RECEIVED === Source IP: %s", request.remote)
+        _LOGGER.debug("Webhook received from %s", request.remote)
 
         try:
             xml = await self.parse_event_request(request)
-            _LOGGER.info("Received notification XML (first 300 chars): %s", xml[:300] if xml else "None")
+            _LOGGER.debug("Notification XML (first 300 chars): %s", xml[:300] if xml else "None")
             alert = self.parse_event_notification(xml)
-            _LOGGER.info("Parsed alert: event=%s, channel=%s, io_port=%s, activeState=%s", 
-                        alert.event_id, alert.channel_id, alert.io_port_id, alert.active_state)
+            _LOGGER.debug(
+                "Parsed alert: event=%s, channel=%s, io_port=%s, activeState=%s",
+                alert.event_id,
+                alert.channel_id,
+                alert.io_port_id,
+                alert.active_state,
+            )
             device_entry = self.get_isapi_device(request.remote, alert)
-            _LOGGER.info("Matched device entry: %s (entry_id: %s)", 
-                        device_entry.title if hasattr(device_entry, 'title') else 'unknown', 
-                        device_entry.entry_id)
+            _LOGGER.debug(
+                "Matched device entry: %s (entry_id: %s)",
+                device_entry.title if hasattr(device_entry, "title") else "unknown",
+                device_entry.entry_id,
+            )
             self.update_alert_channel(device_entry, alert)
             self.trigger_sensor(device_entry, alert)
         except Exception as ex:  # pylint: disable=broad-except

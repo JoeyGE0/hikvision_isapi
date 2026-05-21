@@ -89,6 +89,32 @@ def _schema_field_names(data_schema: vol.Schema) -> set[str]:
     return names
 
 
+def _as_bool(value: Any, default: bool = False) -> bool:
+    """Coerce config entry values for boolean form fields."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    if value is None:
+        return default
+    return bool(value)
+
+
+def _coerce_config_entry_for_form(entry_data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize stored config entry data for config flow suggested values."""
+    coerced: dict[str, Any] = {
+        CONF_HOST: str(entry_data.get(CONF_HOST, "")),
+        CONF_USERNAME: str(entry_data.get(CONF_USERNAME, "admin")),
+        CONF_VERIFY_SSL: _as_bool(entry_data.get(CONF_VERIFY_SSL), True),
+        CONF_UPDATE_INTERVAL: int(entry_data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
+        CONF_SET_ALARM_SERVER: _as_bool(entry_data.get(CONF_SET_ALARM_SERVER), True),
+        CONF_ALARM_SERVER_HOST: str(entry_data.get(CONF_ALARM_SERVER_HOST, "")),
+    }
+    if RTSP_PORT_FORCED in entry_data and entry_data[RTSP_PORT_FORCED] is not None:
+        coerced[RTSP_PORT_FORCED] = entry_data[RTSP_PORT_FORCED]
+    return coerced
+
+
 def _filter_suggested_values(
     data_schema: vol.Schema, suggested: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -106,6 +132,25 @@ def _filter_suggested_values(
     return filtered
 
 
+def _fallback_apply_suggested_values(
+    data_schema: vol.Schema, suggested: dict[str, Any]
+) -> vol.Schema:
+    """Fallback when add_suggested_values_to_schema is unavailable or fails."""
+    schema: dict = {}
+    for key, value in data_schema.schema.items():
+        if not isinstance(key, vol.Marker):
+            continue
+        new_key = copy.copy(key)
+        if key.schema in suggested:
+            existing = new_key.description
+            if isinstance(existing, dict):
+                new_key.description = {**existing, "suggested_value": suggested[key.schema]}
+            else:
+                new_key.description = {"suggested_value": suggested[key.schema]}
+        schema[new_key] = value
+    return vol.Schema(schema)
+
+
 def _apply_suggested_values(
     handler: config_entries.ConfigFlow,
     data_schema: vol.Schema,
@@ -120,20 +165,7 @@ def _apply_suggested_values(
             return handler.add_suggested_values_to_schema(data_schema, suggested)
         except Exception:
             _LOGGER.exception("add_suggested_values_to_schema failed, using fallback schema")
-    # Fallback for older HA: copy markers with suggested_value in description.
-    schema: dict = {}
-    for key, value in data_schema.schema.items():
-        if not isinstance(key, vol.Marker):
-            continue
-        if key.schema in suggested:
-            new_key = copy.copy(key)
-            description = dict(new_key.description or {})
-            description["suggested_value"] = suggested[key.schema]
-            new_key.description = description
-            schema[new_key] = value
-        else:
-            schema[key] = value
-    return vol.Schema(schema)
+    return _fallback_apply_suggested_values(data_schema, suggested)
 
 
 def get_basic_schema(default_host: str | None = None):
@@ -331,8 +363,15 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         title=device_name,
                     )
 
-        base_schema = _reconfigure_schema()
-        data_schema = _apply_suggested_values(self, base_schema, dict(entry.data))
+        try:
+            base_schema = _reconfigure_schema()
+            suggested = _coerce_config_entry_for_form(dict(entry.data))
+            data_schema = _apply_suggested_values(self, base_schema, suggested)
+        except Exception:
+            _LOGGER.exception("Failed to build reconfigure form schema")
+            errors["base"] = "unknown"
+            data_schema = _reconfigure_schema()
+
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=data_schema,
@@ -387,7 +426,13 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_USERNAME): str,
             vol.Required(CONF_PASSWORD): str,
         })
-        data_schema = _apply_suggested_values(self, base_schema, dict(entry.data))
+        try:
+            suggested = _coerce_config_entry_for_form(dict(entry.data))
+            data_schema = _apply_suggested_values(self, base_schema, suggested)
+        except Exception:
+            _LOGGER.exception("Failed to build reauth form schema")
+            errors["base"] = "unknown"
+            data_schema = base_schema
         return self.async_show_form(
             step_id="user",
             data_schema=data_schema,

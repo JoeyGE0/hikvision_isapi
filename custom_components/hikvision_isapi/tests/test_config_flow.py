@@ -13,9 +13,12 @@ from homeassistant.data_entry_flow import FlowResultType
 from custom_components.hikvision_isapi.config_flow import (
     HikvisionISAPIConfigFlow,
     _apply_suggested_values,
+    _coerce_config_entry_for_form,
+    _fallback_apply_suggested_values,
     _filter_suggested_values,
     _reconfigure_schema,
 )
+import voluptuous as vol
 from custom_components.hikvision_isapi.const import (
     CONF_ALARM_SERVER_HOST,
     CONF_HOST,
@@ -79,6 +82,25 @@ class TestConfigFlowHelpers:
             {CONF_HOST: "10.0.0.5", CONF_USERNAME: "admin"},
         )
         assert result is not None
+
+    def test_fallback_apply_suggested_with_string_marker_description(self):
+        """Markers with non-dict description must not crash (HA 2026.5 reconfigure 500)."""
+        schema = vol.Schema({
+            vol.Required("host", description="legacy-string-desc"): str,
+        })
+        result = _fallback_apply_suggested_values(schema, {"host": "192.168.1.15"})
+        assert result is not None
+
+    def test_coerce_config_entry_excludes_password(self):
+        """Password must never be passed as a suggested form value."""
+        data = _coerce_config_entry_for_form({
+            CONF_HOST: "192.168.1.15",
+            CONF_PASSWORD: "secret",
+            CONF_USERNAME: "admin",
+            CONF_VERIFY_SSL: "true",
+        })
+        assert CONF_PASSWORD not in data
+        assert data[CONF_VERIFY_SSL] is True
 
 
 class TestConfigFlow:
