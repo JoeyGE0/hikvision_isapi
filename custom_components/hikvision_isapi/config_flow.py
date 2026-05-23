@@ -204,12 +204,12 @@ def get_advanced_schema(default_alarm_server: str | None = None, set_alarm_serve
 
 
 def _reconfigure_schema() -> vol.Schema:
-    """Static reconfigure/reauth schema (must not change shape between form loads)."""
+    """Static reconfigure schema (must not change shape between form loads)."""
     return vol.Schema({
         vol.Required(CONF_HOST): str,
         vol.Optional(CONF_VERIFY_SSL): bool,
         vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
+        vol.Optional(CONF_PASSWORD): str,
         vol.Optional(CONF_UPDATE_INTERVAL): vol.All(
             vol.Coerce(int), vol.Range(min=5, max=300)
         ),
@@ -308,10 +308,13 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _build_entry_data(self, user_input: dict[str, Any]) -> dict[str, Any]:
         """Normalize reconfigure/reauth form into config entry data."""
         host = user_input[CONF_HOST].strip()
+        password = user_input.get(CONF_PASSWORD, "")
+        if not password and self._reconfigure_entry:
+            password = self._reconfigure_entry.data[CONF_PASSWORD]
         data: dict[str, Any] = {
             CONF_HOST: host,
             CONF_USERNAME: user_input[CONF_USERNAME].strip(),
-            CONF_PASSWORD: user_input[CONF_PASSWORD],
+            CONF_PASSWORD: password,
             CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, True),
             CONF_UPDATE_INTERVAL: user_input.get(
                 CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
@@ -343,7 +346,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             host = user_input.get(CONF_HOST, "").strip()
             username = user_input.get(CONF_USERNAME, "").strip()
-            password = user_input.get(CONF_PASSWORD, "")
+            password = user_input.get(CONF_PASSWORD, "") or entry.data.get(CONF_PASSWORD, "")
 
             if not host:
                 errors[CONF_HOST] = "host_required"
@@ -366,11 +369,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 if not errors:
                     entry_data = self._build_entry_data(user_input)
-                    if serial_number:
-                        await self.async_set_unique_id(
-                            serial_number, raise_on_progress=False
-                        )
-                    self._abort_if_unique_id_mismatch()
                     return self.async_update_reload_and_abort(
                         entry,
                         data_updates=entry_data,
@@ -390,6 +388,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=data_schema,
             errors=errors,
+            description_placeholders={"name": entry.title},
         )
 
     async def async_step_reauth(

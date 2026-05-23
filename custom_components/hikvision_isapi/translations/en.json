@@ -41,7 +41,7 @@
           "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.12)",
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
-          "password": "Password for camera login (required after a factory reset)",
+          "password": "Leave blank to keep the current password, or enter a new one",
           "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
           "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
           "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",

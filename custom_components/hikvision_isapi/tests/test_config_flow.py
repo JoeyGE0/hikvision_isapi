@@ -55,6 +55,7 @@ def mock_entry():
         CONF_ALARM_SERVER_HOST: "http://192.168.1.1:8123",
     }
     entry.entry_id = "test_entry_id"
+    entry.title = "Backyard Camera"
     return entry
 
 
@@ -186,6 +187,7 @@ class TestConfigFlow:
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "reconfigure"
         assert "data_schema" in result
+        assert result.get("description_placeholders") == {"name": mock_entry.title}
         mock_source_ip.assert_not_called()
 
     @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
@@ -201,8 +203,6 @@ class TestConfigFlow:
         mock_get.return_value = response
 
         flow._get_reconfigure_entry = Mock(return_value=mock_entry)
-        flow.async_set_unique_id = AsyncMock()
-        flow._abort_if_unique_id_mismatch = Mock()
         flow.async_update_reload_and_abort = Mock(
             return_value={"type": FlowResultType.ABORT, "reason": "reconfigure_successful"}
         )
@@ -219,3 +219,34 @@ class TestConfigFlow:
 
         assert result["type"] == FlowResultType.ABORT
         flow.async_update_reload_and_abort.assert_called_once()
+
+    @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
+    @patch("custom_components.hikvision_isapi.config_flow.requests.get")
+    async def test_reconfigure_blank_password_keeps_stored(
+        self, mock_get, mock_source_ip, flow, mock_entry
+    ):
+        """Reconfigure with empty password field uses stored credentials."""
+        response = Mock()
+        response.status_code = 200
+        response.ok = True
+        response.text = ""
+        mock_get.return_value = response
+
+        flow._get_reconfigure_entry = Mock(return_value=mock_entry)
+        flow.async_update_reload_and_abort = Mock(
+            return_value={"type": FlowResultType.ABORT, "reason": "reconfigure_successful"}
+        )
+
+        result = await flow.async_step_reconfigure({
+            CONF_HOST: "192.168.1.15",
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "",
+            CONF_VERIFY_SSL: True,
+            CONF_UPDATE_INTERVAL: 30,
+            CONF_SET_ALARM_SERVER: True,
+            CONF_ALARM_SERVER_HOST: "http://192.168.1.1:8123",
+        })
+
+        assert result["type"] == FlowResultType.ABORT
+        call_kwargs = flow.async_update_reload_and_abort.call_args.kwargs
+        assert call_kwargs["data_updates"][CONF_PASSWORD] == "old_password"
