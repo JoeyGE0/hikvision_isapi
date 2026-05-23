@@ -42,23 +42,33 @@ _XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
 _SENSITIVE_SUGGEST_KEYS = frozenset({CONF_PASSWORD})
 
 
-def _optional_rtsp_port_schema():
-    """Optional RTSP port: empty / omitted means unset (fixes '' vs vol.Coerce(int))."""
+def _parse_rtsp_port(value: Any) -> int | None:
+    """Parse optional RTSP port from form input; None if empty."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        port = int(str(value).strip())
+    except (ValueError, TypeError) as err:
+        raise vol.Invalid("invalid_rtsp_port") from err
+    if not 1 <= port <= 65535:
+        raise vol.Invalid("invalid_rtsp_port")
+    return port
 
-    def _coerce(v):
-        if v is None or v == "":
-            return None
-        if isinstance(v, str) and not str(v).strip():
-            return None
-        try:
-            port = int(v)
-        except (ValueError, TypeError) as err:
-            raise vol.Invalid("invalid_rtsp_port") from err
-        if not 1 <= port <= 65535:
-            raise vol.Invalid("invalid_rtsp_port")
-        return port
 
-    return vol.All(vol.Any(None, "", int, str, float), _coerce)
+def _validate_rtsp_port_field(value: Any, errors: dict[str, str]) -> int | None:
+    """Validate RTSP port from form; record errors and return parsed port or None."""
+    try:
+        return _parse_rtsp_port(value)
+    except vol.Invalid:
+        errors[RTSP_PORT_FORCED] = "invalid_rtsp_port"
+        return None
+
+
+def _rtsp_port_form_schema() -> type:
+    """Serializable optional RTSP port field (empty string = unset)."""
+    return str
 
 
 def _parse_device_info_response(response: requests.Response, fallback_host: str) -> tuple[str, str | None]:
@@ -111,7 +121,7 @@ def _coerce_config_entry_for_form(entry_data: dict[str, Any]) -> dict[str, Any]:
         CONF_ALARM_SERVER_HOST: str(entry_data.get(CONF_ALARM_SERVER_HOST, "")),
     }
     if RTSP_PORT_FORCED in entry_data and entry_data[RTSP_PORT_FORCED] is not None:
-        coerced[RTSP_PORT_FORCED] = entry_data[RTSP_PORT_FORCED]
+        coerced[RTSP_PORT_FORCED] = str(entry_data[RTSP_PORT_FORCED])
     return coerced
 
 
@@ -126,7 +136,7 @@ def _filter_suggested_values(
     for key, value in suggested.items():
         if key not in allowed or key in _SENSITIVE_SUGGEST_KEYS:
             continue
-        if key == RTSP_PORT_FORCED and value is None:
+        if key == RTSP_PORT_FORCED and value in (None, ""):
             continue
         filtered[key] = value
     return filtered
@@ -186,7 +196,7 @@ def get_advanced_schema(default_alarm_server: str | None = None, set_alarm_serve
             vol.Coerce(int), vol.Range(min=5, max=300)
         ),
         vol.Required(CONF_SET_ALARM_SERVER, default=set_alarm_server): bool,
-        vol.Optional(RTSP_PORT_FORCED): _optional_rtsp_port_schema(),
+        vol.Optional(RTSP_PORT_FORCED, default=""): _rtsp_port_form_schema(),
     }
     if set_alarm_server:
         schema[vol.Required(CONF_ALARM_SERVER_HOST, default=default_alarm_server or "")] = str
@@ -205,7 +215,7 @@ def _reconfigure_schema() -> vol.Schema:
         ),
         vol.Required(CONF_SET_ALARM_SERVER): bool,
         vol.Optional(CONF_ALARM_SERVER_HOST): str,
-        vol.Optional(RTSP_PORT_FORCED): _optional_rtsp_port_schema(),
+        vol.Optional(RTSP_PORT_FORCED, default=""): _rtsp_port_form_schema(),
     })
 
 
@@ -315,7 +325,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_ALARM_SERVER_HOST, ""
             )
         if RTSP_PORT_FORCED in user_input:
-            data[RTSP_PORT_FORCED] = user_input[RTSP_PORT_FORCED]
+            port = _parse_rtsp_port(user_input.get(RTSP_PORT_FORCED))
+            if port is not None:
+                data[RTSP_PORT_FORCED] = port
         elif self._reconfigure_entry and RTSP_PORT_FORCED in self._reconfigure_entry.data:
             data[RTSP_PORT_FORCED] = self._reconfigure_entry.data[RTSP_PORT_FORCED]
         return data
@@ -344,6 +356,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 and not user_input.get(CONF_ALARM_SERVER_HOST, "").strip()
             ):
                 errors[CONF_ALARM_SERVER_HOST] = "alarm_server_required"
+
+            _validate_rtsp_port_field(user_input.get(RTSP_PORT_FORCED), errors)
 
             if not errors:
                 verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
@@ -586,6 +600,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if set_alarm_server and not user_input.get(CONF_ALARM_SERVER_HOST, "").strip():
                 errors[CONF_ALARM_SERVER_HOST] = "alarm_server_required"
 
+            _validate_rtsp_port_field(user_input.get(RTSP_PORT_FORCED), errors)
+
             if not errors:
                 entry_data = {
                     **basic_data,
@@ -598,8 +614,10 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         if set_alarm_server
                         else default_alarm_server
                     ),
-                    RTSP_PORT_FORCED: user_input.get(RTSP_PORT_FORCED),
                 }
+                rtsp_port = _parse_rtsp_port(user_input.get(RTSP_PORT_FORCED))
+                if rtsp_port is not None:
+                    entry_data[RTSP_PORT_FORCED] = rtsp_port
                 device_name = entry_data.pop("device_name", basic_data.get(CONF_HOST, "Hikvision"))
 
                 host = entry_data[CONF_HOST]

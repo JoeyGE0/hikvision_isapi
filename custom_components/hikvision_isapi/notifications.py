@@ -49,6 +49,8 @@ class EventNotificationsView(HomeAssistantView):
             xml = await self.parse_event_request(request)
             _LOGGER.debug("Notification XML (first 300 chars): %s", xml[:300] if xml else "None")
             alert = self.parse_event_notification(xml)
+            if alert is None:
+                return web.Response(status=HTTPStatus.OK, content_type=CONTENT_TYPE_TEXT_PLAIN)
             _LOGGER.debug(
                 "Parsed alert: event=%s, channel=%s, io_port=%s, activeState=%s",
                 alert.event_id,
@@ -69,6 +71,8 @@ class EventNotificationsView(HomeAssistantView):
             # These are expected when DurationList exists but relationEvent is missing
             if "Cannot extract event type from DurationList" in str(ex):
                 _LOGGER.debug("Skipping duration event notification: %s", ex)
+            elif "Unsupported event" in str(ex):
+                _LOGGER.debug("Ignoring unsupported event notification: %s", ex)
             elif "Entity not found" in str(ex):
                 _LOGGER.warning("=== EVENT PROCESSING FAILED === %s", ex)
             else:
@@ -179,7 +183,7 @@ class EventNotificationsView(HomeAssistantView):
             raise ValueError(f"Unexpected event Content-Type {content_type_header}")
         return xml
 
-    def parse_event_notification(self, xml: str) -> AlertInfo:
+    def parse_event_notification(self, xml: str) -> AlertInfo | None:
         """Parse incoming EventNotificationAlert XML message."""
         import xml.etree.ElementTree as ET
         
@@ -377,9 +381,13 @@ class EventNotificationsView(HomeAssistantView):
             # Check if event is supported
             from .const import EVENTS
             if not EVENTS.get(event_id):
-                _LOGGER.warning("Unsupported event type: %s (channel: %s, io_port: %s)", 
-                             event_id, channel_id, io_port_id)
-                raise ValueError(f"Unsupported event {event_id}")
+                _LOGGER.debug(
+                    "Ignoring unsupported event type: %s (channel: %s, io_port: %s)",
+                    event_id,
+                    channel_id,
+                    io_port_id,
+                )
+                return None
             
             _LOGGER.debug("Parsed event: type=%s, channel=%s, io_port=%s, activeState=%s", 
                         event_id, channel_id, io_port_id, active_state)
