@@ -4055,31 +4055,58 @@ class HikvisionISAPI:
         elem = xml.find(path)
         return elem is not None and bool(elem.text) and elem.text.strip().lower() == "true"
 
+    @staticmethod
+    def _audio_cap_int(caps_xml: ET.Element, tag: str) -> int | None:
+        """Parse an integer from SysCap/AudioCap (e.g. audioInputNums, audioOutputNums)."""
+        elem = caps_xml.find(f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}{tag}")
+        if elem is None or not elem.text:
+            return None
+        try:
+            return int(elem.text.strip())
+        except ValueError:
+            return None
+
+    def _has_two_way_audio_channel(self, caps_xml: ET.Element) -> bool:
+        """Return True if mic/noise two-way audio ISAPI is available (may be mic-only).
+
+        DS-2CD1383/2387 firmware often omits isSupportTwoWayAudio but still exposes
+        TwoWayAudio/channels and audioInputNums.
+        """
+        channel = self.channel
+        if not self._test_endpoint_exists(f"/ISAPI/System/TwoWayAudio/channels/{channel}"):
+            return False
+
+        audio_cap = f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}"
+        if self._capability_bool(caps_xml, f"{audio_cap}isSupportTwoWayAudio"):
+            return True
+
+        input_nums = self._audio_cap_int(caps_xml, "audioInputNums")
+        if input_nums is not None and input_nums >= 1:
+            return True
+
+        # Channel endpoint responds; flags missing on some firmware builds.
+        return True
+
     def _has_two_way_speaker_output(self, caps_xml: ET.Element) -> bool:
         """Return True if the device can play audio to a built-in speaker (media player).
 
         Many cameras expose TwoWayAudio ISAPI with HTTP 200 but have no speaker hardware
-        (mic-only). Use SysCap audioOutputNums and channel capabilities, not endpoint 200 alone.
+        (mic-only). Use audioOutputNums and channel audioOutputType, not endpoint 200 alone.
         """
-        if not self._capability_bool(
-            caps_xml, f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio"
+        audio_cap = f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio"
+        support_elem = caps_xml.find(audio_cap)
+        if (
+            support_elem is not None
+            and support_elem.text
+            and support_elem.text.strip().lower() == "false"
         ):
-            _LOGGER.debug("isSupportTwoWayAudio is false — no two-way speaker")
+            _LOGGER.debug("isSupportTwoWayAudio explicitly false — no speaker")
             return False
 
-        output_nums_elem = caps_xml.find(
-            f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}audioOutputNums"
-        )
-        if output_nums_elem is not None and output_nums_elem.text is not None:
-            try:
-                if int(output_nums_elem.text.strip()) < 1:
-                    _LOGGER.debug(
-                        "audioOutputNums=%s — no speaker output",
-                        output_nums_elem.text.strip(),
-                    )
-                    return False
-            except ValueError:
-                pass
+        output_nums = self._audio_cap_int(caps_xml, "audioOutputNums")
+        if output_nums is not None and output_nums < 1:
+            _LOGGER.debug("audioOutputNums=%s — no speaker output", output_nums)
+            return False
 
         channel = self.channel
         if not self._test_endpoint_exists(f"/ISAPI/System/TwoWayAudio/channels/{channel}"):
@@ -4102,7 +4129,10 @@ class HikvisionISAPI:
                 exc,
             )
 
-        return True
+        if output_nums is not None and output_nums >= 1:
+            return True
+
+        return self._capability_bool(caps_xml, audio_cap)
     
     def detect_features(self) -> dict:
         """Detect which features Home Assistant may control (200 OK on probe endpoints).
@@ -4125,13 +4155,8 @@ class HikvisionISAPI:
             # 1. IMAGE ADJUSTMENT - Test endpoint
             has_image_adjustment = self._test_endpoint_exists(f"/ISAPI/Image/channels/{self.channel}/color")
             
-            # 2. TWO-WAY AUDIO - capability flag + channel endpoint (mic/config may exist without speaker)
-            is_support_two_way = self._capability_bool(
-                xml, f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio"
-            )
-            has_two_way_channel = is_support_two_way and self._test_endpoint_exists(
-                f"/ISAPI/System/TwoWayAudio/channels/{self.channel}"
-            )
+            # 2. TWO-WAY AUDIO - channel + AudioCap counts (mic-only vs speaker models differ)
+            has_two_way_channel = self._has_two_way_audio_channel(xml)
             has_two_way_speaker = (
                 has_two_way_channel and self._has_two_way_speaker_output(xml)
             )
