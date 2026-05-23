@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
+import time
+import urllib.request
 import requests
 from requests.auth import HTTPDigestAuth
 import json
@@ -12,6 +15,42 @@ from typing import Optional
 _LOGGER = logging.getLogger(__name__)
 
 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+
+# G.711 telephony audio: 8 kHz mono, 64 kbps → 8000 bytes/s
+G711_CHUNK_SIZE = 128  # 16 ms per chunk at 8 kHz (common ISAPI packet size)
+G711_SAMPLE_RATE = 8000
+
+
+def _g711_pad_byte(compression_type: str) -> bytes:
+    """Return the silence byte for the camera's G.711 compression type."""
+    if compression_type and "alaw" in compression_type.lower():
+        return b"\xd5"
+    return b"\xff"
+
+
+class _SocketGrabber:
+    """Capture the TCP socket from urllib during a PUT so we can keep streaming."""
+    def __init__(self) -> None:
+        self.sock: socket.socket | None = None
+        self._temp_close = socket.socket.close
+
+    def __enter__(self) -> "_SocketGrabber":
+        socket.socket.close = lambda sock: self._close(sock)  # type: ignore[method-assign]
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        socket.socket.close = self._temp_close  # type: ignore[method-assign]
+        if exc_type is not None:
+            self.sock = None
+
+    def _close(self, sock: socket.socket) -> None:
+        if sock._closed:
+            return
+        if self.sock is sock:
+            return
+        if self.sock is not None:
+            self._temp_close(self.sock)
+        self.sock = sock
 
 
 def _normalize_host(host: str) -> str:
@@ -1551,6 +1590,113 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set noise reduction: %s", e)
             return False
 
+    def ensure_two_way_audio_enabled(self) -> bool:
+        """Enable the two-way audio channel if it is currently disabled."""
+        try:
+            audio_data = self.get_two_way_audio()
+            if audio_data.get("enabled", False):
+                return True
+
+            compression = audio_data.get("audioCompressionType", "G.711ulaw")
+            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>1</id>
+<enabled>true</enabled>
+<audioCompressionType>{compression}</audioCompressionType>
+</TwoWayAudioChannel>"""
+            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
+            response = requests.put(
+                url,
+                auth=self._auth,
+                data=xml_data,
+                headers={"Content-Type": "application/xml"},
+                verify=self.verify_ssl,
+                timeout=5,
+            )
+            response.raise_for_status()
+            _LOGGER.info("Two-way audio enabled for streaming (compression=%s)", compression)
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to enable two-way audio: %s", e)
+            return False
+
+    def stream_two_way_audio(self, g711_data: bytes) -> bool:
+        """Stream G.711 audio to the camera speaker in realtime-paced chunks.
+
+        Uses the SocketGrabber pattern from mqtt-hikvision/hiksound.py: open a PUT to
+        /audioData, keep the TCP socket alive, and send 128-byte G.711 packets at
+        ~64 packets/sec (1/64 s). Without pacing, the camera plays audio too fast
+        and distorted — see https://stackoverflow.com/questions/38336063
+        """
+        if not g711_data:
+            return False
+
+        session_id = None
+        output_sock: socket.socket | None = None
+        try:
+            if not self.ensure_two_way_audio_enabled():
+                return False
+
+            audio_config = self.get_two_way_audio()
+            compression = audio_config.get("audioCompressionType", "G.711ulaw")
+            pad_byte = _g711_pad_byte(compression)
+
+            session_id = self.open_audio_session()
+            if not session_id:
+                return False
+
+            base = f"http://{self.host}"
+            audio_path = (
+                f"{base}/ISAPI/System/TwoWayAudio/channels/1/audioData"
+                f"?sessionId={session_id}"
+            )
+            sleep_time = 1.0 / 64  # ~64 packets/sec — matches hiksound.py / ISAPI examples
+            duration = len(g711_data) / G711_SAMPLE_RATE
+            total_chunks = (len(g711_data) + G711_CHUNK_SIZE - 1) // G711_CHUNK_SIZE
+
+            _LOGGER.info(
+                "Streaming %d bytes (%.2f s) G.711 in %d chunks of %d bytes",
+                len(g711_data),
+                duration,
+                total_chunks,
+                G711_CHUNK_SIZE,
+            )
+
+            mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+            mgr.add_password(None, [base], self.username, self.password)
+            digest_auth = urllib.request.HTTPDigestAuthHandler(mgr)
+            opener = urllib.request.build_opener(digest_auth)
+
+            with _SocketGrabber() as sockgrab:
+                req = urllib.request.Request(audio_path, method="PUT")
+                opener.open(req)
+                output_sock = sockgrab.sock
+
+            if output_sock is None:
+                _LOGGER.error("Failed to capture audio streaming socket")
+                return False
+
+            for offset in range(0, len(g711_data), G711_CHUNK_SIZE):
+                chunk = g711_data[offset : offset + G711_CHUNK_SIZE]
+                if len(chunk) < G711_CHUNK_SIZE:
+                    chunk = chunk + pad_byte * (G711_CHUNK_SIZE - len(chunk))
+                time.sleep(sleep_time)
+                output_sock.send(chunk)
+
+            _LOGGER.info("Audio streamed successfully")
+            return True
+
+        except Exception as e:
+            _LOGGER.error("Failed to stream two-way audio: %s", e, exc_info=True)
+            return False
+        finally:
+            if output_sock is not None:
+                try:
+                    output_sock.close()
+                except OSError:
+                    pass
+            if session_id:
+                self.close_audio_session()
+
     def open_audio_session(self) -> Optional[str]:
         """Open two-way audio session. Returns sessionId.
         
@@ -1635,69 +1781,10 @@ class HikvisionISAPI:
             return False
 
     def play_test_tone(self) -> bool:
-        """Play a 3-second test tone: 1000 Hz for most of it, then ramp to 2500 Hz at end.
-        
-        ⚠️ STATUS: THIS TEST TONE SORTA WORKS (partially functional) ⚠️
-        
-        NOTE FOR DEVELOPERS: This test tone function is partially working but may have issues.
-        If you have experience with Hikvision ISAPI audio streaming or G.711 codec implementation,
-        your help would be greatly appreciated to improve this!
-        
-        HOW IT CURRENTLY WORKS (AI-generated, not 100% certain):
-        - Generates a sine wave test tone programmatically (1000 Hz, ramping to 2500 Hz)
-        - Converts PCM samples to G.711ulaw format using a custom linear_to_ulaw function
-        - Sends the audio data to /ISAPI/System/TwoWayAudio/channels/1/audioData
-        - The tone is 3 seconds at 8kHz sample rate (24,000 samples total)
-        - This appears to work to some degree, but may not be perfect
-        
-        KNOWN ISSUES / UNCERTAINTIES:
-        - The G.711ulaw conversion might have bugs (custom implementation, not using standard library)
-        - Audio might need to be sent in chunks rather than all at once
-        - Session management might be incorrect (open/close timing)
-        - The endpoint might require different headers or data format
-        - Quality or reliability may be poor
-        
-        If you can help improve this, please check:
-        - Hikvision ISAPI documentation for two-way audio streaming
-        - Standard G.711ulaw encoding libraries (pyaudio, wave, etc.)
-        - Compare with working audio streaming implementations
-        Any contributions welcome!
-        """
-        import time
+        """Play a 3-second G.711 test tone through the camera speaker."""
         import math
-        
+
         try:
-            # Step 1: Enable two-way audio
-            # Note: open_audio_session() now automatically closes any existing sessions first
-            # For enabling to play test tone, we only need required fields
-            # Optional fields (speakerVolume, microphoneVolume, noisereduce, audioInputType) are not needed
-            _LOGGER.info("Enabling two-way audio...")
-            
-            xml_data = """<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
-<id>1</id>
-<enabled>true</enabled>
-<audioCompressionType>G.711ulaw</audioCompressionType>
-</TwoWayAudioChannel>"""
-            url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_data,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            response.raise_for_status()
-            time.sleep(0.5)
-            
-            # Step 2: Open session
-            _LOGGER.info("Opening audio session...")
-            session_id = self.open_audio_session()
-            if not session_id:
-                _LOGGER.error("Failed to open audio session")
-                return False
-            
-            # Step 3: Generate 3-second test tone
             _LOGGER.info("Generating 3-second test tone...")
             sample_rate = 8000
             duration = 3.0
@@ -1766,38 +1853,14 @@ class HikvisionISAPI:
                 ulaw_byte = linear_to_ulaw(pcm_sample)
                 ulaw_data.append(ulaw_byte)
             
-            _LOGGER.info("Generated %d bytes of audio", len(ulaw_data))
-            
-            # Step 4: Send all audio in one request
-            _LOGGER.info("Sending audio data to camera...")
-            
-            # According to ISAPI PDF: sessionId is a query parameter (required for multi-channel, optional for single channel)
-            endpoint = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1/audioData?sessionId={session_id}"
-            response = requests.put(
-                endpoint,
-                auth=self._auth,
-                data=bytes(ulaw_data),
-                headers={"Content-Type": "application/octet-stream"},
-                verify=self.verify_ssl,
-                timeout=10
-            )
-            
-            if response.status_code != 200:
-                _LOGGER.error("Failed to send audio: %s", response.text[:300])
-                self.close_audio_session()
-                return False
-            
-            _LOGGER.info("Test tone sent successfully!")
-            
-            # Step 5: Close session
-            self.close_audio_session()
-            return True
+            _LOGGER.info("Generated %d bytes of test tone audio", len(ulaw_data))
+            return self.stream_two_way_audio(bytes(ulaw_data))
             
         except Exception as e:
             _LOGGER.error("Failed to play test tone: %s", e, exc_info=True)
             try:
                 self.close_audio_session()
-            except:
+            except Exception:
                 pass
             return False
 

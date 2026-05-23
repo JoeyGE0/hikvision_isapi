@@ -128,40 +128,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     
     def _enable_two_way_audio(self):
         """Enable two-way audio channel."""
-        try:
-            audio_data = self.api.get_two_way_audio()
-            if not audio_data or not audio_data.get("enabled", False):
-                # Enable it - always set enabled=true to ensure it's on
-                import xml.etree.ElementTree as ET
-                XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
-                
-                # Only send required fields when enabling for streaming
-                # According to ISAPI schema: only id, enabled, and audioCompressionType are required
-                # All other fields (noisereduce, speakerVolume, microphoneVolume, audioInputType) are optional
-                # We omit them so we don't accidentally change any settings when just enabling for streaming
-                compression = audio_data.get('audioCompressionType', 'G.711ulaw') if audio_data else 'G.711ulaw'
-                
-                xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
-<id>1</id>
-<enabled>true</enabled>
-<audioCompressionType>{compression}</audioCompressionType>
-</TwoWayAudioChannel>"""
-                
-                url = f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1"
-                response = requests.put(
-                    url,
-                    auth=(self.api.username, self.api.password),
-                    data=xml_data,
-                    headers={"Content-Type": "application/xml"},
-                    verify=self.api.verify_ssl,
-                    timeout=5
-                )
-                response.raise_for_status()
-                _LOGGER.info("Two-way audio enabled (enabled=true, speakerVolume=%d)", speaker_vol)
-            else:
-                _LOGGER.debug("Two-way audio already enabled")
-        except Exception as e:
-            _LOGGER.error("Failed to enable two-way audio: %s", e)
+        self.api.ensure_two_way_audio_enabled()
     
     async def _stream_audio(self, media_id: str, media_type: str):
         """Stream audio to camera."""
@@ -186,10 +153,12 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             
             _LOGGER.debug("Successfully extracted %d bytes of ulaw data, sending to camera", len(ulaw_data))
             
-            # Stream to camera
-            await self.hass.async_add_executor_job(
-                self._send_audio_stream, ulaw_data
+            # Stream to camera (128-byte chunks paced on persistent TCP socket)
+            success = await self.hass.async_add_executor_job(
+                self.api.stream_two_way_audio, ulaw_data
             )
+            if not success:
+                _LOGGER.error("Failed to stream audio to camera")
             
             # Close session after streaming
             await self.async_media_stop()
@@ -381,8 +350,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             if audio_format == 0x0007:  # G.711ulaw
                 codec_name = "G.711ulaw"
             elif audio_format == 0x0006:  # G.711alaw
-                _LOGGER.error("File is G.711alaw, but camera requires G.711ulaw")
-                return None
+                codec_name = "G.711alaw"
             else:
                 _LOGGER.error("WAV file is not G.711ulaw format (codec: 0x%04x). Only G.711ulaw (0x0007) is supported.", audio_format)
                 return None
@@ -470,82 +438,11 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Failed to extract ulaw from WAV: %s", e)
             return None
     
-    def _send_audio_stream(self, ulaw_data: bytes):
-        """Send audio data to camera.
-        
-        NOTE: Camera doesn't support HTTP chunked transfer encoding or multiple requests.
-        Must send all audio data in a single PUT request with Content-Length header.
-        This matches how play_test_tone() works and what the ISAPI PDF example shows.
-        
-        For future streaming support, consider WebSocket or RTSP audio paths.
-        """
-        session_id = None
-        try:
-            # Ensure two-way audio is enabled
-            self._enable_two_way_audio()
-            
-            # Open audio session first
-            session_id = self.api.open_audio_session()
-            if not session_id:
-                _LOGGER.error("Failed to open audio session")
-                return
-            
-            _LOGGER.info("Opened audio session: %s", session_id)
-            
-            # Use the audioData endpoint with PUT
-            # According to ISAPI PDF: sessionId is a query parameter (required for multi-channel, optional for single channel)
-            endpoint = f"http://{self.api.host}/ISAPI/System/TwoWayAudio/channels/1/audioData?sessionId={session_id}"
-            _LOGGER.debug("Using audioData endpoint: %s", endpoint)
-            
-            _LOGGER.info("Sending %d bytes of audio (%.2f seconds)", 
-                        len(ulaw_data), len(ulaw_data) / 8000.0)
-            
-            # Send all audio data in one request (matches play_test_tone() approach)
-            # Camera expects Content-Length header, not chunked transfer encoding
-            response = requests.put(
-                        endpoint,
-                auth=(self.api.username, self.api.password),
-                data=ulaw_data,
-                headers={"Content-Type": "application/octet-stream"},
-                verify=self.api.verify_ssl,
-                timeout=30  # Longer timeout for large files
-            )
-            
-            if response.status_code == 200:
-                _LOGGER.info("Audio sent successfully (status 200)")
-                # Wait for audio to finish playing before closing session
-                # Audio duration in seconds = bytes / 8000 (bytes per second)
-                audio_duration = len(ulaw_data) / 8000.0
-                import time
-                _LOGGER.info("Waiting %.2f seconds for audio to play before closing session", audio_duration)
-                # TODO: Fix audio playback issues - audio only plays for a few ms
-                # Issues to address:
-                # - Audio often only plays the start or end portion instead of full file
-                # - May be related to session timing, chunking, or camera buffer issues
-                # - Investigate if camera requires different endpoint or streaming method
-                # - Consider using WebSocket or RTSP for audio streaming instead of single PUT
-                time.sleep(audio_duration + 0.5)  # Add 0.5s buffer
-            else:
-                error_text = response.text[:200] if response.text else 'No response body'
-                _LOGGER.error("Camera returned status %d: %s", response.status_code, error_text)
-                # Still wait a bit even on error
-                import time
-                time.sleep(0.5)
-                
-        except requests.exceptions.Timeout:
-            _LOGGER.warning("Timeout sending audio (camera may still be processing)")
-        except requests.exceptions.HTTPError as e:
-            _LOGGER.error("HTTP error sending audio: %s", e)
-        except Exception as e:
-            _LOGGER.error("Failed to send audio stream: %s", e, exc_info=True)
-        finally:
-            # Always close the session
-            if session_id:
-                try:
-                    self.api.close_audio_session()
-                    _LOGGER.info("Closed audio session")
-                except Exception as e:
-                    _LOGGER.warning("Failed to close audio session: %s", e)
+    async def async_media_stop(self) -> None:
+        """Stop media playback."""
+        if self._audio_session_id:
+            self._audio_session_id = None
+            self.async_write_ha_state()
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
@@ -565,20 +462,6 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         """Turn volume down."""
         current = self.volume_level or 0.5
         await self.async_set_volume_level(max(0.0, current - 0.1))
-
-    async def async_media_stop(self) -> None:
-        """Stop media playback."""
-        if self._audio_session_id:
-            # Try to close session if method exists
-            try:
-                await self.hass.async_add_executor_job(
-                    self.api.close_audio_session
-                )
-            except Exception:
-                pass  # Close might not be needed
-            
-            self._audio_session_id = None
-            self.async_write_ha_state()
 
     async def async_browse_media(
         self,
