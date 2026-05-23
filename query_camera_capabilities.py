@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Query Hikvision camera ISAPI capabilities and save all responses."""
 
+import json
+import os
+import sys
+from datetime import datetime
+
 import requests
 import xml.etree.ElementTree as ET
 from requests.auth import HTTPDigestAuth
-import json
-from datetime import datetime
-import sys
 
-# Camera details - can be set via command line or here
-CAMERA_IP = "192.168.1.13"  # Update this or pass as arg
-USERNAME = "admin"  # Update this or pass as arg
-PASSWORD = "PipSkye99!"  # Update this or pass as arg
+# Camera details — pass on CLI or via env (never commit real passwords).
+
+CAMERA_IP = os.environ.get("HIKVISION_HOST", "")
+USERNAME = os.environ.get("HIKVISION_USERNAME", "admin")
+PASSWORD = os.environ.get("HIKVISION_PASSWORD", "")
 
 # Disable SSL warnings
 import urllib3
