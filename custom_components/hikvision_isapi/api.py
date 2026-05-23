@@ -4048,6 +4048,61 @@ class HikvisionISAPI:
         except Exception:
             # Any other error (timeout, connection, etc.) = assume not supported
             return False
+
+    @staticmethod
+    def _capability_bool(xml: ET.Element, path: str) -> bool:
+        """Return True if a capabilities XML node text is true."""
+        elem = xml.find(path)
+        return elem is not None and bool(elem.text) and elem.text.strip().lower() == "true"
+
+    def _has_two_way_speaker_output(self, caps_xml: ET.Element) -> bool:
+        """Return True if the device can play audio to a built-in speaker (media player).
+
+        Many cameras expose TwoWayAudio ISAPI with HTTP 200 but have no speaker hardware
+        (mic-only). Use SysCap audioOutputNums and channel capabilities, not endpoint 200 alone.
+        """
+        if not self._capability_bool(
+            caps_xml, f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio"
+        ):
+            _LOGGER.debug("isSupportTwoWayAudio is false — no two-way speaker")
+            return False
+
+        output_nums_elem = caps_xml.find(
+            f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}audioOutputNums"
+        )
+        if output_nums_elem is not None and output_nums_elem.text is not None:
+            try:
+                if int(output_nums_elem.text.strip()) < 1:
+                    _LOGGER.debug(
+                        "audioOutputNums=%s — no speaker output",
+                        output_nums_elem.text.strip(),
+                    )
+                    return False
+            except ValueError:
+                pass
+
+        channel = self.channel
+        if not self._test_endpoint_exists(f"/ISAPI/System/TwoWayAudio/channels/{channel}"):
+            return False
+
+        try:
+            cap_xml = self._get(f"/ISAPI/System/TwoWayAudio/channels/{channel}/capabilities")
+            output_type = cap_xml.find(f".//{XML_NS}audioOutputType")
+            if output_type is not None:
+                opt = (output_type.attrib.get("opt") or output_type.text or "").strip()
+                if opt and "speaker" not in opt.lower():
+                    _LOGGER.debug(
+                        "TwoWayAudio channel capabilities audioOutputType=%s — no speaker",
+                        opt,
+                    )
+                    return False
+        except Exception as exc:
+            _LOGGER.debug(
+                "TwoWayAudio channel capabilities unavailable (using audioOutputNums only): %s",
+                exc,
+            )
+
+        return True
     
     def detect_features(self) -> dict:
         """Detect which features Home Assistant may control (200 OK on probe endpoints).
@@ -4070,8 +4125,16 @@ class HikvisionISAPI:
             # 1. IMAGE ADJUSTMENT - Test endpoint
             has_image_adjustment = self._test_endpoint_exists(f"/ISAPI/Image/channels/{self.channel}/color")
             
-            # 2. TWO-WAY AUDIO - Test endpoint
-            has_two_way_audio = self._test_endpoint_exists(f"/ISAPI/System/TwoWayAudio/channels/{self.channel}")
+            # 2. TWO-WAY AUDIO - capability flag + channel endpoint (mic/config may exist without speaker)
+            is_support_two_way = self._capability_bool(
+                xml, f".//{XML_NS}SysCap/{XML_NS}AudioCap/{XML_NS}isSupportTwoWayAudio"
+            )
+            has_two_way_channel = is_support_two_way and self._test_endpoint_exists(
+                f"/ISAPI/System/TwoWayAudio/channels/{self.channel}"
+            )
+            has_two_way_speaker = (
+                has_two_way_channel and self._has_two_way_speaker_output(xml)
+            )
             
             # 3. LIGHTS - Test endpoint
             has_lights = self._test_endpoint_exists(f"/ISAPI/Image/channels/{self.channel}/supplementLight")
@@ -4133,11 +4196,12 @@ class HikvisionISAPI:
                 features["saturation"] = True
                 features["sharpness"] = True
             
-            # Two-way Audio features
-            if has_two_way_audio:
-                features["speaker_volume"] = True
+            # Two-way Audio features (speaker entity only when hardware reports speaker output)
+            if has_two_way_channel:
                 features["microphone_volume"] = True
                 features["noise_reduce"] = True
+            if has_two_way_speaker:
+                features["speaker_volume"] = True
                 features["media_player"] = True
             
             # Light features (all or nothing - if lights exist, all light controls exist)
@@ -4214,8 +4278,8 @@ class HikvisionISAPI:
             _LOGGER.info("Enabled features: %s", ", ".join(enabled_features))
             
             # Log what categories were detected
-            _LOGGER.info("Feature categories - Image: %s, Audio: %s, Lights: %s, IR: %s, Motion: %s, Tamper: %s, Intrusion: %s, Line: %s, Region: %s/%s, Scene: %s, Alarm: %s, I/O: %s/%s",
-                        has_image_adjustment, has_two_way_audio, has_lights, has_ir_cut,
+            _LOGGER.info("Feature categories - Image: %s, TwoWay: %s, TwoWaySpeaker: %s, Lights: %s, IR: %s, Motion: %s, Tamper: %s, Intrusion: %s, Line: %s, Region: %s/%s, Scene: %s, Defocus: %s, Alarm: %s, I/O: %s/%s",
+                        has_image_adjustment, has_two_way_channel, has_two_way_speaker, has_lights, has_ir_cut,
                         has_motion_detection, has_tamper_detection, has_intrusion_detection,
                         has_line_detection, has_region_entrance, has_region_exiting,
                         has_scene_change, has_defocus, has_audio_alarm, has_io_inputs, has_io_outputs)
