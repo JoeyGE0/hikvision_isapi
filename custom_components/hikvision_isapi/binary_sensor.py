@@ -25,6 +25,7 @@ EVENT_ID_TO_DETECTED_FEATURE = {
     "scenechangedetection": "scene_change_detection",
     "regionentrance": "region_entrance_detection",
     "regionexiting": "region_exiting_detection",
+    "defocus": "defocus_detection",
 }
 
 
@@ -197,7 +198,7 @@ class EventBinarySensor(BinarySensorEntity):
             # Video Loss: ethernet-cable (on) / ethernet-cable-off (off)
             self._icon_on = "mdi:ethernet-cable"
             self._icon_off = "mdi:ethernet-cable-off"
-        elif event.id in ("tamperdetection", "scenechangedetection"):
+        elif event.id in ("tamperdetection", "scenechangedetection", "defocus"):
             # Tamper and Scene Change: alarm-light (on) / alarm-light-off (off)
             self._icon_on = "mdi:alarm-light"
             self._icon_off = "mdi:alarm-light-off"

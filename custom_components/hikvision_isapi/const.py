@@ -89,6 +89,12 @@ EVENTS: Final = {
         "slug": "regionExiting",
         "device_class": BinarySensorDeviceClass.MOTION,
     },
+    "defocus": {
+        "type": EVENT_SMART,
+        "label": "Defocus",
+        "slug": "DefocusDetection",
+        "device_class": BinarySensorDeviceClass.PROBLEM,
+    },
 }
 
 # Alternate event IDs (some cameras use different names)
@@ -97,6 +103,7 @@ EVENTS_ALTERNATE_ID: Final = {
     "thermometry": "motiondetection",
     "shelteralarm": "tamperdetection",
     "VMDHumanVehicle": "motiondetection",
+    "defocusdetection": "defocus",
 }
 
 # Alternate event IDs for mutex checking (API uses different IDs for mutex)

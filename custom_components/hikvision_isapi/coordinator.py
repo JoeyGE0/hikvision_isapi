@@ -202,6 +202,11 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 if detected_features.get("scene_change_detection", False)
                 else {}
             )
+            defocus = (
+                await self.hass.async_add_executor_job(self.api.get_defocus_detection)
+                if detected_features.get("defocus_detection", False)
+                else {}
+            )
             region_entrance = (
                 await self.hass.async_add_executor_job(self.api.get_region_entrance)
                 if detected_features.get("region_entrance_detection", False)
@@ -279,6 +284,7 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 "field_detection": field_detection,
                 "line_detection": line_detection,
                 "scene_change": scene_change,
+                "defocus": defocus,
                 "region_entrance": region_entrance,
                 "region_exiting": region_exiting,
                 "white_light_time": white_light_time,

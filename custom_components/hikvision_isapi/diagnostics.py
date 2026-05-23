@@ -227,6 +227,7 @@ def _get_endpoints_info(api, hass) -> dict[str, Any]:
                 "field_detection": f"/ISAPI/Smart/Image/{api.channel}/fieldDetection",
                 "line_detection": f"/ISAPI/Smart/Image/{api.channel}/lineDetection",
                 "scene_change": f"/ISAPI/Smart/Image/{api.channel}/sceneChangeDetection",
+                "defocus": f"/ISAPI/Smart/DefocusDetection/{api.channel}",
                 "region_entrance": f"/ISAPI/Smart/Image/{api.channel}/regionEntrance",
                 "region_exiting": f"/ISAPI/Smart/Image/{api.channel}/regionExiting",
                 "io_inputs": f"/ISAPI/System/IO/inputs/{api.channel}",
@@ -258,7 +259,8 @@ def _count_supported_switch_entities(features: dict) -> int:
     """Count supported switch entities."""
     switch_features = [
         "noise_reduce", "motion_detection", "tamper_detection", "intrusion_detection",
-        "line_crossing_detection", "scene_change_detection", "region_entrance_detection",
+        "line_crossing_detection", "scene_change_detection", "defocus_detection",
+        "region_entrance_detection",
         "region_exiting_detection", "alarm_input", "alarm_output"
     ]
     return sum(1 for f in switch_features if features.get(f, False))

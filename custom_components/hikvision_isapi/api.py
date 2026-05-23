@@ -2687,6 +2687,62 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set scene change detection: %s", e)
             return False
 
+    def get_defocus_detection(self) -> dict:
+        """Get defocus detection settings."""
+        try:
+            xml = self._get(f"/ISAPI/Smart/DefocusDetection/{self.channel}")
+            result = {}
+            enabled = xml.find(f".//{XML_NS}enabled")
+            if enabled is not None and enabled.text:
+                result["enabled"] = enabled.text.strip().lower() == "true"
+            return result
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Failed to get defocus detection (camera may be restarting): %s", e)
+            else:
+                _LOGGER.error("Failed to get defocus detection: %s", e)
+            return {}
+
+    def set_defocus_detection(self, enabled: bool) -> bool:
+        """Enable/disable defocus detection."""
+        try:
+            url = f"http://{self.host}/ISAPI/Smart/DefocusDetection/{self.channel}"
+            response = requests.get(
+                url,
+                auth=self._auth,
+                verify=self.verify_ssl,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            xml_str = response.text
+            enabled_str = "true" if enabled else "false"
+            xml_str = re.sub(r"<enabled>.*?</enabled>", f"<enabled>{enabled_str}</enabled>", xml_str)
+            response = requests.put(
+                url,
+                auth=self._auth,
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=self.verify_ssl,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed - check username and password (401)")
+            elif response.status_code == 403:
+                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to set defocus detection: %s", e)
+            return False
+
     def get_region_entrance(self) -> dict:
         """Get region entrance detection settings."""
         try:
@@ -4052,8 +4108,19 @@ class HikvisionISAPI:
             
             # 12. SCENE CHANGE DETECTION - Test actual endpoint (same as get/set methods)
             has_scene_change = self._test_endpoint_exists(f"/ISAPI/Smart/SceneChangeDetection/{self.channel}")
+
+            # 13. DEFOCUS DETECTION - SmartCap flag and/or DefocusDetection endpoint
+            defocus_elem = xml.find(f".//{XML_NS}SmartCap/{XML_NS}isSupportDefocusDetection")
+            has_defocus_cap = (
+                defocus_elem is not None
+                and defocus_elem.text
+                and defocus_elem.text.strip().lower() == "true"
+            )
+            has_defocus = has_defocus_cap or self._test_endpoint_exists(
+                f"/ISAPI/Smart/DefocusDetection/{self.channel}"
+            )
             
-            # 13. I/O PORTS - Use capabilities dict (already working)
+            # 14. I/O PORTS - Use capabilities dict (already working)
             has_io_inputs = caps_dict.get("input_ports", 0) > 0
             has_io_outputs = caps_dict.get("output_ports", 0) > 0
             
@@ -4118,6 +4185,10 @@ class HikvisionISAPI:
             # Scene Change Detection
             if has_scene_change:
                 features["scene_change_detection"] = True
+
+            # Defocus Detection
+            if has_defocus:
+                features["defocus_detection"] = True
             
             # I/O features
             if has_io_inputs:
@@ -4147,7 +4218,7 @@ class HikvisionISAPI:
                         has_image_adjustment, has_two_way_audio, has_lights, has_ir_cut,
                         has_motion_detection, has_tamper_detection, has_intrusion_detection,
                         has_line_detection, has_region_entrance, has_region_exiting,
-                        has_scene_change, has_audio_alarm, has_io_inputs, has_io_outputs)
+                        has_scene_change, has_defocus, has_audio_alarm, has_io_inputs, has_io_outputs)
             
             return features
         except Exception as e:
