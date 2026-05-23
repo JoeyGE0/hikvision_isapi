@@ -7,6 +7,8 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.components.network import async_get_source_ip
 
+from pathlib import Path
+
 from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
@@ -14,6 +16,34 @@ from .device_helpers import build_primary_device_info
 from .notifications import EventNotificationsView
 
 _LOGGER = logging.getLogger(__name__)
+
+_INTEGRATION_DIR = Path(__file__).resolve().parent
+
+_BASE_PLATFORMS = [
+    "sensor",
+    "select",
+    "number",
+    "media_player",
+    "binary_sensor",
+    "camera",
+    "button",
+    "switch",
+    "siren",
+]
+
+
+def _entry_platforms() -> list[str]:
+    """Platforms to load; skip update if update.py missing (partial HACS install)."""
+    platforms = list(_BASE_PLATFORMS)
+    if (_INTEGRATION_DIR / "update.py").is_file():
+        platforms.append("update")
+    else:
+        _LOGGER.warning(
+            "update.py is missing from %s — firmware update entity disabled. "
+            "Re-download the integration in HACS (Redownload) to restore it.",
+            _INTEGRATION_DIR,
+        )
+    return platforms
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -160,9 +190,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Store coordinator in data
     hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
 
-    await hass.config_entries.async_forward_entry_setups(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch", "update", "siren"]
-    )
+    await hass.config_entries.async_forward_entry_setups(entry, _entry_platforms())
 
     # Only register notification view once if multiple instances
     if get_first_instance_unique_id(hass) == entry.unique_id:
@@ -199,9 +227,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Don't reset alarm server on unload - leave it configured
     # This prevents the camera from being reset to "/" which breaks notifications
     
-    await hass.config_entries.async_unload_platforms(
-        entry, ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch", "update", "siren"]
-    )
+    await hass.config_entries.async_unload_platforms(entry, _entry_platforms())
     hass.data[DOMAIN].pop(entry.entry_id, None)
     return True
 
