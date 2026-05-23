@@ -48,9 +48,12 @@ async def async_setup_entry(
 
 class HikvisionMediaPlayer(MediaPlayerEntity):
     """Media player entity for Hikvision camera speaker.
-
-    Downloads media from Home Assistant (local media, TTS, URLs), converts to
-    G.711 (8 kHz mono) when needed, then streams to the camera in paced chunks.
+    
+    Supports only pre-encoded G.711ulaw audio files:
+    - WAV files with G.711ulaw codec (8kHz, mono)
+    - Raw G.711ulaw files (.ulaw, .pcm)
+    
+    No audio conversion is performed - files must already be in G.711ulaw format.
     """
 
     _attr_supported_features = (
@@ -137,17 +140,14 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 await self.async_media_stop()
                 return
             
-            # Extract or convert to G.711 for the camera codec
-            _LOGGER.debug("Preparing G.711 audio from %d bytes", len(audio_data))
+            # Extract G.711ulaw data (no conversion - must be pre-encoded)
+            _LOGGER.debug("Extracting ulaw data from %d bytes of audio data", len(audio_data))
             ulaw_data = await self.hass.async_add_executor_job(
-                self._prepare_g711_audio, audio_data, media_id
+                self._extract_ulaw_data, audio_data, media_id
             )
             
             if not ulaw_data:
-                _LOGGER.error(
-                    "Could not prepare G.711 audio. Install ffmpeg on Home Assistant "
-                    "and use a supported source (MP3, WAV, TTS, or pre-encoded .ulaw)."
-                )
+                _LOGGER.error("File is not in G.711ulaw format. Only pre-encoded G.711ulaw WAV files or raw ulaw files are supported.")
                 await self.async_media_stop()
                 return
             
@@ -283,93 +283,56 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Failed to get audio data: %s", e)
             return None
     
-    def _prepare_g711_audio(self, audio_data: bytes, media_id: str = "") -> bytes | None:
-        """Return raw G.711 bytes ready for ISAPI streaming."""
+    def _extract_ulaw_data(self, audio_data: bytes, media_id: str = "") -> bytes | None:
+        """Extract G.711ulaw audio data from file.
+        
+        Supports:
+        - WAV files with G.711ulaw codec (codec ID 0x0007)
+        - Raw G.711ulaw files (no header)
+        
+        Returns raw ulaw audio data (no WAV header) or None if format is not supported.
+        """
         if len(audio_data) < 12:
             _LOGGER.error("File too small to be valid audio")
             return None
-
+        
+        # Check if it's a WAV file (starts with "RIFF" and "WAVE")
+        if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
+            return self._extract_ulaw_from_wav(audio_data)
+        
+        # Check file extension for raw ulaw files
         if media_id:
             media_lower = media_id.lower()
-            if media_lower.endswith((".ulaw", ".pcm", ".alaw")):
-                _LOGGER.info("Using raw G.711 file")
+            if media_lower.endswith('.ulaw') or media_lower.endswith('.pcm'):
+                _LOGGER.info("Treating as raw G.711ulaw file")
                 return audio_data
-
-        if audio_data[:4] == b"RIFF" and audio_data[8:12] == b"WAVE":
-            g711 = self._extract_g711_from_wav(audio_data)
-            if g711:
-                return g711
-            _LOGGER.info("WAV is not pre-encoded G.711; converting with ffmpeg")
-
-        return self._convert_to_g711(audio_data)
-
-    def _convert_to_g711(self, audio_data: bytes) -> bytes | None:
-        """Convert arbitrary audio (MP3, PCM WAV, TTS, etc.) to raw G.711."""
-        from io import BytesIO
-
-        try:
-            from pydub import AudioSegment
-        except ImportError:
-            _LOGGER.error("pydub is not available; cannot convert audio to G.711")
-            return None
-
-        compression = "G.711ulaw"
-        try:
-            audio_config = self.api.get_two_way_audio()
-            if audio_config.get("audioCompressionType"):
-                compression = audio_config["audioCompressionType"]
-        except Exception:
-            pass
-
-        use_alaw = "alaw" in compression.lower()
-        ffmpeg_codec = "pcm_alaw" if use_alaw else "pcm_mulaw"
-
-        try:
-            segment = AudioSegment.from_file(BytesIO(audio_data))
-            segment = segment.set_frame_rate(8000).set_channels(1)
-            out = BytesIO()
-            segment.export(
-                out,
-                format="wav",
-                codec=ffmpeg_codec,
-                parameters=["-ar", "8000", "-ac", "1"],
-            )
-            wav_bytes = out.getvalue()
-            _LOGGER.info(
-                "Converted audio to G.711 %s (%d -> %d bytes)",
-                "alaw" if use_alaw else "ulaw",
-                len(audio_data),
-                len(wav_bytes),
-            )
-            return self._extract_g711_from_wav(wav_bytes)
-        except Exception as e:
-            _LOGGER.error(
-                "Audio conversion failed — is ffmpeg installed on Home Assistant? %s",
-                e,
-            )
-            return None
-
-    def _extract_g711_from_wav(self, wav_data: bytes) -> bytes | None:
-        """Extract raw G.711 payload from a G.711 WAV (ulaw or alaw)."""
-        import io
-        import wave
-
-        try:
-            with wave.open(io.BytesIO(wav_data), "rb") as wf:
-                if wf.getcomptype() in ("ULAW", "ulaw", "ULAW"):
-                    frames = wf.readframes(wf.getnframes())
-                    _LOGGER.info("Extracted %d bytes of G.711ulaw via wave module", len(frames))
-                    return frames
-                if wf.getcomptype() in ("ALAW", "alaw", "ALAW"):
-                    frames = wf.readframes(wf.getnframes())
-                    _LOGGER.info("Extracted %d bytes of G.711alaw via wave module", len(frames))
-                    return frames
-        except Exception:
-            pass
-
-        return self._extract_g711_from_wav_manual(wav_data)
-
-    def _extract_g711_from_wav_manual(self, wav_data: bytes) -> bytes | None:
+        
+        # If it's not a WAV and not a known raw format, try to detect if it's raw ulaw
+        # (no header, just raw data - this is a guess)
+        if len(audio_data) > 1000:  # Reasonable size for audio
+            # TODO: Improve audio format detection and conversion
+            # Issues to address:
+            # - Better detection of audio formats (MP3, AAC, etc.) and conversion to G.711ulaw
+            # - Currently falls back to treating unknown formats as raw ulaw, which often fails
+            # - Should integrate audio conversion library (e.g., ffmpeg-python) to convert
+            #   common formats (MP3, WAV with other codecs, etc.) to G.711ulaw
+            _LOGGER.warning("File doesn't appear to be WAV or raw ulaw. Attempting as raw ulaw...")
+            return audio_data
+        
+        _LOGGER.error("Unsupported audio format. Only G.711ulaw WAV files or raw ulaw files are supported.")
+        return None
+    
+    def _extract_ulaw_from_wav(self, wav_data: bytes) -> bytes | None:
+        """Extract raw G.711ulaw audio data from WAV file.
+        
+        WAV format:
+        - Offset 0-3: "RIFF"
+        - Offset 8-11: "WAVE"
+        - Offset 20-21: Audio format code (0x0007 = G.711ulaw, 0x0006 = G.711alaw)
+        - Offset 22-23: Number of channels (should be 1 for mono)
+        - Offset 24-27: Sample rate (should be 8000 for G.711)
+        - After "data" chunk: Raw audio data
+        """
         try:
             # Check WAV header
             if wav_data[:4] != b'RIFF' or wav_data[8:12] != b'WAVE':
@@ -389,9 +352,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             elif audio_format == 0x0006:  # G.711alaw
                 codec_name = "G.711alaw"
             else:
-                _LOGGER.debug(
-                    "WAV codec 0x%04x is not G.711; conversion required", audio_format
-                )
+                _LOGGER.error("WAV file is not G.711ulaw format (codec: 0x%04x). Only G.711ulaw (0x0007) is supported.", audio_format)
                 return None
             
             # Check channels (offset 22-23) - should be 1 (mono)
@@ -474,7 +435,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             return None
             
         except Exception as e:
-            _LOGGER.error("Failed to extract G.711 from WAV: %s", e)
+            _LOGGER.error("Failed to extract ulaw from WAV: %s", e)
             return None
     
     async def async_media_stop(self) -> None:
