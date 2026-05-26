@@ -611,11 +611,21 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         license_url = data.get("license_url") or LICENSE_URL
 
         lines: list[str] = []
+        firmware_filename = None
+        if download_url and str(download_url).startswith("http"):
+            firmware_filename = str(download_url).split("/")[-1].split("?")[0]
+        package_version = None
+        if firmware_filename:
+            match = re.search(r"V(\d+(?:\.\d+)+)", firmware_filename, re.IGNORECASE)
+            if match:
+                package_version = match.group(1)
 
         if latest_version:
             lines.append(
                 f"Latest version: {format_version_display(latest_version) or latest_version}"
             )
+        if package_version and str(latest_version or "") != str(package_version):
+            lines.append(f"Package version: {format_version_display(package_version) or package_version}")
         if self._current_firmware:
             lines.append(
                 f"Installed version: {format_version_display(self._current_firmware) or self._current_firmware}"
@@ -640,9 +650,13 @@ class HikvisionFirmwareUpdate(UpdateEntity):
             lines.append("Hikvision release notes (PDF):")
             lines.append(str(notes_pdf_url))
 
-        if download_url:
+        if download_url and str(download_url).startswith("http"):
             lines.append("")
-            lines.append(f"Download firmware: {download_url}")
+            if firmware_filename:
+                lines.append(f"Download firmware ({firmware_filename}):")
+            else:
+                lines.append("Download firmware:")
+            lines.append(str(download_url))
 
         if release_page_url and str(release_page_url).startswith("http"):
             lines.append("")
