@@ -1,11 +1,15 @@
 """API helper for Hikvision ISAPI."""
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
+import shutil
 import socket
+import tempfile
 import time
+import zipfile
 import urllib.request
 import requests
 from requests.auth import HTTPDigestAuth
@@ -344,6 +348,10 @@ class FirmwareUpgradeError(Exception):
     def __init__(self, message: str, *, sub_status: str | None = None) -> None:
         super().__init__(message)
         self.sub_status = sub_status
+
+
+# ISAPI updateFirmware expects the flash image (e.g. digicap.dav), not the distribution .zip.
+FIRMWARE_BLOB_SUFFIXES = (".dav", ".digicap", ".pak", ".bin")
 
 
 class EventMutexError(Exception):
@@ -1250,45 +1258,112 @@ class HikvisionISAPI:
                 percent = 0
         return {"upgrading": upgrading, "percent": max(0, min(100, percent))}
 
-    def upload_firmware(self, firmware_path: str) -> None:
-        """Upload firmware file for local upgrade (ISAPI 15.10.193 PUT/POST updateFirmware)."""
+    @staticmethod
+    def resolve_firmware_upload_path(firmware_path: str) -> tuple[str, list[str]]:
+        """Return ISAPI-uploadable file path; extract .zip archives when needed.
+
+        Returns (upload_path, temp_paths_to_delete) where temp_paths may include
+        an extracted directory tree.
+        """
         if not os.path.isfile(firmware_path):
             raise FirmwareUpgradeError(f"Firmware file not found: {firmware_path}")
 
-        file_size = os.path.getsize(firmware_path)
-        if file_size < 1:
-            raise FirmwareUpgradeError("Firmware file is empty")
-        if file_size > 512 * 1024 * 1024:
-            raise FirmwareUpgradeError("Firmware file is too large (>512 MB)")
+        lower = firmware_path.lower()
+        temps: list[str] = []
 
-        status = self.get_upgrade_status()
-        if status.get("upgrading"):
-            raise FirmwareUpgradeError(
-                "Device is already upgrading firmware",
-                sub_status="upgrading",
+        if lower.endswith(".zip"):
+            extract_dir = tempfile.mkdtemp(prefix="hikvision_fw_")
+            temps.append(extract_dir)
+            try:
+                with zipfile.ZipFile(firmware_path, "r") as archive:
+                    archive.extractall(extract_dir)
+            except zipfile.BadZipFile as err:
+                shutil.rmtree(extract_dir, ignore_errors=True)
+                raise FirmwareUpgradeError(f"Invalid firmware zip: {err}") from err
+
+            candidates: list[str] = []
+            for root, _, files in os.walk(extract_dir):
+                for name in files:
+                    if name.lower().endswith(FIRMWARE_BLOB_SUFFIXES):
+                        candidates.append(os.path.join(root, name))
+
+            if not candidates:
+                raise FirmwareUpgradeError(
+                    "Firmware zip has no .dav/.digicap/.pak/.bin file for ISAPI upload. "
+                    "Extract the official package and upload digicap.dav (not the .zip)."
+                )
+
+            def _rank(path: str) -> tuple[int, int]:
+                base = os.path.basename(path).lower()
+                prefer = 0 if base == "digicap.dav" else 1
+                return (prefer, -os.path.getsize(path))
+
+            upload_path = sorted(candidates, key=_rank)[0]
+            _LOGGER.info(
+                "Extracted %s from zip for firmware upload (%s)",
+                os.path.basename(upload_path),
+                firmware_path,
             )
+            return upload_path, temps
 
-        url = f"http://{self.host}/ISAPI/System/updateFirmware"
-        last_error: str | None = None
+        if lower.endswith(FIRMWARE_BLOB_SUFFIXES):
+            return firmware_path, temps
 
+        raise FirmwareUpgradeError(
+            f"Unsupported firmware file type for ISAPI upload: "
+            f"{os.path.basename(firmware_path)} (expected .zip or {', '.join(FIRMWARE_BLOB_SUFFIXES)})"
+        )
+
+    @staticmethod
+    def cleanup_firmware_temp_paths(temp_paths: list[str]) -> None:
+        """Remove paths created by resolve_firmware_upload_path."""
+        for path in temp_paths:
+            if os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
+            elif os.path.isfile(path):
+                with contextlib.suppress(OSError):
+                    os.unlink(path)
+
+    def upload_firmware(self, firmware_path: str) -> None:
+        """Upload firmware file for local upgrade (ISAPI 15.10.193 PUT/POST updateFirmware)."""
+        upload_path, temp_paths = self.resolve_firmware_upload_path(firmware_path)
         try:
-            self._upload_firmware_put(url, firmware_path)
-            return
-        except FirmwareUpgradeError as err:
-            last_error = str(err)
-            _LOGGER.warning(
-                "PUT firmware upload failed for %s, trying POST multipart: %s",
-                self.host,
-                err,
-            )
+            file_size = os.path.getsize(upload_path)
+            if file_size < 1:
+                raise FirmwareUpgradeError("Firmware file is empty")
+            if file_size > 512 * 1024 * 1024:
+                raise FirmwareUpgradeError("Firmware file is too large (>512 MB)")
 
-        try:
-            self._upload_firmware_post(url, firmware_path)
-        except FirmwareUpgradeError as err:
-            detail = last_error or str(err)
-            raise FirmwareUpgradeError(
-                f"Firmware upload failed (PUT and POST): {detail}; POST: {err}"
-            ) from err
+            status = self.get_upgrade_status()
+            if status.get("upgrading"):
+                raise FirmwareUpgradeError(
+                    "Device is already upgrading firmware",
+                    sub_status="upgrading",
+                )
+
+            url = f"http://{self.host}/ISAPI/System/updateFirmware"
+            last_error: str | None = None
+
+            try:
+                self._upload_firmware_put(url, upload_path)
+                return
+            except FirmwareUpgradeError as err:
+                last_error = str(err)
+                _LOGGER.warning(
+                    "PUT firmware upload failed for %s, trying POST multipart: %s",
+                    self.host,
+                    err,
+                )
+
+            try:
+                self._upload_firmware_post(url, upload_path)
+            except FirmwareUpgradeError as err:
+                detail = last_error or str(err)
+                raise FirmwareUpgradeError(
+                    f"Firmware upload failed (PUT and POST): {detail}; POST: {err}"
+                ) from err
+        finally:
+            self.cleanup_firmware_temp_paths(temp_paths)
 
     def _upload_firmware_put(self, url: str, firmware_path: str) -> None:
         """PUT opaque binary per ISAPI (application/octet-stream)."""
@@ -1323,6 +1398,12 @@ class HikvisionISAPI:
     ) -> None:
         """Validate upload HTTP response and ResponseStatus."""
         if response.status_code in (401, 403):
+            body = response.text or ""
+            if "deviceError" in body or "errCode" in body or "UniNetIF_firm_upgrade" in body:
+                error_msg = _extract_error_message(response) or body[:300]
+                raise FirmwareUpgradeError(
+                    f"Firmware upload {method} rejected by device: {error_msg}"
+                )
             raise AuthenticationError(
                 f"Authentication failed during firmware upload ({response.status_code})"
             )

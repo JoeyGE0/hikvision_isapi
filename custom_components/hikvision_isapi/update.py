@@ -969,10 +969,16 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 raise HomeAssistantError(f"Authentication failed: {err}") from err
             except FirmwareUpgradeError as err:
                 hint = ""
+                err_text = str(err)
                 if err.sub_status in ("upgrading", "badFlash", "badLanguage"):
                     hint = (
                         " Device may be busy, flash error, or language mismatch "
                         "(ISAPI subStatusCode)."
+                    )
+                elif "errCode = 40" in err_text or "ret[40]" in err_text:
+                    hint = (
+                        " Firmware package rejected (wrong file type, model, or region). "
+                        "Use the digicap.dav inside the official zip for this exact model."
                     )
                 raise HomeAssistantError(f"Firmware upgrade failed: {err}.{hint}") from err
             except HomeAssistantError:
