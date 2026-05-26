@@ -645,6 +645,35 @@ class HikvisionFirmwareUpdate(UpdateEntity):
             with contextlib.suppress(asyncio.CancelledError):
                 await pulse
 
+    async def _async_sync_installed_firmware_from_camera(
+        self,
+        api: HikvisionISAPI,
+        data: dict[str, Any],
+    ) -> None:
+        """Read firmwareVersion from the camera and refresh the update entity (post-install)."""
+        try:
+            device_info = await self.hass.async_add_executor_job(api.get_device_info)
+        except Exception as err:
+            _LOGGER.debug(
+                "Could not refresh firmware version from %s after install: %s",
+                self._host,
+                err,
+            )
+            return
+        new_firmware = (device_info.get("firmwareVersion") or "").strip()
+        if not new_firmware:
+            return
+        if new_firmware != self._current_firmware:
+            _LOGGER.info(
+                "Firmware version on %s is now %s (was %s)",
+                self._host,
+                new_firmware,
+                self._current_firmware,
+            )
+        self._current_firmware = new_firmware
+        self.coordinator.current_firmware = new_firmware
+        data["device_info"]["firmwareVersion"] = new_firmware
+
     async def _async_wait_for_camera_online(
         self, api: HikvisionISAPI, timeout: int = FIRMWARE_REBOOT_WAIT_TIMEOUT
     ) -> dict:
@@ -900,6 +929,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
             loop.call_soon_threadsafe(self._report_install_progress, mapped)
 
         install_succeeded = False
+        previous_firmware = self._current_firmware
         async with lock:
             try:
                 self._report_install_progress(0)
@@ -914,23 +944,53 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 await self._async_download_firmware(download_url, firmware_path)
                 self._report_install_progress(40)
 
-                await self._async_run_blocking_with_pulse(
-                    api.upload_firmware,
-                    firmware_path,
-                    start=41,
-                    end=58,
-                    interval=10.0,
-                )
-                self._report_install_progress(60)
+                upload_disconnected = False
+                try:
+                    await self._async_run_blocking_with_pulse(
+                        api.upload_firmware,
+                        firmware_path,
+                        start=41,
+                        end=58,
+                        interval=10.0,
+                    )
+                except FirmwareUpgradeError as err:
+                    if err.sub_status != "connection_lost":
+                        raise
+                    upload_disconnected = True
+                    _LOGGER.warning(
+                        "Firmware upload connection dropped on %s; "
+                        "camera may still be flashing — waiting for reboot",
+                        self._host,
+                    )
+                except (ConnectionError, OSError) as err:
+                    upload_disconnected = True
+                    _LOGGER.warning(
+                        "Firmware upload connection lost on %s (%s); "
+                        "camera may still be flashing — waiting for reboot",
+                        self._host,
+                        err,
+                    )
 
-                await self._async_run_blocking_with_pulse(
-                    api.wait_for_firmware_upgrade,
-                    _camera_progress,
-                    FIRMWARE_UPGRADE_POLL_TIMEOUT,
-                    start=61,
-                    end=89,
-                    interval=15.0,
-                )
+                self._report_install_progress(65 if upload_disconnected else 60)
+
+                try:
+                    await self._async_run_blocking_with_pulse(
+                        api.wait_for_firmware_upgrade,
+                        _camera_progress,
+                        FIRMWARE_UPGRADE_POLL_TIMEOUT,
+                        start=61,
+                        end=89,
+                        interval=15.0,
+                    )
+                except FirmwareUpgradeError as err:
+                    if not upload_disconnected:
+                        raise
+                    _LOGGER.warning(
+                        "upgradeStatus polling inconclusive on %s after disconnect: %s",
+                        self._host,
+                        err,
+                    )
+
                 self._report_install_progress(90)
 
                 device_info = await self._async_wait_for_camera_online(api)
@@ -941,11 +1001,21 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                         "Upgrade finished but could not read new firmware version"
                     )
 
+                upgraded = parse_version(new_firmware) > parse_version(previous_firmware)
+                at_target = parse_version(new_firmware) >= parse_version(target_version)
+                if not upgraded and not at_target and not upload_disconnected:
+                    raise HomeAssistantError(
+                        f"Firmware unchanged after install ({new_firmware})"
+                    )
+                if not upgraded and not at_target:
+                    raise HomeAssistantError(
+                        f"Upload disconnected but firmware is still {new_firmware} "
+                        f"(expected {target_version})"
+                    )
+
                 self._current_firmware = new_firmware
                 self.coordinator.current_firmware = new_firmware
                 data["device_info"]["firmwareVersion"] = new_firmware
-                await self.coordinator.async_refresh()
-                self.async_write_ha_state()
 
                 if parse_version(new_firmware) < parse_version(target_version):
                     _LOGGER.warning(
@@ -959,10 +1029,13 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 install_succeeded = True
                 self._report_install_progress(100)
                 _LOGGER.warning(
-                    "Firmware upgrade completed on %s: now running %s",
+                    "Firmware upgrade completed on %s: now running %s%s",
                     self._host,
                     new_firmware,
+                    " (recovered after upload disconnect)" if upload_disconnected else "",
                 )
+                await self.coordinator.async_refresh()
+                self.async_write_ha_state()
                 await asyncio.sleep(3)
 
             except AuthenticationError as err:
@@ -985,6 +1058,11 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                         " Camera required a reboot before upgrade; the integration "
                         "reboots automatically and retries once."
                     )
+                elif err.sub_status == "connection_lost":
+                    hint = (
+                        " Connection dropped during upload; if the camera still upgraded, "
+                        "reload the integration to refresh the firmware version."
+                    )
                 raise HomeAssistantError(f"Firmware upgrade failed: {err}.{hint}") from err
             except HomeAssistantError:
                 raise
@@ -992,9 +1070,10 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 _LOGGER.exception("Unexpected firmware upgrade error on %s", self._host)
                 raise HomeAssistantError(f"Firmware upgrade failed: {err}") from err
             finally:
+                await self._async_sync_installed_firmware_from_camera(api, data)
                 self._report_install_progress(None)
-                if install_succeeded:
-                    await self.coordinator.async_refresh()
+                await self.coordinator.async_refresh()
+                self.async_write_ha_state()
                 try:
                     os.unlink(firmware_path)
                 except OSError:

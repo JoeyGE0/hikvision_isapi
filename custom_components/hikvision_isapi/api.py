@@ -1398,7 +1398,7 @@ class HikvisionISAPI:
             return
         except FirmwareUpgradeError as err:
             last_error = str(err)
-            if err.sub_status == "rebootRequired":
+            if err.sub_status in ("rebootRequired", "connection_lost"):
                 raise
             _LOGGER.warning(
                 "PUT firmware upload failed for %s, trying POST multipart: %s",
@@ -1416,15 +1416,21 @@ class HikvisionISAPI:
 
     def _upload_firmware_put(self, url: str, firmware_path: str) -> None:
         """PUT opaque binary per ISAPI (application/octet-stream)."""
-        with open(firmware_path, "rb") as firmware_file:
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=firmware_file,
-                headers={"Content-Type": "application/octet-stream"},
-                verify=self.verify_ssl,
-                timeout=600,
-            )
+        try:
+            with open(firmware_path, "rb") as firmware_file:
+                response = requests.put(
+                    url,
+                    auth=self._auth,
+                    data=firmware_file,
+                    headers={"Content-Type": "application/octet-stream"},
+                    verify=self.verify_ssl,
+                    timeout=600,
+                )
+        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as err:
+            raise FirmwareUpgradeError(
+                "Connection lost during firmware upload (camera may be rebooting)",
+                sub_status="connection_lost",
+            ) from err
         self._raise_if_firmware_upload_failed(response, "PUT")
 
     def _upload_firmware_post(self, url: str, firmware_path: str) -> None:
