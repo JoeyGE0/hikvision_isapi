@@ -12,7 +12,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 import aiohttp
-from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
+from homeassistant.components.update import (
+    UpdateDeviceClass,
+    UpdateEntity,
+    UpdateEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -544,9 +548,7 @@ async def async_setup_entry(
 class HikvisionFirmwareUpdate(UpdateEntity):
     """Update entity for Hikvision firmware."""
     
-    _attr_supported_features = (
-        UpdateEntityFeature.RELEASE_NOTES | UpdateEntityFeature.PROGRESS
-    )
+    _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_title = "Firmware Update"
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -576,7 +578,16 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         
         self._attr_unique_id = f"{host}_firmware_update"
         self._attr_name = "Firmware Update"
-    
+
+    @property
+    def supported_features(self) -> UpdateEntityFeature:
+        """Install when a firmware package URL is available from the archive."""
+        features = UpdateEntityFeature.RELEASE_NOTES | UpdateEntityFeature.PROGRESS
+        data = self.coordinator.data or {}
+        if data.get("download_url"):
+            features |= UpdateEntityFeature.INSTALL
+        return features
+
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
@@ -708,14 +719,12 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         lines.append("Firmware archive:")
         lines.append(FIRMWARE_ARCHIVE_HOME_URL)
 
-        lines.extend(
-            [
-                "",
-                "Install uses ISAPI PUT /ISAPI/System/updateFirmware and polls",
-                "GET /ISAPI/System/upgradeStatus (device reboots automatically).",
-                "",
-                "Warning: interrupted upgrades can brick the device. Use stable power and LAN.",
-            ]
+        lines.append("")
+        lines.append(
+            "Use **Install** in Home Assistant to upgrade this camera automatically, "
+            "or open the download link above to save the firmware file for manual use. "
+            "The camera will reboot during an install. Use stable power and a wired connection; "
+            "do not interrupt the upgrade."
         )
 
         return "\n".join(lines) if lines else None
