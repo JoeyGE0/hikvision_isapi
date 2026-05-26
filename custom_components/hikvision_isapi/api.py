@@ -1369,9 +1369,11 @@ class HikvisionISAPI:
                 connection_errors = 0
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
                 connection_errors += 1
-                if saw_upgrading or connection_errors >= 2:
-                    if progress_callback:
-                        progress_callback(95)
+                if progress_callback:
+                    # Camera often goes offline while flashing; keep UI moving.
+                    offline_pct = min(95, 70 + connection_errors * 5)
+                    progress_callback(offline_pct)
+                if saw_upgrading or connection_errors >= 3:
                     return {"upgrading": False, "percent": 95}
                 time.sleep(poll_interval)
                 continue

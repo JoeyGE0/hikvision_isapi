@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -596,9 +597,74 @@ class HikvisionFirmwareUpdate(UpdateEntity):
     @callback
     def _report_install_progress(self, percent: int | None) -> None:
         """Update in_progress / update_percentage for the HA UI."""
-        self._install_in_progress = percent is not None
-        self._install_progress_percent = percent
+        if percent is None:
+            self._install_in_progress = False
+            self._install_progress_percent = None
+        else:
+            self._install_in_progress = True
+            prior = self._install_progress_percent or 0
+            self._install_progress_percent = max(prior, min(100, int(percent)))
         self.async_write_ha_state()
+
+    async def _async_pulse_progress_until(
+        self,
+        start: int,
+        end: int,
+        stop: asyncio.Event,
+        *,
+        interval: float = 12.0,
+        step: int = 2,
+    ) -> None:
+        """Creep progress forward while a blocking install step runs."""
+        current = start
+        while not stop.is_set() and current < end:
+            await asyncio.sleep(interval)
+            if stop.is_set():
+                break
+            current = min(end, current + step)
+            self._report_install_progress(current)
+
+    async def _async_run_blocking_with_pulse(
+        self,
+        func: Any,
+        *args: Any,
+        start: int,
+        end: int,
+        interval: float = 12.0,
+        **kwargs: Any,
+    ) -> Any:
+        """Run a blocking install step in the executor while pulsing progress."""
+        stop = asyncio.Event()
+        pulse = asyncio.create_task(
+            self._async_pulse_progress_until(start, end, stop, interval=interval)
+        )
+        try:
+            return await self.hass.async_add_executor_job(func, *args, **kwargs)
+        finally:
+            stop.set()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pulse
+
+    async def _async_wait_for_camera_online(
+        self, api: HikvisionISAPI, timeout: int = FIRMWARE_REBOOT_WAIT_TIMEOUT
+    ) -> dict:
+        """Poll deviceInfo after reboot; keep progress visible while camera is offline."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        progress = 96
+        while loop.time() < deadline:
+            self._report_install_progress(progress)
+            try:
+                device_info = await self.hass.async_add_executor_job(api.get_device_info)
+                if device_info and (device_info.get("firmwareVersion") or "").strip():
+                    return device_info
+            except Exception:
+                pass
+            progress = min(99, progress + 1)
+            await asyncio.sleep(5)
+        raise HomeAssistantError(
+            f"Camera {self._host} did not come back online within {timeout} seconds"
+        )
 
     @property
     def supported_features(self) -> UpdateEntityFeature:
@@ -624,7 +690,9 @@ class HikvisionFirmwareUpdate(UpdateEntity):
     
     @property
     def available(self) -> bool:
-        """Return if entity is available."""
+        """Stay available during install so progress is not hidden when the camera reboots."""
+        if self._install_in_progress:
+            return True
         return self.coordinator.last_update_success
     
     @property
@@ -828,9 +896,10 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         loop = asyncio.get_running_loop()
 
         def _camera_progress(percent: int) -> None:
-            mapped = 60 + int(percent * 0.35)
+            mapped = min(94, 60 + int(percent * 0.34))
             loop.call_soon_threadsafe(self._report_install_progress, mapped)
 
+        install_succeeded = False
         async with lock:
             try:
                 self._report_install_progress(0)
@@ -845,23 +914,27 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 await self._async_download_firmware(download_url, firmware_path)
                 self._report_install_progress(40)
 
-                await hass.async_add_executor_job(api.upload_firmware, firmware_path)
+                await self._async_run_blocking_with_pulse(
+                    api.upload_firmware,
+                    firmware_path,
+                    start=41,
+                    end=58,
+                    interval=10.0,
+                )
                 self._report_install_progress(60)
 
-                await hass.async_add_executor_job(
+                await self._async_run_blocking_with_pulse(
                     api.wait_for_firmware_upgrade,
                     _camera_progress,
                     FIRMWARE_UPGRADE_POLL_TIMEOUT,
+                    start=61,
+                    end=89,
+                    interval=15.0,
                 )
-                self._report_install_progress(95)
+                self._report_install_progress(90)
 
-                device_info = await hass.async_add_executor_job(
-                    api.wait_for_device_online,
-                    FIRMWARE_REBOOT_WAIT_TIMEOUT,
-                )
+                device_info = await self._async_wait_for_camera_online(api)
                 new_firmware = (device_info.get("firmwareVersion") or "").strip()
-
-                self._report_install_progress(100)
 
                 if not new_firmware:
                     raise HomeAssistantError(
@@ -872,6 +945,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 self.coordinator.current_firmware = new_firmware
                 data["device_info"]["firmwareVersion"] = new_firmware
                 await self.coordinator.async_refresh()
+                self.async_write_ha_state()
 
                 if parse_version(new_firmware) < parse_version(target_version):
                     _LOGGER.warning(
@@ -882,11 +956,14 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                         target_version,
                     )
 
+                install_succeeded = True
+                self._report_install_progress(100)
                 _LOGGER.warning(
                     "Firmware upgrade completed on %s: now running %s",
                     self._host,
                     new_firmware,
                 )
+                await asyncio.sleep(3)
 
             except AuthenticationError as err:
                 raise HomeAssistantError(f"Authentication failed: {err}") from err
@@ -905,6 +982,8 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 raise HomeAssistantError(f"Firmware upgrade failed: {err}") from err
             finally:
                 self._report_install_progress(None)
+                if install_succeeded:
+                    await self.coordinator.async_refresh()
                 try:
                     os.unlink(firmware_path)
                 except OSError:
