@@ -980,6 +980,11 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                         " Firmware package rejected (wrong file type, model, or region). "
                         "Use the digicap.dav inside the official zip for this exact model."
                     )
+                elif err.sub_status == "rebootRequired":
+                    hint = (
+                        " Camera required a reboot before upgrade; the integration "
+                        "reboots automatically and retries once."
+                    )
                 raise HomeAssistantError(f"Firmware upgrade failed: {err}.{hint}") from err
             except HomeAssistantError:
                 raise

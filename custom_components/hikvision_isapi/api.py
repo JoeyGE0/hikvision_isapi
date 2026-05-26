@@ -108,6 +108,29 @@ _KNOWN_ALERT_SOUND_LABELS_NORMALIZED: frozenset[str] = frozenset(
 )
 
 
+def _extract_sub_status_code(response) -> str | None:
+    """Return ISAPI subStatusCode from an HTTP response when present."""
+    text = getattr(response, "text", None) or ""
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            sub = data.get("subStatusCode")
+            if sub:
+                return str(sub).strip()
+    except (json.JSONDecodeError, TypeError):
+        pass
+    try:
+        root = ET.fromstring(text)
+        sub_elem = root.find(f".//{XML_NS}subStatusCode")
+        if sub_elem is not None and sub_elem.text:
+            return sub_elem.text.strip()
+    except ET.ParseError:
+        pass
+    return None
+
+
 def _extract_error_message(response) -> str:
     """Extract error message from camera response (XML or JSON).
     
@@ -1342,28 +1365,54 @@ class HikvisionISAPI:
                 )
 
             url = f"http://{self.host}/ISAPI/System/updateFirmware"
-            last_error: str | None = None
-
-            try:
-                self._upload_firmware_put(url, upload_path)
-                return
-            except FirmwareUpgradeError as err:
-                last_error = str(err)
-                _LOGGER.warning(
-                    "PUT firmware upload failed for %s, trying POST multipart: %s",
-                    self.host,
-                    err,
-                )
-
-            try:
-                self._upload_firmware_post(url, upload_path)
-            except FirmwareUpgradeError as err:
-                detail = last_error or str(err)
-                raise FirmwareUpgradeError(
-                    f"Firmware upload failed (PUT and POST): {detail}; POST: {err}"
-                ) from err
+            self._upload_firmware_with_optional_reboot(url, upload_path)
         finally:
             self.cleanup_firmware_temp_paths(temp_paths)
+
+    def _upload_firmware_with_optional_reboot(self, url: str, upload_path: str) -> None:
+        """Upload firmware; reboot once and retry when the device requires it."""
+        for attempt in range(2):
+            try:
+                self._upload_firmware_put_or_post(url, upload_path)
+                return
+            except FirmwareUpgradeError as err:
+                if attempt == 0 and err.sub_status == "rebootRequired":
+                    _LOGGER.warning(
+                        "Camera %s requires reboot before firmware upload; rebooting and retrying",
+                        self.host,
+                    )
+                    if not self.restart():
+                        raise FirmwareUpgradeError(
+                            "Camera requires reboot before upgrade but ISAPI reboot failed",
+                            sub_status="rebootRequired",
+                        ) from err
+                    self.wait_for_device_online(timeout=240)
+                    continue
+                raise
+
+    def _upload_firmware_put_or_post(self, url: str, upload_path: str) -> None:
+        """Try PUT upload, then POST multipart unless reboot is required first."""
+        last_error: str | None = None
+        try:
+            self._upload_firmware_put(url, upload_path)
+            return
+        except FirmwareUpgradeError as err:
+            last_error = str(err)
+            if err.sub_status == "rebootRequired":
+                raise
+            _LOGGER.warning(
+                "PUT firmware upload failed for %s, trying POST multipart: %s",
+                self.host,
+                err,
+            )
+
+        try:
+            self._upload_firmware_post(url, upload_path)
+        except FirmwareUpgradeError as err:
+            detail = last_error or str(err)
+            raise FirmwareUpgradeError(
+                f"Firmware upload failed (PUT and POST): {detail}; POST: {err}"
+            ) from err
 
     def _upload_firmware_put(self, url: str, firmware_path: str) -> None:
         """PUT opaque binary per ISAPI (application/octet-stream)."""
@@ -1399,10 +1448,21 @@ class HikvisionISAPI:
         """Validate upload HTTP response and ResponseStatus."""
         if response.status_code in (401, 403):
             body = response.text or ""
+            sub_status = _extract_sub_status_code(response)
+            if (
+                sub_status == "rebootRequired"
+                or "rebootRequired" in body
+                or "Reboot Required" in body
+            ):
+                raise FirmwareUpgradeError(
+                    f"Firmware upload {method} rejected: reboot required before upgrade",
+                    sub_status="rebootRequired",
+                )
             if "deviceError" in body or "errCode" in body or "UniNetIF_firm_upgrade" in body:
                 error_msg = _extract_error_message(response) or body[:300]
                 raise FirmwareUpgradeError(
-                    f"Firmware upload {method} rejected by device: {error_msg}"
+                    f"Firmware upload {method} rejected by device: {error_msg}",
+                    sub_status=sub_status,
                 )
             raise AuthenticationError(
                 f"Authentication failed during firmware upload ({response.status_code})"
