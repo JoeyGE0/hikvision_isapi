@@ -447,8 +447,8 @@ class HikvisionISAPI:
             error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
             status_code = e.response.status_code if hasattr(e, "response") and e.response else None
             is_event_trigger_5xx = (
-                endpoint.startswith("/ISAPI/Event/triggers")
-                and status_code
+                endpoint == "/ISAPI/Event/triggers"
+                and status_code is not None
                 and status_code >= 500
             )
             if is_event_trigger_5xx:
@@ -3589,6 +3589,239 @@ class HikvisionISAPI:
                 "protocol": None
             }
 
+    def _event_trigger_probe_paths(self, event_id: str, channel_id: int) -> list[str]:
+        """Candidate GET paths for a single event trigger (G2 often 500s on the bulk list)."""
+        from .const import EVENTS
+
+        cfg = EVENTS.get(event_id, {})
+        slug = cfg.get("slug", event_id)
+        paths = [
+            f"/ISAPI/Event/triggers/{event_id}-{channel_id}",
+            f"/ISAPI/Event/triggers/{slug}-{channel_id}",
+            f"/ISAPI/Event/triggers/{event_id}",
+            f"/ISAPI/Event/triggers/{slug}",
+        ]
+        # De-duplicate while preserving order
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for path in paths:
+            if path not in seen:
+                seen.add(path)
+                ordered.append(path)
+        return ordered
+
+    def _append_event_info(
+        self,
+        events: list,
+        *,
+        event_id: str,
+        channel_id: int,
+        io_port_id: int = 0,
+        disabled: bool = False,
+        is_proxy: bool = False,
+    ) -> None:
+        """Append EventInfo if this event/channel is not already present."""
+        from .models import EventInfo
+
+        if any(e.id == event_id and e.channel_id == channel_id and e.io_port_id == io_port_id for e in events):
+            return
+        event_url = self.get_event_url(event_id, channel_id, io_port_id, is_proxy)
+        events.append(
+            EventInfo(
+                id=event_id,
+                channel_id=channel_id,
+                io_port_id=io_port_id,
+                disabled=disabled,
+                is_proxy=is_proxy,
+                url=event_url,
+            )
+        )
+
+    def _collect_events_from_channel_capabilities(self, events: list) -> None:
+        """Add events advertised in /ISAPI/Event/channels/capabilities."""
+        from .const import EVENTS, EVENTS_ALTERNATE_ID, EVENT_IO
+
+        try:
+            xml = self._get("/ISAPI/Event/channels/capabilities")
+        except Exception as err:
+            _LOGGER.debug("Event/channels/capabilities unavailable on %s: %s", self.host, err)
+            return
+
+        channel_cap_list = xml.find(f".//{XML_NS}ChannelEventCapList")
+        if channel_cap_list is None:
+            channel_cap_list = xml.find(".//ChannelEventCapList")
+        if channel_cap_list is None:
+            return
+
+        channel_caps = channel_cap_list.findall(f".//{XML_NS}ChannelEventCap")
+        if not channel_caps:
+            channel_caps = channel_cap_list.findall(".//ChannelEventCap")
+
+        for channel_cap in channel_caps:
+            channel_id_elem = channel_cap.find(f".//{XML_NS}channelID")
+            if channel_id_elem is None:
+                channel_id_elem = channel_cap.find(".//channelID")
+            if channel_id_elem is None or not channel_id_elem.text:
+                continue
+            channel_id = int(channel_id_elem.text.strip())
+
+            event_type_elem = channel_cap.find(f".//{XML_NS}eventType")
+            if event_type_elem is None:
+                event_type_elem = channel_cap.find(".//eventType")
+            if event_type_elem is None:
+                continue
+
+            event_types_str = event_type_elem.attrib.get("opt", "") if hasattr(event_type_elem, "attrib") else ""
+            if not event_types_str:
+                event_types_str = event_type_elem.text or ""
+            for event_type in [et.strip() for et in event_types_str.split(",") if et.strip()]:
+                event_id = event_type.lower()
+                if event_id in EVENTS_ALTERNATE_ID:
+                    event_id = EVENTS_ALTERNATE_ID[event_id]
+                if event_id not in EVENTS or event_id == EVENT_IO:
+                    continue
+                self._append_event_info(events, event_id=event_id, channel_id=channel_id)
+
+    def _collect_events_from_detected_features(self, events: list) -> None:
+        """Add events implied by detect_features() when the bulk trigger list fails."""
+        from .const import EVENT_IO
+
+        channel_id = self.channel
+        features = getattr(self, "detected_features", None) or {}
+        feature_map = {
+            "motion_detection": "motiondetection",
+            "tamper_detection": "tamperdetection",
+            "intrusion_detection": "fielddetection",
+            "line_crossing_detection": "linedetection",
+            "region_entrance_detection": "regionentrance",
+            "region_exiting_detection": "regionexiting",
+            "scene_change_detection": "scenechangedetection",
+            "defocus_detection": "defocus",
+        }
+        for feature_key, event_id in feature_map.items():
+            if not features.get(feature_key) or event_id == EVENT_IO:
+                continue
+            self._append_event_info(events, event_id=event_id, channel_id=channel_id)
+
+        if features.get("motion_detection"):
+            try:
+                if self.get_motion_detection():
+                    self._append_event_info(
+                        events, event_id="motiondetection", channel_id=channel_id
+                    )
+            except Exception:
+                pass
+
+    def _collect_events_from_trigger_probes(self, events: list) -> None:
+        """Probe individual /ISAPI/Event/triggers/<id> endpoints (works on many G2 models)."""
+        from .const import EVENT_IO, EVENTS
+
+        channel_id = self.channel
+        for event_id in EVENTS:
+            if event_id == EVENT_IO:
+                continue
+            for path in self._event_trigger_probe_paths(event_id, channel_id):
+                if self._test_endpoint_exists(path):
+                    self._append_event_info(events, event_id=event_id, channel_id=channel_id)
+                    break
+
+    def _build_supported_events_fallback(self) -> list:
+        """Build supported events when GET /ISAPI/Event/triggers is broken (common on G2)."""
+        events: list = []
+        self._collect_events_from_channel_capabilities(events)
+        self._collect_events_from_detected_features(events)
+        self._collect_events_from_trigger_probes(events)
+        _LOGGER.info(
+            "Built %d supported event(s) on %s using capability/trigger fallback",
+            len(events),
+            self.host,
+        )
+        return events
+
+    def _ensure_center_on_trigger(self, event_trigger: ET.Element) -> bool:
+        """Add Surveillance Center (HTTP) notification if missing. Returns True if XML changed."""
+        notification_list = event_trigger.find(f".//{XML_NS}EventTriggerNotificationList")
+        if notification_list is None:
+            notification_list = ET.SubElement(event_trigger, f"{XML_NS}EventTriggerNotificationList")
+
+        methods: list[str] = []
+        max_id = 0
+        for notif in notification_list.findall(f".//{XML_NS}EventTriggerNotification"):
+            method_elem = notif.find(f".//{XML_NS}notificationMethod")
+            if method_elem is not None and method_elem.text:
+                methods.append(method_elem.text.strip().lower())
+            id_elem = notif.find(f".//{XML_NS}id")
+            if id_elem is not None and id_elem.text and str(id_elem.text).isdigit():
+                max_id = max(max_id, int(id_elem.text))
+
+        if "center" in methods:
+            return False
+
+        new_notif = ET.SubElement(notification_list, f"{XML_NS}EventTriggerNotification")
+        id_elem = ET.SubElement(new_notif, f"{XML_NS}id")
+        id_elem.text = str(max_id + 1)
+        method_elem = ET.SubElement(new_notif, f"{XML_NS}notificationMethod")
+        method_elem.text = "center"
+        recur_elem = ET.SubElement(new_notif, f"{XML_NS}notificationRecurrence")
+        recur_elem.text = "beginning"
+        return True
+
+    def ensure_http_alarm_notifications_for_events(
+        self, event_ids: list[str] | None = None
+    ) -> None:
+        """Enable HTTP (Surveillance Center) linkage on event triggers for HA webhooks."""
+        from .const import EVENTS
+
+        channel = self.channel
+        targets = event_ids or [
+            "motiondetection",
+            "tamperdetection",
+            "fielddetection",
+            "linedetection",
+            "regionentrance",
+            "regionexiting",
+        ]
+        for event_id in targets:
+            if event_id not in EVENTS:
+                continue
+            for path in self._event_trigger_probe_paths(event_id, channel):
+                try:
+                    xml = self._get(path)
+                except Exception:
+                    continue
+
+                event_trigger = xml.find(f".//{XML_NS}EventTrigger")
+                if event_trigger is None and xml.tag.endswith("EventTrigger"):
+                    event_trigger = xml
+                if event_trigger is None:
+                    continue
+
+                if not self._ensure_center_on_trigger(event_trigger):
+                    _LOGGER.debug(
+                        "Surveillance Center already enabled for %s on %s",
+                        event_id,
+                        self.host,
+                    )
+                    break
+
+                try:
+                    ET.register_namespace("", "http://www.hikvision.com/ver20/XMLSchema")
+                    payload = ET.tostring(xml, encoding="unicode", xml_declaration=True)
+                    self._put(path, payload)
+                    _LOGGER.info(
+                        "Enabled Surveillance Center notification for %s on %s",
+                        event_id,
+                        self.host,
+                    )
+                except Exception as err:
+                    _LOGGER.warning(
+                        "Failed to enable Surveillance Center for %s on %s: %s",
+                        event_id,
+                        self.host,
+                        err,
+                    )
+                break
+
     def get_supported_events(self):
         """Get list of all supported events from Event/triggers API."""
         from .models import EventInfo
@@ -3602,12 +3835,12 @@ class HikvisionISAPI:
             except requests.exceptions.HTTPError as err:
                 status = err.response.status_code if err.response is not None else None
                 if status is not None and status >= 500:
-                    _LOGGER.debug(
-                        "Event/triggers returned HTTP %s on %s; using fallback event list",
+                    _LOGGER.warning(
+                        "Event/triggers returned HTTP %s on %s; using per-trigger fallback",
                         status,
                         self.host,
                     )
-                    return events
+                    return self._build_supported_events_fallback()
                 raise
             
             # Debug: Log root element and first 500 chars of XML
@@ -3628,11 +3861,12 @@ class HikvisionISAPI:
                 event_trigger_list = xml
             
             if event_trigger_list is None:
-                _LOGGER.warning("No EventTriggerList found in Event/triggers response. Root tag: %s", xml.tag)
-                # Log all child elements for debugging
-                all_tags = [child.tag for child in xml]
-                _LOGGER.debug("Available XML elements: %s", all_tags[:10])
-                return events
+                _LOGGER.warning(
+                    "No EventTriggerList found in Event/triggers response on %s (root: %s); using fallback",
+                    self.host,
+                    xml.tag,
+                )
+                return self._build_supported_events_fallback()
             
             event_triggers = event_trigger_list.findall(f".//{XML_NS}EventTrigger")
             
@@ -4538,19 +4772,35 @@ class HikvisionISAPI:
                 and "AudioAlarm" in audio_alarm_payload
             )
             
-            # 6. MOTION DETECTION - Check EventCap flag (this works reliably)
+            # 6. MOTION DETECTION - EventCap flag and/or motion config / trigger endpoints
             motion_elem = xml.find(f".//{XML_NS}EventCap/{XML_NS}isSupportMotionDetection")
-            has_motion_detection = motion_elem is not None and motion_elem.text and motion_elem.text.strip().lower() == "true"
+            has_motion_detection = (
+                motion_elem is not None
+                and motion_elem.text
+                and motion_elem.text.strip().lower() == "true"
+            ) or self._test_endpoint_exists(
+                f"/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
+            ) or self._test_endpoint_exists(
+                f"/ISAPI/Event/triggers/motiondetection-{self.channel}"
+            )
             
             # 7. TAMPER DETECTION - Check EventCap flag (this works reliably)
             tamper_elem = xml.find(f".//{XML_NS}EventCap/{XML_NS}isSupportTamperDetection")
             has_tamper_detection = tamper_elem is not None and tamper_elem.text and tamper_elem.text.strip().lower() == "true"
             
-            # 8. INTRUSION DETECTION - Test endpoint
-            has_intrusion_detection = self._test_endpoint_exists("/ISAPI/Event/triggers/intrusionDetection")
+            # 8. INTRUSION DETECTION - fielddetection path (intrusionDetection often 403 on G2)
+            has_intrusion_detection = (
+                self._test_endpoint_exists(f"/ISAPI/Smart/FieldDetection/{self.channel}")
+                or self._test_endpoint_exists("/ISAPI/Event/triggers/fielddetection")
+                or self._test_endpoint_exists(f"/ISAPI/Event/triggers/fielddetection-{self.channel}")
+            )
             
-            # 9. LINE DETECTION - Test endpoint
-            has_line_detection = self._test_endpoint_exists("/ISAPI/Event/triggers/lineDetection")
+            # 9. LINE DETECTION - Test endpoint (try lowercase slug used by many models)
+            has_line_detection = (
+                self._test_endpoint_exists("/ISAPI/Event/triggers/lineDetection")
+                or self._test_endpoint_exists("/ISAPI/Event/triggers/linedetection")
+                or self._test_endpoint_exists(f"/ISAPI/Event/triggers/linedetection-{self.channel}")
+            )
             
             # 10. REGION ENTRANCE - Test endpoint
             has_region_entrance = self._test_endpoint_exists("/ISAPI/Event/triggers/regionEntrance")

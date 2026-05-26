@@ -78,7 +78,9 @@ async def async_setup_entry(
 
             feat_key = EVENT_ID_TO_DETECTED_FEATURE.get(event_id)
             if feat_key is not None and not detected_features.get(feat_key, False):
-                continue
+                # G2 often 500s on bulk Event/triggers; still expose events from fallback list
+                if event_id not in supported_events_lookup:
+                    continue
             
             # Use channel_id from Event/triggers if available, otherwise use camera_id
             event_from_triggers = None

@@ -100,10 +100,29 @@ EVENTS: Final = {
 # Alternate event IDs (some cameras use different names)
 EVENTS_ALTERNATE_ID: Final = {
     "vmd": "motiondetection",
+    "vmdhumanvehicle": "motiondetection",
+    "vmdhuman": "motiondetection",
+    "vmdvehicle": "motiondetection",
+    "humandetection": "motiondetection",
+    "human_detection": "motiondetection",
+    "pedestrian": "motiondetection",
+    "vehicledetection": "motiondetection",
+    "vehicle_detection": "motiondetection",
+    "vcahuman": "motiondetection",
+    "vcavehicle": "motiondetection",
+    "vcahumanvehicle": "motiondetection",
     "thermometry": "motiondetection",
     "shelteralarm": "tamperdetection",
+    "shelter": "tamperdetection",
     "VMDHumanVehicle": "motiondetection",
     "defocusdetection": "defocus",
+    "intrusion": "fielddetection",
+    "intrusiondetection": "fielddetection",
+    "fielddetection": "fielddetection",
+    "linedetection": "linedetection",
+    "linecrossing": "linedetection",
+    "regionentrance": "regionentrance",
+    "regionexiting": "regionexiting",
 }
 
 # Alternate event IDs for mutex checking (API uses different IDs for mutex)

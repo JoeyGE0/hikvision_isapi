@@ -386,8 +386,9 @@ class EventNotificationsView(HomeAssistantView):
             # Check if event is supported
             from .const import EVENTS
             if not EVENTS.get(event_id):
-                _LOGGER.debug(
-                    "Ignoring unsupported event type: %s (channel: %s, io_port: %s)",
+                _LOGGER.warning(
+                    "Ignoring unsupported event type: %s (channel=%s, io_port=%s). "
+                    "If this is motion/person/vehicle on a G2 camera, report this eventType string.",
                     event_id,
                     channel_id,
                     io_port_id,

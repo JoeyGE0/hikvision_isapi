@@ -215,6 +215,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 # Update ALARM_SERVER_PATH if it was changed to match existing (e.g., /api/hikvision)
                 if actual_path != ALARM_SERVER_PATH:
                     _LOGGER.info("=== HIKVISION ISAPI: Using existing notification path: %s ===", actual_path)
+                try:
+                    await hass.async_add_executor_job(
+                        api.ensure_http_alarm_notifications_for_events,
+                        None,
+                    )
+                except Exception as notify_err:
+                    _LOGGER.warning(
+                        "=== HIKVISION ISAPI: Could not enable Surveillance Center on event triggers: %s ===",
+                        notify_err,
+                    )
             else:
                 _LOGGER.warning("=== HIKVISION ISAPI: Failed to configure notification host on camera ===")
         except Exception as e:
