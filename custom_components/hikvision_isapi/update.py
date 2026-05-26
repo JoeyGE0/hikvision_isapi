@@ -20,12 +20,21 @@ _LOGGER = logging.getLogger(__name__)
 
 # GitHub raw URLs for firmware archive
 FIRMWARE_ARCHIVE_BASE = "https://raw.githubusercontent.com/JoeyGE0/hikvision-fw-archive/main"
+FIRMWARE_INDEX_URL = f"{FIRMWARE_ARCHIVE_BASE}/firmware_index.json"
 FIRMWARES_LIVE_URL = f"{FIRMWARE_ARCHIVE_BASE}/firmwares_live.json"
 FIRMWARES_MANUAL_URL = f"{FIRMWARE_ARCHIVE_BASE}/firmwares_manual.json"
 
 # Update interval: check for firmware updates every 6 hours (archive updates twice daily)
 UPDATE_INTERVAL = timedelta(hours=6)
 FIRMWARE_ARCHIVE_RELEASES_URL = "https://github.com/JoeyGE0/hikvision-fw-archive/releases"
+FIRMWARE_ARCHIVE_HOME_URL = "https://github.com/JoeyGE0/hikvision-fw-archive"
+LICENSE_URL = "https://www.hikvision.com/en/policies/materials-license-agreement/"
+
+HIKVISION_MODEL_PATTERN = (
+    r"(DS-[0-9A-Z./()-]+|AE-[0-9A-Z./()-]+|IDS-[0-9A-Z./()-]+|HM-[0-9A-Z./()-]+|"
+    r"THC-[0-9A-Z./()-]+|DVR-[0-9A-Z./()-]+|NVR-[0-9A-Z./()-]+|IPC-[0-9A-Z./()-]+|"
+    r"PTZ-[0-9A-Z./()-]+|IKS-[0-9A-Z./()-]+)"
+)
 
 
 def _normalize_hw_version(hw_version: str | None) -> str:
@@ -92,23 +101,113 @@ def compare_versions(current: str, available: str) -> bool:
 
 
 def normalize_model(model: str) -> str:
-    """Normalize model name for matching.
-    
-    Removes common suffixes and variations to match firmware archive entries.
-    Examples:
-        "DS-2CD1043G0-I" -> "DS-2CD1043G0-I"
-        "DS-2CD1043G0-IUF(2.8mm)" -> "DS-2CD1043G0-IUF"
-    """
+    """Normalize model name for matching (uppercase, no parenthetical suffixes)."""
     if not model:
         return ""
-    
-    # Remove common suffixes in parentheses
-    model = re.sub(r'\([^)]*\)', '', model).strip()
-    
-    # Remove trailing spaces and common suffixes
-    model = model.strip()
-    
-    return model
+    model = re.sub(r"\([^)]*\)", "", model).strip()
+    return " ".join(model.split()).upper()
+
+
+def github_release_page_url(download_url: str | None) -> str | None:
+    """Map /releases/download/{tag}/file.zip to the GitHub release page for that tag."""
+    url = (download_url or "").strip()
+    match = re.search(
+        r"github\.com/JoeyGE0/hikvision-fw-archive/releases/download/([^/]+)/",
+        url,
+    )
+    if match:
+        return f"{FIRMWARE_ARCHIVE_RELEASES_URL}/tag/{match.group(1)}"
+    return None
+
+
+def _empty_coordinator_data() -> dict[str, Any]:
+    return {
+        "available": False,
+        "latest_version": None,
+        "release_date": None,
+        "download_url": None,
+        "changes_summary": None,
+        "notes_pdf_url": None,
+        "release_page_url": None,
+        "license_url": LICENSE_URL,
+        "ahead_of_archive": False,
+    }
+
+
+def _coordinator_data_from_firmware(
+    firmware: dict[str, Any],
+    *,
+    available: bool,
+    ahead_of_archive: bool,
+) -> dict[str, Any]:
+    """Build coordinator payload from one archive firmware row."""
+    notes = (firmware.get("notes") or "").strip()
+    changes = (firmware.get("changes") or "").strip()
+    download_url = to_github_download_url(
+        firmware.get("download_url"),
+        firmware.get("filename"),
+    )
+    notes_pdf = notes if notes.startswith("http") else ""
+    if not notes_pdf and changes.startswith("http"):
+        notes_pdf = changes
+    release_page = (
+        (firmware.get("release_page_url") or "").strip()
+        or github_release_page_url(firmware.get("download_url"))
+        or FIRMWARE_ARCHIVE_RELEASES_URL
+    )
+    changes_summary = changes if changes and not changes.startswith("http") else ""
+    return {
+        "available": available,
+        "latest_version": firmware.get("version"),
+        "release_date": firmware.get("date"),
+        "download_url": download_url,
+        "changes_summary": changes_summary or None,
+        "notes_pdf_url": notes_pdf or None,
+        "release_page_url": release_page,
+        "license_url": (firmware.get("license_url") or LICENSE_URL),
+        "ahead_of_archive": ahead_of_archive,
+    }
+
+
+def _pick_index_record(
+    index: dict[str, Any],
+    device_model: str,
+    hardware_version: str | None,
+) -> dict[str, Any] | None:
+    """Select best firmware_index.json row for this device."""
+    models = index.get("models")
+    if not isinstance(models, dict):
+        return None
+
+    normalized_model = normalize_model(device_model)
+    normalized_hw = _normalize_hw_version(hardware_version)
+    model_entry = models.get(normalized_model)
+
+    if not model_entry:
+        model_parts = normalized_model.split("-")
+        model_base = "-".join(model_parts[:-1]) if len(model_parts) >= 2 else normalized_model
+        for key, entry in models.items():
+            if key == normalized_model:
+                model_entry = entry
+                break
+            if key.startswith(model_base) or model_base in key:
+                model_entry = entry
+                break
+            if normalized_model.startswith(key.split("-")[0]):
+                model_entry = entry
+                break
+
+    if not isinstance(model_entry, dict):
+        return None
+
+    by_hw = model_entry.get("by_hardware_version")
+    if isinstance(by_hw, dict) and normalized_hw in by_hw:
+        record = by_hw.get(normalized_hw)
+        if isinstance(record, dict):
+            return record
+
+    latest = model_entry.get("latest")
+    return latest if isinstance(latest, dict) else None
 
 
 class FirmwareUpdateCoordinator(DataUpdateCoordinator):
@@ -154,10 +253,32 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                             _LOGGER.warning("Failed to parse firmware archive JSON from %s: %s", url, err)
                             return {}
 
-                # Fetch both live and manual firmware lists
+                firmware_index = await _fetch_firmware_json(FIRMWARE_INDEX_URL)
+                index_record = _pick_index_record(
+                    firmware_index,
+                    self.device_model,
+                    self.hardware_version,
+                )
+                if index_record:
+                    archive_version = (index_record.get("version") or "").strip()
+                    available = bool(
+                        archive_version
+                        and compare_versions(self.current_firmware, archive_version)
+                    )
+                    ahead = bool(
+                        archive_version
+                        and compare_versions(archive_version, self.current_firmware)
+                    )
+                    return _coordinator_data_from_firmware(
+                        index_record,
+                        available=available,
+                        ahead_of_archive=ahead and not available,
+                    )
+
+                # Fallback: scan live + manual JSON (older archive commits)
                 live_firmwares = await _fetch_firmware_json(FIRMWARES_LIVE_URL)
                 manual_firmwares = await _fetch_firmware_json(FIRMWARES_MANUAL_URL)
-            
+
             # Combine firmware lists - GitHub JSON structure is flat dict with keys like "DS-2CD1043G0-I_UNKNOWN_5.7.23"
             # Each value is a dict with: model, version, download_url, date, supported_models, etc.
             all_firmwares = {}
@@ -181,17 +302,22 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                     if not isinstance(supported_models, list):
                         supported_models = []
                     
-                    # Add to all_firmwares keyed by model
-                    if model not in all_firmwares:
-                        all_firmwares[model] = []
-                    all_firmwares[model].append(entry)
-                    
-                    # Also add to supported_models entries
+                    norm_model = normalize_model(model)
+                    if norm_model:
+                        all_firmwares.setdefault(norm_model, []).append(entry)
+
                     for supported_model in supported_models:
-                        if supported_model and supported_model != model:
-                            if supported_model not in all_firmwares:
-                                all_firmwares[supported_model] = []
-                            all_firmwares[supported_model].append(entry)
+                        norm_supported = normalize_model(str(supported_model))
+                        if norm_supported and norm_supported != norm_model:
+                            all_firmwares.setdefault(norm_supported, []).append(entry)
+
+                    applied_to = entry.get("applied_to", "") or ""
+                    for applied_model in re.findall(
+                        HIKVISION_MODEL_PATTERN, applied_to, re.IGNORECASE
+                    ):
+                        norm_applied = normalize_model(applied_model)
+                        if norm_applied:
+                            all_firmwares.setdefault(norm_applied, []).append(entry)
             
             # Process live firmwares
             process_firmware_dict(live_firmwares)
@@ -240,14 +366,8 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                     normalized_model,
                     list(all_firmwares.keys())[:10]  # Log first 10 models for debugging
                 )
-                return {
-                    "available": False,
-                    "latest_version": None,
-                    "release_date": None,
-                    "download_url": None,
-                    "release_notes": None,
-                }
-            
+                return _empty_coordinator_data()
+
             # Filter out invalid firmware entries and sort by version (newest first)
             valid_firmwares = []
             for fw in matching_firmwares:
@@ -256,14 +376,8 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
             
             if not valid_firmwares:
                 _LOGGER.debug("No valid firmware entries found for model %s", normalized_model)
-                return {
-                    "available": False,
-                    "latest_version": None,
-                    "release_date": None,
-                    "download_url": None,
-                    "release_notes": None,
-                }
-            
+                return _empty_coordinator_data()
+
             def get_version_key(fw: dict) -> tuple:
                 version = fw.get("version", "0.0.0")
                 return parse_version(version)
@@ -285,66 +399,23 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                     break
             
             if latest_firmware:
-                # Release notes is a link to PDF (from Hikvision)
-                # Check notes first, then changes, then applied_to as fallback
-                notes = latest_firmware.get("notes", "").strip()
-                changes = latest_firmware.get("changes", "").strip()
-                applied_to = latest_firmware.get("applied_to", "").strip()
-                # Only use if it looks like a URL (starts with http)
-                release_notes = None
-                if notes and notes.startswith("http"):
-                    release_notes = notes
-                elif changes and changes.startswith("http"):
-                    release_notes = changes
-                elif applied_to and applied_to.startswith("http"):
-                    release_notes = applied_to
-                
-                return {
-                    "available": True,
-                    "latest_version": latest_firmware.get("version"),
-                    "release_date": latest_firmware.get("date"),
-                    "download_url": to_github_download_url(
-                        latest_firmware.get("download_url"),
-                        latest_firmware.get("filename"),
-                    ),
-                    "release_notes": release_notes,  # This will be a PDF URL
-                }
-            else:
-                # Check if we're already on the latest
-                latest = matching_firmwares[0]
-                latest_version = latest.get("version", "")
-                if latest_version == self.current_firmware or not compare_versions(self.current_firmware, latest_version):
-                    # Release notes is a link to PDF (from Hikvision)
-                    notes = latest.get("notes", "").strip()
-                    changes = latest.get("changes", "").strip()
-                    applied_to = latest.get("applied_to", "").strip()
-                    # Only use if it looks like a URL (starts with http)
-                    release_notes = None
-                    if notes and notes.startswith("http"):
-                        release_notes = notes
-                    elif changes and changes.startswith("http"):
-                        release_notes = changes
-                    elif applied_to and applied_to.startswith("http"):
-                        release_notes = applied_to
-                    
-                    return {
-                        "available": False,
-                        "latest_version": latest_version,
-                        "release_date": latest.get("date"),
-                        "download_url": to_github_download_url(
-                            latest.get("download_url"),
-                            latest.get("filename"),
-                        ),
-                        "release_notes": release_notes,  # This will be a PDF URL
-                    }
-            
-            return {
-                "available": False,
-                "latest_version": None,
-                "release_date": None,
-                "download_url": None,
-                "release_notes": None,
-            }
+                return _coordinator_data_from_firmware(
+                    latest_firmware,
+                    available=True,
+                    ahead_of_archive=False,
+                )
+
+            latest = matching_firmwares[0]
+            latest_version = (latest.get("version") or "").strip()
+            ahead = bool(
+                latest_version
+                and compare_versions(latest_version, self.current_firmware)
+            )
+            return _coordinator_data_from_firmware(
+                latest,
+                available=False,
+                ahead_of_archive=ahead,
+            )
             
         except aiohttp.ClientError as err:
             _LOGGER.warning("Error fetching firmware data from archive: %s", err)
@@ -474,62 +545,90 @@ class HikvisionFirmwareUpdate(UpdateEntity):
     
     @property
     def release_summary(self) -> str | None:
-        """Return release summary."""
+        """Short summary for the update card (change bullets from archive)."""
         if not self.available or not self.coordinator.data:
             return None
-        return self.coordinator.data.get("release_notes")
-    
+        summary = self.coordinator.data.get("changes_summary")
+        if summary:
+            return str(summary)[:255]
+        if self.coordinator.data.get("ahead_of_archive"):
+            return "Installed firmware is newer than the community archive."
+        return None
+
     @property
     def release_url(self) -> str | None:
-        """Return announcement URL (release notes URL if available, else releases page)."""
+        """GitHub release page for this firmware, or archive releases index."""
         if not self.available or not self.coordinator.data:
             return None
-        release_notes = self.coordinator.data.get("release_notes")
-        if release_notes and str(release_notes).startswith("http"):
-            return release_notes
+        page = self.coordinator.data.get("release_page_url")
+        if page and str(page).startswith("http"):
+            return str(page)
+        pdf = self.coordinator.data.get("notes_pdf_url")
+        if pdf and str(pdf).startswith("http"):
+            return str(pdf)
         return FIRMWARE_ARCHIVE_RELEASES_URL
-    
+
     async def async_release_notes(self) -> str | None:
-        """Return release notes (link to PDF from Hikvision)."""
+        """Detailed release notes for Home Assistant (matches README Notes content)."""
         if not self.available or not self.coordinator.data:
             return None
-        
-        # Get release notes URL (PDF link) from coordinator data
-        release_notes_url = self.coordinator.data.get("release_notes")
-        
-        # Build release notes text with the PDF link
-        latest_version = self.coordinator.data.get("latest_version")
-        release_date = self.coordinator.data.get("release_date")
-        download_url = self.coordinator.data.get("download_url")
-        
-        lines = []
-        
+
+        data = self.coordinator.data
+        latest_version = data.get("latest_version")
+        release_date = data.get("release_date")
+        download_url = data.get("download_url")
+        changes_summary = data.get("changes_summary")
+        notes_pdf_url = data.get("notes_pdf_url")
+        release_page_url = data.get("release_page_url")
+        license_url = data.get("license_url") or LICENSE_URL
+
+        lines: list[str] = []
+
         if latest_version:
-            lines.append(f"Latest version: {format_version_display(latest_version) or latest_version}")
-        
+            lines.append(
+                f"Latest version: {format_version_display(latest_version) or latest_version}"
+            )
+        if self._current_firmware:
+            lines.append(
+                f"Installed version: {format_version_display(self._current_firmware) or self._current_firmware}"
+            )
+        if data.get("ahead_of_archive"):
+            lines.append(
+                "Note: Your camera firmware is newer than the highest version listed "
+                "in the community archive for this model."
+            )
         if release_date:
             lines.append(f"Release date: {release_date}")
-        
         if self._model:
             lines.append(f"Model: {self._model}")
-        
-        # Add release notes PDF link if available
-        if release_notes_url and release_notes_url.startswith("http"):
+
+        if changes_summary:
             lines.append("")
-            lines.append("Release notes (PDF):")
-            lines.append(release_notes_url)
-        
-        # Add download link
+            lines.append("Changes:")
+            lines.append(str(changes_summary))
+
+        if notes_pdf_url and str(notes_pdf_url).startswith("http"):
+            lines.append("")
+            lines.append("Hikvision release notes (PDF):")
+            lines.append(str(notes_pdf_url))
+
         if download_url:
             lines.append("")
             lines.append(f"Download firmware: {download_url}")
-        
-        # Add link to GitHub archive for more info
-        if latest_version:
+
+        if release_page_url and str(release_page_url).startswith("http"):
             lines.append("")
-            lines.append("For more information, see:")
-            lines.append(f"https://github.com/JoeyGE0/hikvision-fw-archive")
-        
+            lines.append("GitHub release:")
+            lines.append(str(release_page_url))
+
+        lines.append("")
+        lines.append("Hikvision Materials License Agreement:")
+        lines.append(str(license_url))
+
+        lines.append("")
+        lines.append("Firmware archive:")
+        lines.append(FIRMWARE_ARCHIVE_HOME_URL)
+
         return "\n".join(lines) if lines else None
     
     async def async_install(
