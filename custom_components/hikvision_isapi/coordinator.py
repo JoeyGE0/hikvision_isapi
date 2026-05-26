@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -18,6 +20,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# How often the main coordinator re-reads firmwareVersion from the camera.
+_DEVICE_FIRMWARE_SYNC_INTERVAL = timedelta(minutes=5)
 
 
 class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
@@ -125,6 +130,52 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             hass.async_create_task(hass.config_entries.async_reload(entry_id))
 
         async_call_later(hass, 2, _reload_entry)
+
+    async def _async_maybe_refresh_device_firmware(self, domain_data: dict) -> None:
+        """Re-read firmwareVersion from the camera and refresh HA device/update state."""
+        last_sync = domain_data.get("_device_firmware_sync_monotonic")
+        now = time.monotonic()
+        if last_sync is not None and now - last_sync < _DEVICE_FIRMWARE_SYNC_INTERVAL.total_seconds():
+            return
+
+        try:
+            device_info = await self.hass.async_add_executor_job(self.api.get_device_info)
+        except Exception as err:
+            _LOGGER.debug(
+                "Skipping firmware version sync for %s: %s",
+                self.entry.data.get("host"),
+                err,
+            )
+            return
+
+        domain_data["_device_firmware_sync_monotonic"] = now
+        if not device_info:
+            return
+
+        previous = (domain_data.get("device_info") or {}).get("firmwareVersion", "")
+        domain_data.setdefault("device_info", {}).update(device_info)
+        new_firmware = (device_info.get("firmwareVersion") or "").strip()
+        if not new_firmware or new_firmware == previous:
+            return
+
+        _LOGGER.info(
+            "Firmware version on %s updated in Home Assistant: %s -> %s",
+            self.entry.data.get("host"),
+            previous or "unknown",
+            new_firmware,
+        )
+
+        host = domain_data.get("host", self.entry.data.get("host", ""))
+        serial = device_info.get("serialNumber")
+        identifiers = {(DOMAIN, serial)} if serial else {(DOMAIN, host)}
+        device_registry = dr.async_get(self.hass)
+        if device := device_registry.async_get_device(identifiers=identifiers):
+            device_registry.async_update_device(device.id, sw_version=new_firmware)
+
+        fw_coordinator = domain_data.get("firmware_update_coordinator")
+        if fw_coordinator is not None:
+            fw_coordinator.current_firmware = new_firmware
+            await fw_coordinator.async_request_refresh()
 
     async def _async_update_data(self) -> dict:
         """Fetch data from Hikvision ISAPI."""
@@ -317,6 +368,7 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 data[_id] = alarm_output.get("enabled", False)
 
             await self._async_maybe_rescan_capabilities()
+            await self._async_maybe_refresh_device_firmware(domain_data)
 
             return data
         except AuthenticationError as err:

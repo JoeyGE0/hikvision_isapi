@@ -284,11 +284,13 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
     def __init__(
         self,
         hass: HomeAssistant,
+        entry_id: str,
         device_model: str,
         current_firmware: str,
         hardware_version: str | None = None,
     ) -> None:
         """Initialize the firmware update coordinator."""
+        self.entry_id = entry_id
         self.device_model = device_model
         self.current_firmware = current_firmware
         self.hardware_version = hardware_version
@@ -302,6 +304,18 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
     
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch firmware update data from GitHub archive."""
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry_id, {})
+        api = entry_data.get("api")
+        if api is not None:
+            try:
+                device_info = await self.hass.async_add_executor_job(api.get_device_info)
+                live_fw = (device_info.get("firmwareVersion") or "").strip()
+                if live_fw:
+                    self.current_firmware = live_fw
+                    entry_data.setdefault("device_info", {}).update(device_info)
+            except Exception as err:
+                _LOGGER.debug("Could not read live firmware version: %s", err)
+
         try:
             async with aiohttp.ClientSession() as session:
                 async def _fetch_firmware_json(url: str) -> dict[str, Any]:
@@ -526,10 +540,12 @@ async def async_setup_entry(
     # Create coordinator for firmware updates
     coordinator = FirmwareUpdateCoordinator(
         hass,
+        entry.entry_id,
         model,
         firmware_version,
         hardware_version,
     )
+    hass.data[DOMAIN][entry.entry_id]["firmware_update_coordinator"] = coordinator
 
     # Avoid failing platform setup if archive fetch is temporarily unavailable.
     await coordinator.async_refresh()
@@ -724,10 +740,17 @@ class HikvisionFirmwareUpdate(UpdateEntity):
             return True
         return self.coordinator.last_update_success
     
+    def _live_installed_firmware(self) -> str:
+        """Installed firmware from integration device_info (kept in sync with the camera)."""
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        live = (entry_data.get("device_info") or {}).get("firmwareVersion") or ""
+        return (live or self._current_firmware or "").strip()
+
     @property
     def installed_version(self) -> str | None:
         """Return the currently installed version."""
-        return format_version_display(self._current_firmware) or self._current_firmware
+        firmware = self._live_installed_firmware()
+        return format_version_display(firmware) or firmware or None
     
     @property
     def latest_version(self) -> str | None:
@@ -1079,9 +1102,18 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 except OSError:
                     pass
     
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Sync installed version when archive coordinator refreshes."""
+        live = self._live_installed_firmware()
+        if live:
+            self._current_firmware = live
+        self.async_write_ha_state()
+
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
         await super().async_added_to_hass()
         self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
+            self.coordinator.async_add_listener(self._handle_coordinator_update)
         )
+        await self.coordinator.async_request_refresh()
