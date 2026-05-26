@@ -18,7 +18,7 @@ from homeassistant.components.update import (
     UpdateEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -578,6 +578,27 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         
         self._attr_unique_id = f"{host}_firmware_update"
         self._attr_name = "Firmware Update"
+        self._install_in_progress = False
+        self._install_progress_percent: int | None = None
+
+    @property
+    def in_progress(self) -> bool:
+        """Firmware install running (UpdateEntityFeature.PROGRESS)."""
+        return self._install_in_progress
+
+    @property
+    def update_percentage(self) -> int | float | None:
+        """Install progress 0–100 while in progress."""
+        if not self._install_in_progress:
+            return None
+        return self._install_progress_percent
+
+    @callback
+    def _report_install_progress(self, percent: int | None) -> None:
+        """Update in_progress / update_percentage for the HA UI."""
+        self._install_in_progress = percent is not None
+        self._install_progress_percent = percent
+        self.async_write_ha_state()
 
     @property
     def supported_features(self) -> UpdateEntityFeature:
@@ -753,7 +774,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                                 "Firmware file exceeds maximum allowed size"
                             )
                         if total > 0:
-                            await self.async_update_progress(
+                            self._report_install_progress(
                                 min(39, int(downloaded / total * 40))
                             )
 
@@ -808,13 +829,11 @@ class HikvisionFirmwareUpdate(UpdateEntity):
 
         def _camera_progress(percent: int) -> None:
             mapped = 60 + int(percent * 0.35)
-            loop.call_soon_threadsafe(
-                lambda p=mapped: hass.async_create_task(self.async_update_progress(p))
-            )
+            loop.call_soon_threadsafe(self._report_install_progress, mapped)
 
         async with lock:
             try:
-                await self.async_update_progress(0)
+                self._report_install_progress(0)
                 _LOGGER.warning(
                     "Starting firmware upgrade on %s (%s): %s -> %s",
                     self._host,
@@ -824,17 +843,17 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 )
 
                 await self._async_download_firmware(download_url, firmware_path)
-                await self.async_update_progress(40)
+                self._report_install_progress(40)
 
                 await hass.async_add_executor_job(api.upload_firmware, firmware_path)
-                await self.async_update_progress(60)
+                self._report_install_progress(60)
 
                 await hass.async_add_executor_job(
                     api.wait_for_firmware_upgrade,
                     _camera_progress,
                     FIRMWARE_UPGRADE_POLL_TIMEOUT,
                 )
-                await self.async_update_progress(95)
+                self._report_install_progress(95)
 
                 device_info = await hass.async_add_executor_job(
                     api.wait_for_device_online,
@@ -842,7 +861,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 )
                 new_firmware = (device_info.get("firmwareVersion") or "").strip()
 
-                await self.async_update_progress(100)
+                self._report_install_progress(100)
 
                 if not new_firmware:
                     raise HomeAssistantError(
@@ -885,6 +904,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 _LOGGER.exception("Unexpected firmware upgrade error on %s", self._host)
                 raise HomeAssistantError(f"Firmware upgrade failed: {err}") from err
             finally:
+                self._report_install_progress(None)
                 try:
                     os.unlink(firmware_path)
                 except OSError:
