@@ -230,6 +230,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         except Exception as e:
             _LOGGER.error("=== HIKVISION ISAPI: Error configuring notification host: %s ===", e)
 
+    try:
+        from .diagnostics_snapshot import async_refresh_diagnostics_snapshot
+
+        await async_refresh_diagnostics_snapshot(hass, entry, trigger="setup")
+    except Exception as err:
+        _LOGGER.debug("Diagnostics snapshot build failed (non-fatal): %s", err)
+
     return True
 
 
