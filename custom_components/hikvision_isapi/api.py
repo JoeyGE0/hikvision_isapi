@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import socket
 import time
@@ -10,7 +11,7 @@ import requests
 from requests.auth import HTTPDigestAuth
 import json
 import xml.etree.ElementTree as ET
-from typing import Optional
+from typing import Callable, Optional
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -335,6 +336,14 @@ def _extract_error_message(response) -> str:
 class AuthenticationError(Exception):
     """Raised when authentication fails."""
     pass
+
+
+class FirmwareUpgradeError(Exception):
+    """Raised when local firmware upload or upgrade fails."""
+
+    def __init__(self, message: str, *, sub_status: str | None = None) -> None:
+        super().__init__(message)
+        self.sub_status = sub_status
 
 
 class EventMutexError(Exception):
@@ -1204,6 +1213,212 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to get device info from %s: %s", self.host, e)
             raise
+
+    @staticmethod
+    def _isapi_response_ok(response: requests.Response) -> bool:
+        """Return True if ResponseStatus statusCode indicates success (ISAPI: 1 = OK)."""
+        try:
+            root = ET.fromstring(response.text)
+        except ET.ParseError:
+            return response.ok
+        for ns in (XML_NS, "{http://www.isapi.org/ver20/XMLSchema}", ""):
+            code_elem = root.find(f".//{ns}statusCode")
+            if code_elem is not None and code_elem.text:
+                return code_elem.text.strip() == "1"
+        return response.ok
+
+    def get_upgrade_status(self) -> dict[str, bool | int]:
+        """Get firmware upgrade progress (ISAPI 15.10.196 / XML_upgradeStatus)."""
+        try:
+            xml = self._get("/ISAPI/System/upgradeStatus")
+        except requests.exceptions.HTTPError as err:
+            if err.response is not None and err.response.status_code == 404:
+                return {"upgrading": False, "percent": 0}
+            raise
+        upgrading_elem = xml.find(f".//{XML_NS}upgrading")
+        percent_elem = xml.find(f".//{XML_NS}percent")
+        upgrading = (
+            upgrading_elem is not None
+            and upgrading_elem.text
+            and upgrading_elem.text.strip().lower() == "true"
+        )
+        percent = 0
+        if percent_elem is not None and percent_elem.text:
+            try:
+                percent = int(percent_elem.text.strip())
+            except ValueError:
+                percent = 0
+        return {"upgrading": upgrading, "percent": max(0, min(100, percent))}
+
+    def upload_firmware(self, firmware_path: str) -> None:
+        """Upload firmware file for local upgrade (ISAPI 15.10.193 PUT/POST updateFirmware)."""
+        if not os.path.isfile(firmware_path):
+            raise FirmwareUpgradeError(f"Firmware file not found: {firmware_path}")
+
+        file_size = os.path.getsize(firmware_path)
+        if file_size < 1:
+            raise FirmwareUpgradeError("Firmware file is empty")
+        if file_size > 512 * 1024 * 1024:
+            raise FirmwareUpgradeError("Firmware file is too large (>512 MB)")
+
+        status = self.get_upgrade_status()
+        if status.get("upgrading"):
+            raise FirmwareUpgradeError(
+                "Device is already upgrading firmware",
+                sub_status="upgrading",
+            )
+
+        url = f"http://{self.host}/ISAPI/System/updateFirmware"
+        last_error: str | None = None
+
+        try:
+            self._upload_firmware_put(url, firmware_path)
+            return
+        except FirmwareUpgradeError as err:
+            last_error = str(err)
+            _LOGGER.warning(
+                "PUT firmware upload failed for %s, trying POST multipart: %s",
+                self.host,
+                err,
+            )
+
+        try:
+            self._upload_firmware_post(url, firmware_path)
+        except FirmwareUpgradeError as err:
+            detail = last_error or str(err)
+            raise FirmwareUpgradeError(
+                f"Firmware upload failed (PUT and POST): {detail}; POST: {err}"
+            ) from err
+
+    def _upload_firmware_put(self, url: str, firmware_path: str) -> None:
+        """PUT opaque binary per ISAPI (application/octet-stream)."""
+        with open(firmware_path, "rb") as firmware_file:
+            response = requests.put(
+                url,
+                auth=self._auth,
+                data=firmware_file,
+                headers={"Content-Type": "application/octet-stream"},
+                verify=self.verify_ssl,
+                timeout=600,
+            )
+        self._raise_if_firmware_upload_failed(response, "PUT")
+
+    def _upload_firmware_post(self, url: str, firmware_path: str) -> None:
+        """POST multipart/form-data with updateFile field (PDF example 15.10.193)."""
+        filename = os.path.basename(firmware_path) or "firmware.dav"
+        with open(firmware_path, "rb") as firmware_file:
+            response = requests.post(
+                url,
+                auth=self._auth,
+                files={
+                    "updateFile": (filename, firmware_file, "application/octet-stream"),
+                },
+                verify=self.verify_ssl,
+                timeout=600,
+            )
+        self._raise_if_firmware_upload_failed(response, "POST")
+
+    def _raise_if_firmware_upload_failed(
+        self, response: requests.Response, method: str
+    ) -> None:
+        """Validate upload HTTP response and ResponseStatus."""
+        if response.status_code in (401, 403):
+            raise AuthenticationError(
+                f"Authentication failed during firmware upload ({response.status_code})"
+            )
+        if not response.text:
+            if response.ok:
+                return
+            raise FirmwareUpgradeError(
+                f"Firmware upload {method} failed: HTTP {response.status_code}"
+            )
+        if not self._isapi_response_ok(response):
+            error_msg = _extract_error_message(response) or response.text[:200]
+            sub_status = None
+            try:
+                root = ET.fromstring(response.text)
+                sub_elem = root.find(f".//{XML_NS}subStatusCode")
+                if sub_elem is not None and sub_elem.text:
+                    sub_status = sub_elem.text.strip()
+            except ET.ParseError:
+                pass
+            raise FirmwareUpgradeError(
+                f"Firmware upload {method} rejected: {error_msg}",
+                sub_status=sub_status,
+            )
+        if not response.ok:
+            error_msg = _extract_error_message(response) or f"HTTP {response.status_code}"
+            raise FirmwareUpgradeError(f"Firmware upload {method} failed: {error_msg}")
+
+    def wait_for_firmware_upgrade(
+        self,
+        progress_callback: Callable[[int], None] | None = None,
+        timeout: int = 1800,
+        poll_interval: float = 3.0,
+    ) -> dict[str, bool | int]:
+        """Poll GET /ISAPI/System/upgradeStatus until upgrade completes or timeout."""
+        deadline = time.monotonic() + timeout
+        last_percent = -1
+        saw_upgrading = False
+        connection_errors = 0
+        idle_polls = 0
+
+        while time.monotonic() < deadline:
+            try:
+                status = self.get_upgrade_status()
+                connection_errors = 0
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                connection_errors += 1
+                if saw_upgrading or connection_errors >= 2:
+                    if progress_callback:
+                        progress_callback(95)
+                    return {"upgrading": False, "percent": 95}
+                time.sleep(poll_interval)
+                continue
+
+            upgrading = bool(status.get("upgrading"))
+            percent = int(status.get("percent", 0))
+
+            if upgrading:
+                saw_upgrading = True
+                idle_polls = 0
+                if progress_callback and percent != last_percent:
+                    progress_callback(percent)
+                    last_percent = percent
+                time.sleep(poll_interval)
+                continue
+
+            if saw_upgrading:
+                if progress_callback:
+                    progress_callback(100)
+                return status
+
+            idle_polls += 1
+            if idle_polls >= 10:
+                # No upgrading flag — device may have rebooted immediately after upload
+                return status
+
+            time.sleep(poll_interval)
+
+        if saw_upgrading:
+            raise FirmwareUpgradeError(
+                f"Firmware upgrade timed out after {timeout} seconds on {self.host}"
+            )
+        return {"upgrading": False, "percent": 0}
+
+    def wait_for_device_online(self, timeout: int = 300, poll_interval: float = 5.0) -> dict:
+        """Wait until deviceInfo responds after reboot."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                return self.get_device_info()
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                time.sleep(poll_interval)
+            except requests.exceptions.HTTPError:
+                time.sleep(poll_interval)
+        raise FirmwareUpgradeError(
+            f"Device {self.host} did not come back online within {timeout} seconds"
+        )
 
     def get_capabilities(self) -> dict:
         """Get device capabilities to detect NVR vs camera, multi-channel support."""
