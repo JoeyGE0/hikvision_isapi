@@ -76,15 +76,25 @@ def format_version_display(version_str: str | None) -> str | None:
 
 
 def to_github_download_url(download_url: str | None, filename: str | None) -> str | None:
-    """Prefer GitHub release-style download URL for consistency/reliability."""
+    """Return a working GitHub asset URL.
+
+    The archive stores stable /releases/download/{tag}/{file} links. Do not rewrite
+    those to /releases/latest/download/ — latest only contains the most recent CI batch.
+    """
+    url = (download_url or "").strip()
+    if url and "/releases/download/" in url and "/latest/download/" not in url:
+        return url
+
     fname = (filename or "").strip()
-    if not fname and download_url:
+    if not fname and url:
         inferred = str(download_url).split("/")[-1].split("?")[0].strip()
-        if inferred and any(inferred.lower().endswith(ext) for ext in (".zip", ".dav", ".pak", ".bin")):
+        if inferred and any(
+            inferred.lower().endswith(ext) for ext in (".zip", ".dav", ".pak", ".bin")
+        ):
             fname = inferred
     if fname:
         return f"{FIRMWARE_ARCHIVE_RELEASES_URL}/latest/download/{fname}"
-    return download_url
+    return url or None
 
 
 def compare_versions(current: str, available: str) -> bool:
@@ -106,6 +116,26 @@ def normalize_model(model: str) -> str:
         return ""
     model = re.sub(r"\([^)]*\)", "", model).strip()
     return " ".join(model.split()).upper()
+
+
+def _model_series_token(model: str) -> str:
+    """Product family token, e.g. DS-2CD2387G3-LIS2UY/SL -> 2CD2387G3."""
+    parts = model.upper().split("-")
+    return parts[1] if len(parts) >= 2 else model.upper()
+
+
+def _model_match_score(device_model: str, candidate: str) -> int:
+    """Score how well an archive model key matches the camera (higher is better)."""
+    if not device_model or not candidate:
+        return 0
+    if device_model == candidate:
+        return 10_000
+    if device_model.startswith(candidate) or candidate.startswith(device_model):
+        return 5_000 + min(len(device_model), len(candidate))
+    if _model_series_token(device_model) != _model_series_token(candidate):
+        return 0
+    # Same series (2CD2387G3): prefer closest SKU variant
+    return 1_000 + min(len(device_model), len(candidate))
 
 
 def github_release_page_url(download_url: str | None) -> str | None:
@@ -184,18 +214,16 @@ def _pick_index_record(
     model_entry = models.get(normalized_model)
 
     if not model_entry:
-        model_parts = normalized_model.split("-")
-        model_base = "-".join(model_parts[:-1]) if len(model_parts) >= 2 else normalized_model
+        best_key: str | None = None
+        best_score = 0
         for key, entry in models.items():
-            if key == normalized_model:
+            score = _model_match_score(normalized_model, key)
+            if score > best_score:
+                best_score = score
+                best_key = key
                 model_entry = entry
-                break
-            if key.startswith(model_base) or model_base in key:
-                model_entry = entry
-                break
-            if normalized_model.startswith(key.split("-")[0]):
-                model_entry = entry
-                break
+        if best_score < 1_000:
+            return None
 
     if not isinstance(model_entry, dict):
         return None
