@@ -37,18 +37,12 @@ def integration_version() -> str:
         return "unknown"
 
 
-def _event_signature_key(event: EventInfo | dict) -> str:
-    """Stable event id for diagnostics cache signatures."""
-    serialized = _serialize_event(event)
-    return f"{serialized['id']}:{serialized['channel_id']}"
-
-
 def diagnostics_signature(detected_features: dict, supported_events: list) -> str:
     """Stable id for whether the cached snapshot still matches HA state."""
     event_part = sorted(
-        _event_signature_key(e)
+        f"{getattr(e, 'id', e.get('id', ''))}:{getattr(e, 'channel_id', e.get('channel_id', 0))}"
         for e in supported_events
-        if isinstance(e, (EventInfo, dict))
+        if hasattr(e, "id") or isinstance(e, dict)
     )
     payload = {
         "features": sorted((k, v) for k, v in (detected_features or {}).items()),
