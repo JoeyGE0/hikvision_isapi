@@ -4619,33 +4619,6 @@ class HikvisionISAPI:
         """Backward-compatible alias for trigger_audio_alarm."""
         return self.trigger_audio_alarm()
 
-    def probe_endpoint_status(self, endpoint: str) -> int | str:
-        """Return HTTP status for an ISAPI GET, or 'timeout' / 'error' on failure.
-
-        Used when building the cached diagnostics snapshot (setup / capability reload),
-        not on a schedule or when the user downloads diagnostics.
-        """
-        try:
-            if endpoint.startswith("/ISAPI/"):
-                url = f"http://{self.host}{endpoint}"
-            else:
-                url = f"{self.base_url}{endpoint}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=3,
-            )
-            return response.status_code
-        except requests.exceptions.Timeout:
-            return "timeout"
-        except requests.exceptions.HTTPError as err:
-            if err.response is not None:
-                return err.response.status_code
-            return "error"
-        except Exception:
-            return "error"
-
     def _test_endpoint_exists(self, endpoint: str) -> bool:
         """Return True only if the endpoint responds with HTTP 200.
 
@@ -4653,32 +4626,26 @@ class HikvisionISAPI:
         use the feature — treat as unsupported so we do not create entities that
         only error in the log. 404 = not present on device.
         """
-        status = self.probe_endpoint_status(endpoint)
-        return status == 200
-
-    def probe_endpoint_status(self, endpoint: str) -> dict:
-        """Return HTTP status for an endpoint (diagnostics only — not used on a schedule)."""
-        result: dict = {"path": endpoint}
         try:
+            # Use same URL logic as _get() - if endpoint already has full path, use it directly
             if endpoint.startswith("/ISAPI/"):
                 url = f"http://{self.host}{endpoint}"
             else:
                 url = f"{self.base_url}{endpoint}"
+            
             response = requests.get(
                 url,
                 auth=self._auth,
                 verify=self.verify_ssl,
-                timeout=3,
+                timeout=3  # Shorter timeout for detection
             )
-            result["status"] = response.status_code
-        except requests.exceptions.Timeout:
-            result["status"] = "timeout"
-        except requests.exceptions.ConnectionError:
-            result["status"] = "connection_error"
-        except Exception as err:
-            result["status"] = "error"
-            result["detail"] = type(err).__name__
-        return result
+            return response.status_code == 200
+        except requests.exceptions.HTTPError:
+            # 404 means endpoint doesn't exist
+            return False
+        except Exception:
+            # Any other error (timeout, connection, etc.) = assume not supported
+            return False
 
     @staticmethod
     def _capability_bool(xml: ET.Element, path: str) -> bool:
