@@ -24,6 +24,8 @@ RTSP_PORT_FORCED: Final = "rtsp_port_forced"
 
 DEFAULT_UPDATE_INTERVAL = 30
 SIREN_RETRIGGER_INTERVAL_SECONDS: Final = 0.5
+# Brief pause before PUT when switching tones while a retrigger loop was active.
+SIREN_TONE_SWITCH_SETTLE_SECONDS: Final = 0.3
 
 # Webhook path for event notifications (single path for all instances)
 ALARM_SERVER_PATH: Final = "/api/hikvision"

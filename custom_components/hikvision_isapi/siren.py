@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, SIREN_RETRIGGER_INTERVAL_SECONDS
+from .const import DOMAIN, SIREN_RETRIGGER_INTERVAL_SECONDS, SIREN_TONE_SWITCH_SETTLE_SECONDS
 from .device_helpers import get_primary_device_info
 from .api import HikvisionISAPI
 
@@ -102,9 +102,18 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         tone = kwargs.get(ATTR_TONE)
         volume_level = kwargs.get(ATTR_VOLUME_LEVEL)
 
+        previous_tone_id = self._active_tone_id
+        was_on = self._attr_is_on
+
         tone_id = self._resolve_tone_id(tone)
-        if tone_id is None:
-            tone_id = self._current_audio_id_from_coordinator()
+        if tone is not None and tone_id is None:
+            _LOGGER.error(
+                "Unknown siren tone %r on %s — available: %s",
+                tone,
+                self._host,
+                self._tone_labels_ordered(),
+            )
+            return
 
         volume_percent = self._resolve_volume_percent(volume_level)
         if volume_percent is not None:
@@ -113,16 +122,68 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         cap_rows = self._capability_warning_rows_only()
         if tone_id is not None:
             audio_class = HikvisionISAPI.resolve_audio_class_for_sound_id(tone_id, cap_rows)
-            await self.hass.async_add_executor_job(
+            _LOGGER.debug(
+                "Setting siren on %s: tone_id=%s class=%s volume=%s",
+                self._host,
+                tone_id,
+                audio_class,
+                volume_percent,
+            )
+            success = await self.hass.async_add_executor_job(
                 self.api.set_audio_alarm, audio_class, tone_id, volume_percent, None
             )
+            if not success:
+                _LOGGER.error(
+                    "Failed to set audio alarm tone %s on %s — siren not started",
+                    tone_id,
+                    self._host,
+                )
+                return
+
+            configured_id = await self.hass.async_add_executor_job(
+                self.api.get_configured_audio_id
+            )
+            if configured_id != tone_id:
+                _LOGGER.error(
+                    "Audio alarm on %s reports audioID %s after requesting %s — siren not started",
+                    self._host,
+                    configured_id,
+                    tone_id,
+                )
+                return
+
             self._active_tone_id = tone_id
         elif volume_percent is not None:
-            await self.hass.async_add_executor_job(
+            if self._active_tone_id is None:
+                self._active_tone_id = self._current_audio_id_from_coordinator()
+            success = await self.hass.async_add_executor_job(
                 self.api.set_audio_alarm, None, None, volume_percent, None
             )
+            if not success:
+                _LOGGER.error(
+                    "Failed to set audio alarm volume on %s — siren not started",
+                    self._host,
+                )
+                return
+        elif self._active_tone_id is None:
+            self._active_tone_id = self._current_audio_id_from_coordinator()
+
+        if self._active_tone_id is None:
+            _LOGGER.error(
+                "No audio alarm tone configured on %s and none requested — siren not started",
+                self._host,
+            )
+            return
 
         await self.async_turn_off()
+        if (
+            was_on
+            and tone_id is not None
+            and previous_tone_id is not None
+            and tone_id != previous_tone_id
+        ):
+            await asyncio.sleep(SIREN_TONE_SWITCH_SETTLE_SECONDS)
+
         self._stop_event.clear()
         self._attr_is_on = True
         self.async_write_ha_state()
@@ -218,19 +279,31 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             return None
 
         options = self._tone_options_from_capabilities()
+        labels = self._tone_labels_ordered()
+        normalize = HikvisionISAPI.normalize_alert_sound_label_for_compare
 
         if isinstance(tone, int):
-            return tone
+            if tone in options:
+                return tone
+            if 0 <= tone < len(labels):
+                return self._resolve_tone_id(labels[tone])
+            return None
 
         if isinstance(tone, str):
             tone_str = tone.strip()
             if not tone_str:
                 return None
             if tone_str.isdigit():
-                return int(tone_str)
+                numeric = int(tone_str)
+                if numeric in options:
+                    return numeric
+                if 0 <= numeric < len(labels):
+                    return self._resolve_tone_id(labels[numeric])
+                return None
 
+            tone_norm = normalize(tone_str)
             for aid, label in options.items():
-                if tone_str == label:
+                if tone_str == label or tone_norm == normalize(label):
                     return aid
         return None
 
@@ -256,10 +329,12 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             except (TypeError, ValueError):
                 deadline = None
 
+        play_id = self._active_tone_id
         try:
             while not self._stop_event.is_set():
-                # 403 means busy/already playing on this firmware; keep looping.
-                await self.hass.async_add_executor_job(self.api.trigger_audio_alarm)
+                await self.hass.async_add_executor_job(
+                    self.api.trigger_audio_alarm, play_id
+                )
 
                 if deadline is not None and datetime.now() >= deadline:
                     break

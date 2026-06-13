@@ -4561,52 +4561,91 @@ class HikvisionISAPI:
         )
         return self.set_audio_alarm(desired, audio_id, None, None)
 
-    def trigger_audio_alarm(self) -> bool:
-        """Trigger audio alarm playback for the currently selected sound."""
+    def get_configured_audio_id(self) -> Optional[int]:
+        """Return the camera's current ``audioID`` (or ``alertAudioID``)."""
+        current = self.get_audio_alarm()
+        if not current or "AudioAlarm" not in current:
+            return None
+        audio_alarm = current["AudioAlarm"]
+        raw = audio_alarm.get("audioID")
+        if raw is None:
+            raw = audio_alarm.get("alertAudioID")
+        if raw is None:
+            return None
         try:
-            if not self.ensure_audio_alarm_class_for_current_sound():
-                _LOGGER.debug("Cannot trigger audio alarm - failed to align audio class")
-                return False
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
 
-            # Get current audio alarm config to get the audioID
-            current = self.get_audio_alarm()
-            if not current or "AudioAlarm" not in current:
-                _LOGGER.debug("Cannot trigger audio alarm - failed to get current configuration")
-                return False
-            
-            audio_alarm = current["AudioAlarm"]
-            # Use audioID if available, otherwise use alertAudioID
-            audio_id = audio_alarm.get("audioID") or audio_alarm.get("alertAudioID")
-            if not audio_id:
-                _LOGGER.debug("Cannot trigger audio alarm - no audioID found in configuration")
-                return False
-            
-            # The test endpoint requires the audioID in the path: /AudioAlarm/{audioID}/test
-            url = f"http://{self.host}/ISAPI/Event/triggers/notifications/AudioAlarm/{audio_id}/test?format=json"
+    @staticmethod
+    def _audio_is_already_playing(error_msg: str) -> bool:
+        """True when firmware rejects trigger because a clip is still playing."""
+        lowered = (error_msg or "").casefold()
+        return "audioisplayingpleasewait" in lowered or "audio is playing" in lowered
+
+    def trigger_audio_alarm(self, audio_id: Optional[int] = None) -> bool:
+        """Trigger audio alarm playback.
+
+        When ``audio_id`` is given, the test endpoint path selects the sound directly
+        (caller should already have PUT config via :meth:`set_audio_alarm`). When
+        omitted, reads ``audioID`` from device config (button / legacy callers).
+        """
+        try:
+            if audio_id is not None:
+                try:
+                    play_id = int(audio_id)
+                except (TypeError, ValueError):
+                    _LOGGER.debug("Cannot trigger audio alarm - invalid audio_id: %s", audio_id)
+                    return False
+            else:
+                if not self.ensure_audio_alarm_class_for_current_sound():
+                    _LOGGER.debug("Cannot trigger audio alarm - failed to align audio class")
+                    return False
+
+                play_id = self.get_configured_audio_id()
+                if play_id is None:
+                    _LOGGER.debug("Cannot trigger audio alarm - no audioID found in configuration")
+                    return False
+
+            url = (
+                f"http://{self.host}/ISAPI/Event/triggers/notifications/"
+                f"AudioAlarm/{play_id}/test?format=json"
+            )
             response = requests.put(
                 url,
                 json={},
                 auth=self._auth,
                 verify=self.verify_ssl,
-                timeout=10
+                timeout=10,
             )
             if response.status_code == 200:
                 return True
-            else:
-                error_msg = _extract_error_message(response)
-                if response.status_code == 403:
-                    if error_msg:
-                        _LOGGER.debug("Audio alarm trigger endpoint busy/not accessible (403): %s", error_msg)
-                    else:
-                        _LOGGER.debug("Audio alarm trigger endpoint busy/not accessible (403)")
-                elif response.status_code == 404:
-                    _LOGGER.debug("Audio alarm trigger endpoint not found (404)")
+
+            error_msg = _extract_error_message(response)
+            if response.status_code == 403 and self._audio_is_already_playing(error_msg):
+                # Clip still playing — treat as success for continuous siren loops.
+                return True
+
+            if response.status_code == 403:
+                if error_msg:
+                    _LOGGER.debug(
+                        "Audio alarm trigger endpoint busy/not accessible (403): %s",
+                        error_msg,
+                    )
                 else:
-                    if error_msg:
-                        _LOGGER.debug("Audio alarm trigger returned status %d: %s", response.status_code, error_msg)
-                    else:
-                        _LOGGER.debug("Audio alarm trigger returned status %d", response.status_code)
-            
+                    _LOGGER.debug("Audio alarm trigger endpoint busy/not accessible (403)")
+            elif response.status_code == 404:
+                _LOGGER.debug("Audio alarm trigger endpoint not found (404)")
+            elif error_msg:
+                _LOGGER.debug(
+                    "Audio alarm trigger returned status %d: %s",
+                    response.status_code,
+                    error_msg,
+                )
+            else:
+                _LOGGER.debug(
+                    "Audio alarm trigger returned status %d", response.status_code
+                )
             return False
         except Exception as e:
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
