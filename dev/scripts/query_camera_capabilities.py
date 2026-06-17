@@ -45,8 +45,8 @@ def main():
     
     if not PASSWORD:
         print("ERROR: Please provide password!")
-        print("Usage: python3 query_camera_capabilities.py [IP] [USERNAME] [PASSWORD]")
-        print(f"  Example: python3 query_camera_capabilities.py 192.168.1.13 admin yourpassword")
+        print("Usage: python3 dev/scripts/query_camera_capabilities.py [IP] [USERNAME] [PASSWORD]")
+        print(f"  Example: python3 dev/scripts/query_camera_capabilities.py 192.168.1.13 admin yourpassword")
         sys.exit(1)
     
     auth = HTTPDigestAuth(USERNAME, PASSWORD)

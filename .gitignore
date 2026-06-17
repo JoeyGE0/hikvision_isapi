@@ -1,7 +1,16 @@
+__pycache__/
+*.pyc
+
+# Large / local reference copies
+dev/reference/isapi.pdf
+dev/reference/isapi.txt
 isapi.pdf
 isapi.text
-__pycache__/
+
+# Test scripts and captured output (keep locally, not in repo)
+dev/scripts/test-endpoints/
+dev/captures/
+dev/local/
+test_*.py
 camera_capabilities_*.json
 *.json
-test_*.py
-
