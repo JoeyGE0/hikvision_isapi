@@ -18,13 +18,12 @@
 
 ## Important Notes
 
-> **Limited official support**: Tested mainly on the DS-2CD2387G3 (ColorVu G3). Other NVRs and standalone cameras may not have full support. Compatibility improves as issues are reported and PRs land.
-
+> **Limited official support**: Tested mainly on the DS-2CD2387G3 (ColorVu G3) and DS-2CD1383G2. Standalone cameras and NVRs are supported when ISAPI exposes the relevant endpoints; feature coverage varies by model and firmware. Compatibility improves as issues are reported and PRs land.
 
 ### Known Issues
 
-- **Binary sensors**: Motion is working. Other event types (intrusion, line crossing, etc.) usually need correct linkage and notification host on the camera.
-- **Media player (Speaker)**: Playback is limited / unreliable for typical HA use (TTS and arbitrary MP3 are not really supported; see code notes on G.711 formats). The entity is also **disabled by default** in the entity registry for new setups.
+- **Binary sensors**: Motion is working. Other event types (intrusion, line crossing, etc.) usually need correct linkage and notification host on the camera. Event binary sensors are **disabled by default** when the camera reports the trigger as disabled in `Event/triggers`.
+- **Media player (Speaker)**: Only created when two-way audio is detected. Playback is limited / unreliable for typical HA use (TTS and arbitrary MP3 are not really supported; see code notes on G.711 formats). The entity is also **disabled by default** in the entity registry for new setups.
 
 ---
 
@@ -32,7 +31,17 @@
 
 ### Automatic Discovery
 
-- **DHCP Discovery**: Cameras are automatically discovered on your network via DHCP. Look for them in **Settings → Devices & Services → Discovered**.
+- **DHCP Discovery**: Cameras are automatically discovered on your network via DHCP (Hikvision MAC OUIs). Look for them in **Settings → Devices & Services → Discovered**.
+
+### Capability-Based Entities
+
+- **Feature detection**: On setup, the integration probes ISAPI endpoints and only creates entities the device actually supports.
+- **Periodic rescan**: Capabilities are re-checked about 15 minutes after startup, then every 6 hours; if the feature set changes, the config entry reloads so entities stay in sync.
+
+### NVR Support
+
+- **Multi-channel**: NVRs expose one device per channel with `via_device` linking back to the NVR.
+- **Proxied cameras**: RTSP snapshots and streams use the NVR proxy path when channels are proxied.
 
 ### Real-Time Event Detection
 
@@ -47,6 +56,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Scene Change Detection**    | Scene change events                |
 | **Video Loss Detection**      | Video loss events                  |
 | **Video Tampering Detection** | Tamper detection events            |
+| **Defocus Detection**         | Defocus / out-of-focus events      |
 
 **Note**: Motion detection is confirmed working. Other event types require proper camera configuration (see [Event Notifications Setup](#event-notifications-setup-real-time-events)).
 
@@ -70,7 +80,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | Setting                       | Options/Range           |
 | ----------------------------- | ----------------------- |
 | **Motion Sensitivity**        | 0-100%                  |
-| **Motion Target Type**        | Human, Vehicle, or Both |
+| **Motion Target Type**        | `human`, `vehicle`, or `human,vehicle` |
 | **Motion Start Trigger Time** | 0–10000 ms (100 ms steps) |
 | **Motion End Trigger Time**   | 0–10000 ms (100 ms steps) |
 
@@ -121,6 +131,7 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 | **Scene Change Detection**    | Enable/disable scene change detection    |
 | **Region Entrance Detection** | Enable/disable region entrance detection |
 | **Region Exiting Detection**  | Enable/disable region exiting detection  |
+| **Defocus Detection**         | Enable/disable defocus detection         |
 | **Video Tampering Detection** | Enable/disable tamper detection          |
 | **Alarm Input**               | Enable/disable alarm input port          |
 | **Alarm Output**              | Control alarm output port (high/low)     |
@@ -128,8 +139,8 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 ### Other Features
 
 - **Camera snapshots** – from any available stream
-- **Firmware update** – diagnostic **Update** entity compares your firmware to the [community firmware archive](https://github.com/JoeyGE0/hikvision-fw-archive) (install is still manual on the device)
-- **Audio alarm siren** – **Siren** entity when the camera exposes audio-alarm capabilities (tone, duration, volume)
+- **Firmware update** – diagnostic **Update** entity compares your firmware to the [community firmware archive](https://github.com/JoeyGE0/hikvision-fw-archive) and can **install from Home Assistant** when the archive provides a download URL for your model
+- **Audio alarm siren** – **Siren** entity when the camera exposes audio-alarm / test-audio support (tone, duration, volume, retrigger loop)
 - **Restart** – remote reboot
 - **Trigger alarm** – diagnostic button when supported (disabled by default in the registry)
 
@@ -139,7 +150,7 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 
 ### Method 1: Manual Installation
 
-1. Copy `hikvision_isapi` folder to `config/custom_components/`
+1. Copy the `custom_components/hikvision_isapi` directory from this repository into your Home Assistant `config/custom_components/` folder
 2. Restart Home Assistant
 3. Go to **Settings → Devices & Services → Add Integration**
 4. Search for **"Hikvision ISAPI Controls"**
@@ -164,7 +175,18 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 
 - ISAPI must be enabled on your camera
 - User needs **Remote: Parameters Settings** permission
-- Update interval: 5-300 seconds (default: 30)
+- Update interval: 5–300 seconds (default: 30)
+
+### Advanced Options (config flow)
+
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| **Verify SSL certificate** | On | Turn off for cameras that only speak HTTP |
+| **Configure notification host on camera** | On | Writes your HA URL and `/api/hikvision` path to the camera |
+| **Notification host URL** | Auto (HA LAN IP) | Override when HA is behind NAT or you use a reverse proxy |
+| **Forced RTSP port** | Empty | Set if RTSP is not on the default port |
+
+Reconfigure the integration anytime from **Settings → Devices & Services → Hikvision ISAPI Controls → Configure**.
 
 ### Event Notifications Setup (Real-Time Events)
 
@@ -176,8 +198,9 @@ The integration can automatically configure the notification host, or you can do
 
 **Automatic (Recommended):**
 
-- The integration will automatically set the notification host when you add it
-- Uses webhook path: `/api/hikvision`
+- Enabled by default via **Configure notification host on camera**
+- Sets protocol, IP, port, and path (`/api/hikvision`) on the camera
+- Attempts to enable **Notify Surveillance Center** on supported event triggers
 
 **Manual Configuration:**
 
@@ -204,7 +227,7 @@ Once configured, binary sensors will update in real-time when events occur.
 
 ## Entities
 
-Friendly names start with your device name (e.g. `Garage`). **Entity IDs** are slugs derived by Home Assistant from those names (examples below use common patterns). Only entities whose features are detected on the device are created.
+Friendly names start with your device name (e.g. `Garage Motion`). **Entity IDs** are built from a slug of the device name plus the ISAPI event or setting key (examples below use common patterns). Only entities whose features are detected on the device are created.
 
 ### Select entities
 
@@ -256,6 +279,7 @@ Friendly names start with your device name (e.g. `Garage`). **Entity IDs** are s
 | `switch.{device_name}_scene_change_detection`    | Scene change detection enable/disable    | Enabled        |
 | `switch.{device_name}_region_entrance_detection` | Region entrance detection enable/disable | Enabled        |
 | `switch.{device_name}_region_exiting_detection`  | Region exiting detection enable/disable  | Enabled        |
+| `switch.{device_name}_defocus_detection`         | Defocus detection enable/disable         | Enabled        |
 | `switch.{device_name}_alarm_input_1`             | Alarm input port 1 enable/disable        | Enabled        |
 | `switch.{device_name}_alarm_output_1`            | Alarm output port 1 control (high/low)   | Enabled        |
 
@@ -263,18 +287,20 @@ Friendly names start with your device name (e.g. `Garage`). **Entity IDs** are s
 
 Real-time event detection via webhook notifications. Motion detection is confirmed working!
 
-| Entity ID                                              | Description                    | Device class | Status             |
-| ------------------------------------------------------ | ------------------------------ | ------------ | ------------------ |
-| `binary_sensor.{device_name}_motion`                   | Motion detection events        | `motion`     | ✅ Working         |
-| `binary_sensor.{device_name}_intrusion`                | Intrusion detection events     | `motion`     | ⚠️ Requires config |
-| `binary_sensor.{device_name}_line_crossing`            | Line crossing events           | `motion`     | ⚠️ Requires config |
-| `binary_sensor.{device_name}_region_entrance`          | Region entrance events         | `motion`     | ⚠️ Requires config |
-| `binary_sensor.{device_name}_region_exiting`           | Region exiting events          | `motion`     | ⚠️ Requires config |
-| `binary_sensor.{device_name}_scene_change`             | Scene change events            | `tamper`     | ⚠️ Requires config |
-| `binary_sensor.{device_name}_video_loss`               | Video loss events              | `problem`    | ⚠️ Requires config |
-| `binary_sensor.{device_name}_video_tampering`          | Video tampering events         | `tamper`     | ⚠️ Requires config |
-| `binary_sensor.{device_name}_tamper_detection_enabled` | Tamper detection enabled state | `tamper`     | ✅ Working         |
-| `binary_sensor.{device_name}_alarm_input_{port}`       | Alarm input events (I/O port)  | `motion`     | ⚠️ Requires config |
+| Entity ID (typical)                                      | Description                    | Device class | Status             |
+| -------------------------------------------------------- | ------------------------------ | ------------ | ------------------ |
+| `binary_sensor.{device_slug}_motiondetection`            | Motion detection events        | `motion`     | ✅ Working         |
+| `binary_sensor.{device_slug}_fielddetection`             | Intrusion detection events     | `motion`     | ⚠️ Requires config |
+| `binary_sensor.{device_slug}_linedetection`              | Line crossing events           | `motion`     | ⚠️ Requires config |
+| `binary_sensor.{device_slug}_regionentrance`             | Region entrance events         | `motion`     | ⚠️ Requires config |
+| `binary_sensor.{device_slug}_regionexiting`              | Region exiting events          | `motion`     | ⚠️ Requires config |
+| `binary_sensor.{device_slug}_scenechangedetection`       | Scene change events            | `tamper`     | ⚠️ Requires config |
+| `binary_sensor.{device_slug}_videoloss`                  | Video loss events              | `problem`    | ⚠️ Requires config |
+| `binary_sensor.{device_slug}_tamperdetection`            | Video tampering events         | `tamper`     | ⚠️ Requires config |
+| `binary_sensor.{device_slug}_defocus`                    | Defocus events                 | `problem`    | ⚠️ Requires config |
+| `binary_sensor.{device_slug}_{port}_io`                    | Alarm input events (I/O port)  | —            | ⚠️ Requires config |
+
+**Note:** `{device_slug}` is a lowercase slug of the device name. Binary sensors are **disabled by default** when the camera marks the matching trigger as disabled in `Event/triggers`.
 
 ### Sensor entities (diagnostic)
 
@@ -311,7 +337,7 @@ Real-time event detection via webhook notifications. Motion detection is confirm
 | Entity ID (typical)                    | Description        | Notes |
 | -------------------------------------- | ------------------ | ----- |
 | `button.{device_name}_restart`         | Restart camera     | ✅    |
-| `button.{device_name}_trigger_alarm`   | Fire audio alarm once | When audio alarm is supported; **disabled by default** |
+| `button.{device_name}_trigger_alarm`   | Fire audio alarm once | When `test_audio_alarm` is detected; **disabled by default** |
 
 ### Manual command reference (audio alarm trigger)
 
@@ -352,19 +378,19 @@ Common responses:
 
 | Entity ID (typical)           | Description | Notes |
 | ----------------------------- | ----------- | ----- |
-| `siren.{device_name}_alarm`   | Audio alarm | Only when the device reports audio-alarm / test-audio support |
+| `siren.{device_name}_alarm`   | Audio alarm | When `test_audio_alarm` is detected; supports tone, duration, volume, and retrigger loop |
 
 ### Update entities
 
 | Entity ID (typical)                    | Description | Notes |
 | -------------------------------------- | ----------- | ----- |
-| `update.{device_name}_firmware_update` | Firmware vs archive | Diagnostic; **install from HA is not supported**—download and flash with Hikvision tools or the web UI |
+| `update.{device_name}_firmware_update` | Firmware vs archive | Diagnostic; **Install** appears when the archive has a download URL for your model—uploads via ISAPI, polls upgrade status, and waits for reboot. Use with care. |
 
 ### Media player entities
 
 | Entity ID (typical)                  | Description    | Default / status |
 | ------------------------------------ | -------------- | ---------------- |
-| `media_player.{device_name}_speaker` | Speaker entity | **Disabled by default** in the registry; ❌ not suitable for normal TTS/MP3 playback |
+| `media_player.{device_name}_speaker` | Speaker entity | Only when two-way audio is detected; **disabled by default**; ❌ not suitable for normal TTS/MP3 playback |
 
 ---
 
@@ -379,7 +405,7 @@ When camera events occur, the integration fires `hikvision_isapi_event` events w
 | `camera_name`      | string  | Camera name                                   |
 | `event_id`         | string  | Event type (motiondetection, intrusion, etc.) |
 | `detection_target` | string  | Detection target (if applicable)              |
-| `region_id`        | integer | Region ID (if applicable)                     |
+| `region_id`        | integer | Region ID (present when `detection_target` is set) |
 
 ### Example Automation
 
@@ -414,7 +440,7 @@ automation:
 | Hikvision Camera | ISAPI enabled                  |
 | `requests`       | Installed with the integration (`manifest.json`) |
 | `aiohttp`        | Installed with the integration (`manifest.json`) |
-| `pydub`          | >=0.25.1 (optional, for audio) |
+| `pydub`          | >=0.25.1 (installed with the integration; used for audio conversion in the media player) |
 
 ---
 
@@ -423,6 +449,7 @@ automation:
 | Model                         | Status   | Notes                                     |
 | ----------------------------- | -------- | ----------------------------------------- |
 | **DS-2CD2387G3 (ColorVu G3)** | Tested   | Core controls + motion events; other ISAPI events vary by firmware/config |
+| Hikvision NVRs                | Supported | Multi-channel; proxied RTSP; feature set depends on connected cameras |
 | Other Hikvision models        | Untested | May work depending on ISAPI compatibility |
 
 ---
@@ -437,13 +464,15 @@ automation:
 - Incorrect credentials (username is case-sensitive, default is `admin`)
 - User doesn't have "Remote: Parameters Settings" permission
 - Network connectivity issues
+- Feature not exposed on this model/firmware (entities are created only after endpoint probing succeeds)
 
 **Solution:**
 
 1. Check ISAPI is enabled in camera settings
 2. Verify credentials (try `admin` in lowercase)
 3. Check Home Assistant logs for errors
-4. Enable debug logging:
+4. Download **Diagnostics** from **Settings → Devices & Services → Hikvision ISAPI Controls → ⋮ → Download diagnostics** to see which features were detected
+5. Enable debug logging:
    ```yaml
    logger:
      logs:
@@ -486,7 +515,7 @@ automation:
 
 ### Audio / media player
 
-**Status:** The speaker **media player** is not reliable for normal playback; prefer **Speaker volume** (number entity) for level control.
+**Status:** The speaker **media player** is only added when two-way audio is detected and is not reliable for normal playback; prefer **Speaker volume** (number entity) for level control.
 
 **Tip:** Enable the media player in the entity registry if you removed it or started from a template that hides it.
 
@@ -508,6 +537,18 @@ automation:
        custom_components.hikvision_isapi: debug
    ```
 4. Check that your camera model supports multiple streams
+
+### Firmware Update
+
+**Install from Home Assistant** is available when the [firmware archive](https://github.com/JoeyGE0/hikvision-fw-archive) lists a matching package with a download URL. The integration downloads the file, uploads it over ISAPI, polls `upgradeStatus`, and waits for the camera to reboot.
+
+**If Install is missing or fails:**
+
+- Your model may not be in the archive yet, or no HTTP download URL is available
+- Confirm **Remote: Parameters Settings** and upgrade permissions on the camera user
+- Check logs during install—the upload connection may drop while the camera flashes firmware (this can be normal)
+- Prefer a wired connection; do not power-cycle during upgrade
+- It does work but proceed with caution!!!!
 
 ---
 
