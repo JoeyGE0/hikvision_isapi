@@ -12,7 +12,7 @@ from pathlib import Path
 from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
-from .device_helpers import build_primary_device_info
+from .device_helpers import build_configuration_url, build_primary_device_info
 from .notifications import EventNotificationsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -162,6 +162,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         config_entry_id=entry.entry_id,
         identifiers=identifiers,
         connections=connections,
+        configuration_url=build_configuration_url(host),
         manufacturer=device_info.get("manufacturer", "Hikvision").title(),
         model=device_info.get("model", "Hikvision Camera"),
         name=device_info.get("deviceName", host),

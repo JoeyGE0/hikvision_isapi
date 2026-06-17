@@ -8,6 +8,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import slugify
 
 from .const import DOMAIN
+from .device_helpers import build_configuration_url
 from .api import HikvisionISAPI
 from .coordinator import HikvisionDataUpdateCoordinator
 
@@ -142,8 +143,12 @@ class HikvisionCamera(Camera):
         for suffix in [" Transcoded Stream", " Transcoded", " Sub-stream", " Sub", " Third Stream", " Third"]:
             device_name_clean = device_name_clean.replace(suffix, "")
         
+        visit_host = (
+            camera_info.get("ip_addr") if camera_info and camera_info.get("ip_addr") else self._host
+        )
         device_info_dict = {
             "identifiers": {(DOMAIN, device_identifier)},
+            "configuration_url": build_configuration_url(visit_host),
             "manufacturer": device_info.get("manufacturer", "Hikvision").title(),
             "model": camera_info.get("model") if camera_info else device_info.get("model", "Hikvision Camera"),
             "name": device_name_clean,

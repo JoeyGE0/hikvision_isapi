@@ -16,6 +16,18 @@ def primary_device_identifier(device_info: dict, host: str) -> str:
     return sn or host
 
 
+def build_configuration_url(host: str) -> str:
+    """Web UI URL for the device page Visit link (matches ISAPI http access)."""
+    host = host.strip()
+    if host.lower().startswith(("http://", "https://")):
+        return host.split("/")[0]
+    normalized = host
+    for prefix in ("https://", "http://"):
+        if normalized.lower().startswith(prefix):
+            normalized = normalized[len(prefix) :]
+    return f"http://{normalized.split('/')[0].strip()}"
+
+
 def build_primary_device_info(domain: str, device_info: dict, host: str) -> DeviceInfo:
     """Full DeviceInfo for the integration's main device (serial + MAC)."""
     pid = primary_device_identifier(device_info, host)
@@ -28,6 +40,7 @@ def build_primary_device_info(domain: str, device_info: dict, host: str) -> Devi
     return DeviceInfo(
         identifiers={(domain, pid)},
         connections=connections,
+        configuration_url=build_configuration_url(host),
         manufacturer=(device_info.get("manufacturer") or "hikvision").title(),
         model=device_info.get("model") or "Hikvision Camera",
         name=device_info.get("deviceName") or host,
