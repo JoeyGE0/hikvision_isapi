@@ -446,27 +446,22 @@ class HikvisionISAPI:
                 raise AuthenticationError(f"Authentication failed: {e}") from e
             # Extract detailed error message from camera response
             error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
-            status_code = e.response.status_code if hasattr(e, "response") and e.response else None
-            is_event_trigger_5xx = (
-                endpoint == "/ISAPI/Event/triggers"
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            is_bulk_event_triggers_5xx = (
+                endpoint.rstrip("/") == "/ISAPI/Event/triggers"
                 and status_code is not None
                 and status_code >= 500
             )
-            if is_event_trigger_5xx:
-                if error_msg:
-                    _LOGGER.warning(
-                        "HTTP error GET %s: %s - %s",
-                        endpoint,
-                        status_code,
-                        error_msg,
-                    )
-                else:
-                    _LOGGER.warning("HTTP error GET %s: %s", endpoint, e)
+            if is_bulk_event_triggers_5xx:
+                _LOGGER.debug(
+                    "Bulk Event/triggers HTTP %s on %s (normal on G2; using per-trigger fallback)",
+                    status_code,
+                    self.host,
+                )
+            elif error_msg:
+                _LOGGER.error("HTTP error GET %s: %s - %s", endpoint, status_code, error_msg)
             else:
-                if error_msg:
-                    _LOGGER.error("HTTP error GET %s: %s - %s", endpoint, status_code, error_msg)
-                else:
-                    _LOGGER.error("HTTP error GET %s: %s", endpoint, e)
+                _LOGGER.error("HTTP error GET %s: %s", endpoint, e)
             raise
         except requests.exceptions.RequestException as e:
             # Connection errors are expected during camera restarts - log as warning
@@ -3864,7 +3859,7 @@ class HikvisionISAPI:
             except requests.exceptions.HTTPError as err:
                 status = err.response.status_code if err.response is not None else None
                 if status is not None and status >= 500:
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "Event/triggers returned HTTP %s on %s; using per-trigger fallback",
                         status,
                         self.host,
