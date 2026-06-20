@@ -111,6 +111,10 @@ async def _discover_isapi_capabilities(
 
         if not api.isapi_boot_unstable:
             break
+        if detected_features or supported_events:
+            # Feature/event data recovered despite partial probe failures (common on G2).
+            api.isapi_boot_unstable = False
+            break
     else:
         _LOGGER.warning(
             "ISAPI discovery on %s still hit transient errors after %d attempts; "

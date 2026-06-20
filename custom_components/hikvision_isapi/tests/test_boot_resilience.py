@@ -68,7 +68,7 @@ class TestTransientErrorDetection:
 
     @patch.object(HikvisionISAPI, "_build_supported_events_fallback", return_value=[])
     @patch.object(HikvisionISAPI, "_get")
-    def test_event_triggers_500_sets_unstable_flag(self, mock_get, _fallback, api):
+    def test_event_triggers_500_uses_fallback_without_unstable_flag(self, mock_get, _fallback, api):
         err = requests.exceptions.HTTPError("500")
         err.response = Mock(status_code=500)
         mock_get.side_effect = err
@@ -76,7 +76,7 @@ class TestTransientErrorDetection:
         events = api.get_supported_events()
 
         assert events == []
-        assert api.isapi_boot_unstable is True
+        assert api.isapi_boot_unstable is False
 
 
 class TestDiscoveryRetry:

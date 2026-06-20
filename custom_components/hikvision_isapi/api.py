@@ -475,6 +475,8 @@ class HikvisionISAPI:
             else:
                 _LOGGER.error("Request error GET %s: %s", endpoint, e)
             raise
+        except AuthenticationError:
+            raise
         except Exception as e:
             _LOGGER.error("Failed to GET %s: %s", endpoint, e)
             raise
@@ -3767,6 +3769,29 @@ class HikvisionISAPI:
         recur_elem.text = "beginning"
         return True
 
+    def _events_needing_alarm_linkage(self) -> list[str]:
+        """Event IDs worth enabling Surveillance Center for (skip unsupported types)."""
+        from .const import EVENTS
+
+        ids: set[str] = set()
+        for event in getattr(self, "supported_events", None) or []:
+            if event.id in EVENTS:
+                ids.add(event.id)
+
+        feature_map = {
+            "motion_detection": "motiondetection",
+            "tamper_detection": "tamperdetection",
+            "intrusion_detection": "fielddetection",
+            "line_crossing_detection": "linedetection",
+            "region_entrance_detection": "regionentrance",
+            "region_exiting_detection": "regionexiting",
+        }
+        for feature_key, event_id in feature_map.items():
+            if (getattr(self, "detected_features", None) or {}).get(feature_key):
+                ids.add(event_id)
+
+        return sorted(ids)
+
     def ensure_http_alarm_notifications_for_events(
         self, event_ids: list[str] | None = None
     ) -> None:
@@ -3774,20 +3799,23 @@ class HikvisionISAPI:
         from .const import EVENTS
 
         channel = self.channel
-        targets = event_ids or [
-            "motiondetection",
-            "tamperdetection",
-            "fielddetection",
-            "linedetection",
-            "regionentrance",
-            "regionexiting",
-        ]
+        targets = event_ids if event_ids is not None else self._events_needing_alarm_linkage()
+        if not targets:
+            _LOGGER.debug("No supported events to link on %s; skipping alarm notification setup", self.host)
+            return
         for event_id in targets:
             if event_id not in EVENTS:
                 continue
             for path in self._event_trigger_probe_paths(event_id, channel):
                 try:
                     xml = self._get(path)
+                except AuthenticationError:
+                    _LOGGER.debug(
+                        "Permission denied enabling Surveillance Center on %s for %s",
+                        path,
+                        self.host,
+                    )
+                    continue
                 except Exception:
                     continue
 
@@ -3841,7 +3869,6 @@ class HikvisionISAPI:
                         status,
                         self.host,
                     )
-                    self.isapi_boot_unstable = True
                     return self._build_supported_events_fallback()
                 raise
             
