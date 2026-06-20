@@ -132,6 +132,10 @@ MUTEX_ALTERNATE_ID: Final = {
     "motiondetection": "VMDHumanVehicle",
 }
 
+# Delays (seconds) before retrying ISAPI discovery when the camera returns transient
+# errors during boot (HTTP 500, timeouts). First attempt is immediate.
+ISAPI_BOOT_RETRY_DELAYS: Final = (20, 40)
+
 # Stream type mappings
 STREAM_TYPE: Final = {
     1: "Main Stream",

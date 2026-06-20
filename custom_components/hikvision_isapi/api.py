@@ -417,6 +417,7 @@ class HikvisionISAPI:
         self.device_info = {}
         self.capabilities = {}
         self.cameras = []  # List of discovered cameras/channels
+        self.isapi_boot_unstable = False  # True after transient 5xx/timeout during discovery
 
     def _get(self, endpoint: str) -> ET.Element:
         """Make a GET request to ISAPI endpoint."""
@@ -3840,6 +3841,7 @@ class HikvisionISAPI:
                         status,
                         self.host,
                     )
+                    self.isapi_boot_unstable = True
                     return self._build_supported_events_fallback()
                 raise
             
@@ -4678,12 +4680,18 @@ class HikvisionISAPI:
                 verify=self.verify_ssl,
                 timeout=3  # Shorter timeout for detection
             )
+            if response.status_code >= 500:
+                self.isapi_boot_unstable = True
+                return False
             return response.status_code == 200
         except requests.exceptions.HTTPError:
             # 404 means endpoint doesn't exist
             return False
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            self.isapi_boot_unstable = True
+            return False
         except Exception:
-            # Any other error (timeout, connection, etc.) = assume not supported
+            # Any other error = assume not supported
             return False
 
     @staticmethod
@@ -4965,4 +4973,5 @@ class HikvisionISAPI:
             return features
         except Exception as e:
             _LOGGER.error("Failed to detect features: %s", e)
+            self.isapi_boot_unstable = True
             return {}

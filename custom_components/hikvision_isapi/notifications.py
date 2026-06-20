@@ -15,6 +15,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN, STATE_ON, STATE_OFF, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_registry import async_get
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util import slugify
 
 from .const import ALARM_SERVER_PATH, DOMAIN, HIKVISION_EVENT, EVENTS_ALTERNATE_ID, EVENT_IO
@@ -25,6 +26,12 @@ _LOGGER = logging.getLogger(__name__)
 # Throttle "entity not found" warnings when cameras spam events during reboot/upgrade.
 _ENTITY_NOT_FOUND_LOG_INTERVAL = 60.0
 _last_entity_not_found_log: dict[str, float] = {}
+
+# Self-heal: reload config entry once when webhooks arrive but core entities are missing.
+_ENTITY_MISSING_RELOAD_DELAY = 30.0
+_ENTITY_MISSING_RELOAD_INTERVAL = 6 * 3600.0
+_entity_missing_reload_pending: set[str] = set()
+_last_entity_missing_reload: dict[str, float] = {}
 
 CONTENT_TYPE = "Content-Type"
 CONTENT_TYPE_XML = (
@@ -636,12 +643,42 @@ class EventNotificationsView(HomeAssistantView):
                 unique_id,
                 int(_ENTITY_NOT_FOUND_LOG_INTERVAL),
             )
+            self._maybe_schedule_missing_entity_reload(entry, alert.event_id, device_name)
         else:
             _LOGGER.debug(
                 "Entity not found (throttled): event=%s unique_id=%s",
                 alert.event_id,
                 unique_id,
             )
+
+    def _maybe_schedule_missing_entity_reload(
+        self, entry, event_id: str, device_name: str
+    ) -> None:
+        """Reload the config entry when a webhook proves an event exists but its entity does not."""
+        entry_id = entry.entry_id
+        now = time.monotonic()
+        last_reload = _last_entity_missing_reload.get(entry_id, 0.0)
+        if entry_id in _entity_missing_reload_pending:
+            return
+        if now - last_reload < _ENTITY_MISSING_RELOAD_INTERVAL:
+            return
+
+        _entity_missing_reload_pending.add(entry_id)
+        _last_entity_missing_reload[entry_id] = now
+        _LOGGER.info(
+            "Scheduling config entry reload for %s in %ss to recreate missing %s entity",
+            device_name,
+            int(_ENTITY_MISSING_RELOAD_DELAY),
+            event_id,
+        )
+
+        hass = self.hass
+
+        def _reload(_now: float) -> None:
+            _entity_missing_reload_pending.discard(entry_id)
+            hass.async_create_task(hass.config_entries.async_reload(entry_id))
+
+        async_call_later(hass, _ENTITY_MISSING_RELOAD_DELAY, _reload)
 
     def fire_hass_event(self, entry, alert: AlertInfo):
         """Fire HASS event for Hikvision camera events."""

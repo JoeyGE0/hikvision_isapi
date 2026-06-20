@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import requests
@@ -9,7 +10,7 @@ from homeassistant.components.network import async_get_source_ip
 
 from pathlib import Path
 
-from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED
+from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED, ISAPI_BOOT_RETRY_DELAYS
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
 from .device_helpers import build_configuration_url, build_primary_device_info
@@ -50,6 +51,77 @@ async def async_setup(hass: HomeAssistant, config: dict):
     return True
 
 
+async def _discover_isapi_capabilities(
+    hass: HomeAssistant, api: HikvisionISAPI, host: str
+) -> tuple[dict, list]:
+    """Run feature + event discovery, retrying when ISAPI returns transient boot errors."""
+    detected_features: dict = {}
+    supported_events: list = []
+    attempts = (0,) + ISAPI_BOOT_RETRY_DELAYS
+
+    for attempt, delay in enumerate(attempts):
+        if delay:
+            _LOGGER.info(
+                "ISAPI returned transient errors on %s; retrying discovery in %ss (%d/%d)",
+                host,
+                delay,
+                attempt + 1,
+                len(attempts),
+            )
+            await asyncio.sleep(delay)
+
+        api.isapi_boot_unstable = False
+
+        try:
+            detected_features = await hass.async_add_executor_job(api.detect_features)
+            api.detected_features = detected_features
+            if not detected_features:
+                _LOGGER.warning(
+                    "Feature detection returned empty on %s (attempt %d/%d)",
+                    host,
+                    attempt + 1,
+                    len(attempts),
+                )
+        except Exception as err:
+            _LOGGER.error(
+                "Feature detection failed on %s (attempt %d/%d): %s",
+                host,
+                attempt + 1,
+                len(attempts),
+                err,
+            )
+            detected_features = {}
+            api.detected_features = detected_features
+            api.isapi_boot_unstable = True
+
+        supported_events = []
+        if hasattr(api, "get_supported_events"):
+            try:
+                supported_events = await hass.async_add_executor_job(api.get_supported_events)
+                api.supported_events = supported_events
+            except Exception as err:
+                _LOGGER.warning(
+                    "Failed to get supported events on %s (attempt %d/%d): %s",
+                    host,
+                    attempt + 1,
+                    len(attempts),
+                    err,
+                )
+                api.isapi_boot_unstable = True
+
+        if not api.isapi_boot_unstable:
+            break
+    else:
+        _LOGGER.warning(
+            "ISAPI discovery on %s still hit transient errors after %d attempts; "
+            "only confirmed capabilities will be exposed",
+            host,
+            len(attempts),
+        )
+
+    return detected_features, supported_events
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     _LOGGER.info("=== HIKVISION ISAPI: Setting up integration for %s ===", entry.data.get("host", "unknown"))
     hass.data.setdefault(DOMAIN, {})
@@ -82,29 +154,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         cameras = await hass.async_add_executor_job(api.get_cameras)
         api.cameras = cameras
         
-        # Detect supported features from capabilities
-        try:
-            detected_features = await hass.async_add_executor_job(api.detect_features)
-            api.detected_features = detected_features
-            if not detected_features:
-                _LOGGER.warning("Feature detection returned empty - no features detected. This may indicate a problem with capabilities parsing.")
-        except Exception as e:
-            _LOGGER.error("Feature detection failed: %s. No entities will be added until this is fixed.", e)
-            # Return empty dict - don't enable everything, let user know something is wrong
-            detected_features = {}
-            api.detected_features = detected_features
-        
-        # Get supported events from Event/triggers API (optional - fallback to empty list if fails)
-        supported_events = []
-        if hasattr(api, 'get_supported_events'):
-            try:
-                supported_events = await hass.async_add_executor_job(api.get_supported_events)
-                api.supported_events = supported_events
-            except Exception as e:
-                _LOGGER.warning("Failed to get supported events (will use fallback): %s", e)
-                supported_events = []
-        else:
-            _LOGGER.warning("get_supported_events method not found, using fallback")
+        detected_features, supported_events = await _discover_isapi_capabilities(
+            hass, api, host
+        )
         
         _LOGGER.info("Discovered %d camera(s) on %s (NVR: %s), %d supported events", 
                     len(cameras), host, capabilities.get("is_nvr", False), len(supported_events))
