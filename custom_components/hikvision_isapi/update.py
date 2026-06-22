@@ -822,7 +822,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         summary = self.coordinator.data.get("changes_summary")
         if summary:
             return str(summary)[:255]
-        if data.get("ahead_of_archive"):
+        if self.coordinator.data.get("ahead_of_archive"):
             return "Installed firmware is newer than the community archive."
         blocked = self.coordinator.data.get("install_blocked_reason")
         if blocked:

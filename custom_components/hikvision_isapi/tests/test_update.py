@@ -54,6 +54,56 @@ class TestFirmwareAppliesToDevice:
         assert data["install_blocked_reason"]
 
 
+class TestReleaseSummary:
+    """Regression: release_summary must not crash on entity add."""
+
+    def test_release_summary_ahead_of_archive(self):
+        from unittest.mock import MagicMock
+
+        from custom_components.hikvision_isapi.update import HikvisionFirmwareUpdate
+
+        coordinator = MagicMock()
+        coordinator.data = {"ahead_of_archive": True}
+        coordinator.last_update_success = True
+        coordinator.hass = MagicMock()
+        coordinator.hass.data = {}
+
+        entity = HikvisionFirmwareUpdate(
+            coordinator,
+            MagicMock(entry_id="test"),
+            "192.168.1.15",
+            "Backyard",
+            "DS-2CD1383G2-LIUF/SL",
+            "5.8.5",
+        )
+        assert entity.release_summary == (
+            "Installed firmware is newer than the community archive."
+        )
+
+    def test_release_summary_install_blocked(self):
+        from unittest.mock import MagicMock
+
+        from custom_components.hikvision_isapi.update import HikvisionFirmwareUpdate
+
+        coordinator = MagicMock()
+        coordinator.data = {
+            "install_blocked_reason": "Archive package mismatch for DS-2CD1383G2-LIUF/SL"
+        }
+        coordinator.last_update_success = True
+        coordinator.hass = MagicMock()
+        coordinator.hass.data = {}
+
+        entity = HikvisionFirmwareUpdate(
+            coordinator,
+            MagicMock(entry_id="test"),
+            "192.168.1.15",
+            "Backyard",
+            "DS-2CD1383G2-LIUF/SL",
+            "5.8.5",
+        )
+        assert "mismatch" in (entity.release_summary or "")
+
+
 @pytest.fixture
 def api():
     return HikvisionISAPI("192.168.1.15", "admin", "password")
