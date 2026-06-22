@@ -1279,6 +1279,64 @@ class HikvisionISAPI:
                 percent = 0
         return {"upgrading": upgrading, "percent": max(0, min(100, percent))}
 
+    def probe_firmware_upgrade_support(self) -> dict[str, bool]:
+        """Probe ISAPI for local vs online firmware upgrade support (read-only GETs)."""
+        support = {
+            "local_upgrade": False,
+            "online_upgrade": False,
+            "upgrade_status": False,
+        }
+
+        try:
+            self.get_upgrade_status()
+            support["upgrade_status"] = True
+            support["local_upgrade"] = True
+        except Exception as err:
+            _LOGGER.debug(
+                "upgradeStatus not available on %s: %s", self.host, err
+            )
+
+        try:
+            cap_xml = self._get("/ISAPI/System/capabilities")
+            for elem in cap_xml.iter():
+                tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                if tag == "secondaryType" and elem.text:
+                    if "remoteUpgrade" in elem.text or "localUpdate" in elem.text:
+                        support["local_upgrade"] = True
+                        break
+        except Exception as err:
+            _LOGGER.debug(
+                "System/capabilities upgrade flags unavailable on %s: %s",
+                self.host,
+                err,
+            )
+
+        try:
+            xml = self._get("/ISAPI/System/onlineUpgrade/capabilities")
+            sub_elem = xml.find(f".//{XML_NS}subStatusCode")
+            sub = (
+                sub_elem.text.strip().lower()
+                if sub_elem is not None and sub_elem.text
+                else ""
+            )
+            if sub and sub not in ("notsupport", "notSupport".lower()):
+                support["online_upgrade"] = True
+        except requests.exceptions.HTTPError as err:
+            if err.response is not None and err.response.status_code in (403, 404):
+                support["online_upgrade"] = False
+            else:
+                _LOGGER.debug(
+                    "onlineUpgrade/capabilities probe failed on %s: %s",
+                    self.host,
+                    err,
+                )
+        except Exception as err:
+            _LOGGER.debug(
+                "onlineUpgrade/capabilities unavailable on %s: %s", self.host, err
+            )
+
+        return support
+
     @staticmethod
     def resolve_firmware_upload_path(firmware_path: str) -> tuple[str, list[str]]:
         """Return ISAPI-uploadable file path; extract .zip archives when needed.
@@ -1450,23 +1508,39 @@ class HikvisionISAPI:
         self, response: requests.Response, method: str
     ) -> None:
         """Validate upload HTTP response and ResponseStatus."""
+        body = response.text or ""
+        sub_status = _extract_sub_status_code(response)
+
+        def _device_rejected(msg: str, *, sub: str | None = None) -> None:
+            raise FirmwareUpgradeError(msg, sub_status=sub or sub_status)
+
         if response.status_code in (401, 403):
-            body = response.text or ""
-            sub_status = _extract_sub_status_code(response)
             if (
                 sub_status == "rebootRequired"
                 or "rebootRequired" in body
                 or "Reboot Required" in body
             ):
-                raise FirmwareUpgradeError(
+                _device_rejected(
                     f"Firmware upload {method} rejected: reboot required before upgrade",
-                    sub_status="rebootRequired",
+                    sub="rebootRequired",
                 )
-            if "deviceError" in body or "errCode" in body or "UniNetIF_firm_upgrade" in body:
+            if (
+                sub_status in ("badDevType", "badLanguage", "badFlash", "notSupport")
+                or "badDevType" in body
+                or "Upgrade capability mismatch" in body
+                or "deviceError" in body
+                or "errCode" in body
+                or "UniNetIF_firm_upgrade" in body
+            ):
                 error_msg = _extract_error_message(response) or body[:300]
-                raise FirmwareUpgradeError(
-                    f"Firmware upload {method} rejected by device: {error_msg}",
-                    sub_status=sub_status,
+                _device_rejected(
+                    f"Firmware upload {method} rejected: {error_msg}",
+                    sub=sub_status or ("badDevType" if "badDevType" in body else None),
+                )
+            if sub_status == "methodNotAllowed":
+                _device_rejected(
+                    f"Firmware upload {method} rejected: HTTP method not allowed on updateFirmware",
+                    sub="methodNotAllowed",
                 )
             raise AuthenticationError(
                 f"Authentication failed during firmware upload ({response.status_code})"

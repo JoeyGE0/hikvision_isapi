@@ -137,6 +137,36 @@ def normalize_model(model: str) -> str:
     return " ".join(model.split()).upper()
 
 
+def _applied_to_models(applied_to: str) -> set[str]:
+    """Parse Hikvision release-note model codes from an applied_to string."""
+    models: set[str] = set()
+    for match in re.findall(HIKVISION_MODEL_PATTERN, applied_to or "", re.IGNORECASE):
+        norm = normalize_model(match)
+        if norm:
+            models.add(norm)
+    return models
+
+
+def _model_variant_match(device_model: str, candidate: str) -> bool:
+    """Match device SKU to an applied_to entry (exact or lens-variant prefix)."""
+    device = normalize_model(device_model)
+    cand = normalize_model(candidate)
+    if not device or not cand:
+        return False
+    if device == cand:
+        return True
+    return device.startswith(cand) or cand.startswith(device)
+
+
+def firmware_applies_to_device(device_model: str, firmware: dict[str, Any]) -> bool:
+    """True when the device model appears in the firmware release-note applied_to list."""
+    applied = _applied_to_models(str(firmware.get("applied_to") or ""))
+    if applied:
+        return any(_model_variant_match(device_model, entry) for entry in applied)
+    pkg_model = normalize_model(str(firmware.get("model") or ""))
+    return bool(pkg_model and _model_variant_match(device_model, pkg_model))
+
+
 def _model_series_token(model: str) -> str:
     """Product family token, e.g. DS-2CD2387G3-LIS2UY/SL -> 2CD2387G3."""
     parts = model.upper().split("-")
@@ -200,6 +230,8 @@ def _empty_coordinator_data() -> dict[str, Any]:
         "license_url": LICENSE_URL,
         "ahead_of_archive": False,
         "filename": None,
+        "package_compatible": False,
+        "install_blocked_reason": None,
     }
 
 
@@ -208,6 +240,7 @@ def _coordinator_data_from_firmware(
     *,
     available: bool,
     ahead_of_archive: bool,
+    device_model: str | None = None,
 ) -> dict[str, Any]:
     """Build coordinator payload from one archive firmware row."""
     notes = (firmware.get("notes") or "").strip()
@@ -225,17 +258,30 @@ def _coordinator_data_from_firmware(
         or FIRMWARE_ARCHIVE_RELEASES_URL
     )
     changes_summary = changes if changes and not changes.startswith("http") else ""
+    package_compatible = (
+        firmware_applies_to_device(device_model, firmware)
+        if device_model
+        else True
+    )
+    install_blocked_reason = None
+    if device_model and download_url and not package_compatible:
+        install_blocked_reason = (
+            f"Archive package ({firmware.get('model') or 'unknown'}) is not listed "
+            f"for {device_model} in Hikvision release notes (applied_to mismatch)"
+        )
     return {
-        "available": available,
+        "available": available and package_compatible,
         "latest_version": firmware.get("version"),
         "release_date": firmware.get("date"),
-        "download_url": download_url,
+        "download_url": download_url if package_compatible else None,
         "changes_summary": changes_summary or None,
         "notes_pdf_url": notes_pdf or None,
         "release_page_url": release_page,
         "license_url": (firmware.get("license_url") or LICENSE_URL),
         "ahead_of_archive": ahead_of_archive,
         "filename": firmware.get("filename"),
+        "package_compatible": package_compatible,
+        "install_blocked_reason": install_blocked_reason,
     }
 
 
@@ -355,6 +401,7 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                         index_record,
                         available=available,
                         ahead_of_archive=ahead and not available,
+                        device_model=self.device_model,
                     )
 
                 # Fallback: scan live + manual JSON (older archive commits)
@@ -453,7 +500,12 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
             # Filter out invalid firmware entries and sort by version (newest first)
             valid_firmwares = []
             for fw in matching_firmwares:
-                if isinstance(fw, dict) and fw.get("version") and fw.get("download_url"):
+                if (
+                    isinstance(fw, dict)
+                    and fw.get("version")
+                    and fw.get("download_url")
+                    and firmware_applies_to_device(self.device_model, fw)
+                ):
                     valid_firmwares.append(fw)
             
             if not valid_firmwares:
@@ -485,6 +537,7 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                     latest_firmware,
                     available=True,
                     ahead_of_archive=False,
+                    device_model=self.device_model,
                 )
 
             latest = matching_firmwares[0]
@@ -497,6 +550,7 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
                 latest,
                 available=False,
                 ahead_of_archive=ahead,
+                device_model=self.device_model,
             )
             
         except aiohttp.ClientError as err:
@@ -716,7 +770,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         """Install when a firmware package URL is available from the archive."""
         features = UpdateEntityFeature.RELEASE_NOTES | UpdateEntityFeature.PROGRESS
         data = self.coordinator.data or {}
-        if data.get("download_url"):
+        if data.get("download_url") and data.get("package_compatible", True):
             features |= UpdateEntityFeature.INSTALL
         return features
 
@@ -768,8 +822,11 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         summary = self.coordinator.data.get("changes_summary")
         if summary:
             return str(summary)[:255]
-        if self.coordinator.data.get("ahead_of_archive"):
+        if data.get("ahead_of_archive"):
             return "Installed firmware is newer than the community archive."
+        blocked = self.coordinator.data.get("install_blocked_reason")
+        if blocked:
+            return str(blocked)[:255]
         return None
 
     @property
@@ -824,6 +881,11 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 "Note: Your camera firmware is newer than the highest version listed "
                 "in the community archive for this model."
             )
+        blocked = data.get("install_blocked_reason")
+        if blocked:
+            lines.append("")
+            lines.append("Install blocked:")
+            lines.append(str(blocked))
         if release_date:
             lines.append(f"Release date: {release_date}")
         if self._model:
@@ -923,7 +985,27 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         download_url = coord_data.get("download_url")
 
         if not download_url:
+            blocked = coord_data.get("install_blocked_reason")
+            if blocked:
+                raise HomeAssistantError(blocked)
             raise HomeAssistantError("No firmware download URL available for this device")
+        if not coord_data.get("package_compatible", True):
+            raise HomeAssistantError(
+                coord_data.get("install_blocked_reason")
+                or "Firmware package is not verified for this camera model"
+            )
+
+        upgrade_caps = await self.hass.async_add_executor_job(
+            api.probe_firmware_upgrade_support
+        )
+        if not upgrade_caps.get("local_upgrade"):
+            online = upgrade_caps.get("online_upgrade")
+            raise HomeAssistantError(
+                "Camera does not expose local ISAPI firmware upgrade "
+                "(requires upgradeStatus / remoteUpgrade; online upgrade "
+                f"{'available' if online else 'not supported'} on this model)"
+            )
+
         if not target_version:
             raise HomeAssistantError("No target firmware version specified")
         if not coord_data.get("available") and not compare_versions(
@@ -1070,6 +1152,12 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                     hint = (
                         " Device may be busy, flash error, or language mismatch "
                         "(ISAPI subStatusCode)."
+                    )
+                elif err.sub_status == "badDevType":
+                    hint = (
+                        " Firmware package does not match this camera model "
+                        "(badDevType / upgrade capability mismatch). Verify applied_to "
+                        "in the archive matches your exact SKU."
                     )
                 elif "errCode = 40" in err_text or "ret[40]" in err_text:
                     hint = (
