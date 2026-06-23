@@ -103,6 +103,30 @@ class TestReleaseSummary:
         )
         assert "mismatch" in (entity.release_summary or "")
 
+    def test_release_summary_no_archive_match(self):
+        from unittest.mock import MagicMock
+
+        from custom_components.hikvision_isapi.update import (
+            FIRMWARE_NO_ARCHIVE_MATCH_NOTE,
+            HikvisionFirmwareUpdate,
+        )
+
+        coordinator = MagicMock()
+        coordinator.data = {"latest_version": None}
+        coordinator.last_update_success = True
+        coordinator.hass = MagicMock()
+        coordinator.hass.data = {}
+
+        entity = HikvisionFirmwareUpdate(
+            coordinator,
+            MagicMock(entry_id="test"),
+            "192.168.1.15",
+            "Backyard",
+            "DS-2CD1383G2-LIUF/SL",
+            "5.8.5",
+        )
+        assert entity.release_summary == FIRMWARE_NO_ARCHIVE_MATCH_NOTE[:255]
+
 
 @pytest.fixture
 def api():

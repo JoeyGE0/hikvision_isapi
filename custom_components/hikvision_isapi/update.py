@@ -42,6 +42,22 @@ FIRMWARE_ARCHIVE_RELEASES_URL = "https://github.com/JoeyGE0/hikvision-fw-archive
 FIRMWARE_ARCHIVE_HOME_URL = "https://github.com/JoeyGE0/hikvision-fw-archive"
 LICENSE_URL = "https://www.hikvision.com/en/policies/materials-license-agreement/"
 
+# Shown on the firmware update entity and in release notes.
+FIRMWARE_COMPATIBILITY_NOTE = (
+    "Packages are matched using Hikvision release-note Applied to lists from the "
+    "community archive. Always confirm your exact camera model (including /SL, /SRB, "
+    "and lens variants) is listed for the firmware before upgrading."
+)
+FIRMWARE_DIRECT_UPDATE_NOTE = (
+    "Direct update via the camera web interface or an official Hikvision download "
+    "is recommended when in doubt. Home Assistant OTA install is supported when a "
+    "verified archive package is available."
+)
+FIRMWARE_NO_ARCHIVE_MATCH_NOTE = (
+    "No verified archive package for this model yet. Check the firmware archive and "
+    "Hikvision product page Applied to list before upgrading."
+)
+
 HIKVISION_MODEL_PATTERN = (
     r"(DS-[0-9A-Z./()-]+|AE-[0-9A-Z./()-]+|IDS-[0-9A-Z./()-]+|HM-[0-9A-Z./()-]+|"
     r"THC-[0-9A-Z./()-]+|DVR-[0-9A-Z./()-]+|NVR-[0-9A-Z./()-]+|IPC-[0-9A-Z./()-]+|"
@@ -218,6 +234,15 @@ def github_release_page_url(download_url: str | None) -> str | None:
     return None
 
 
+def _firmware_guidance_lines() -> list[str]:
+    """User-facing notes on compatibility checks and direct vs HA install."""
+    return [
+        "Before you upgrade:",
+        FIRMWARE_COMPATIBILITY_NOTE,
+        FIRMWARE_DIRECT_UPDATE_NOTE,
+    ]
+
+
 def _empty_coordinator_data() -> dict[str, Any]:
     return {
         "available": False,
@@ -226,7 +251,7 @@ def _empty_coordinator_data() -> dict[str, Any]:
         "download_url": None,
         "changes_summary": None,
         "notes_pdf_url": None,
-        "release_page_url": None,
+        "release_page_url": FIRMWARE_ARCHIVE_RELEASES_URL,
         "license_url": LICENSE_URL,
         "ahead_of_archive": False,
         "filename": None,
@@ -827,7 +852,9 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         blocked = self.coordinator.data.get("install_blocked_reason")
         if blocked:
             return str(blocked)[:255]
-        return None
+        if not self.coordinator.data.get("latest_version"):
+            return FIRMWARE_NO_ARCHIVE_MATCH_NOTE[:255]
+        return FIRMWARE_DIRECT_UPDATE_NOTE[:255]
 
     @property
     def release_url(self) -> str | None:
@@ -922,12 +949,24 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         lines.append("Firmware archive:")
         lines.append(FIRMWARE_ARCHIVE_HOME_URL)
 
+        lines.extend([""] + _firmware_guidance_lines())
+
         lines.append("")
+        if download_url and data.get("package_compatible", True):
+            lines.append(
+                "Home Assistant **Install** is supported for this verified package. "
+                "You can also download the firmware above and apply it via the camera "
+                "web interface (direct update — recommended when unsure)."
+            )
+        else:
+            lines.append(
+                "No verified package is available for automatic install. Use the archive "
+                "or Hikvision product page to find firmware, confirm Applied to lists "
+                "your model, then update directly on the camera."
+            )
         lines.append(
-            "Use **Install** in Home Assistant to upgrade this camera automatically, "
-            "or open the download link above to save the firmware file for manual use. "
-            "The camera will reboot during an install. Use stable power and a wired connection; "
-            "do not interrupt the upgrade."
+            "The camera reboots during an upgrade. Use stable power and a wired "
+            "connection; do not interrupt the process."
         )
 
         return "\n".join(lines) if lines else None
