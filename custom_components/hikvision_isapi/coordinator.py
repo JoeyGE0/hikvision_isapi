@@ -13,6 +13,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import HikvisionISAPI, AuthenticationError
+from .device_helpers import alarm_output_data_key
 from .const import (
     DOMAIN,
     FEATURE_CAPABILITY_FIRST_SCAN,
@@ -323,9 +324,7 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             alarm_server = await self.hass.async_add_executor_job(
                 self.api.get_alarm_server
             )
-            from homeassistant.components.switch import ENTITY_ID_FORMAT
-            from homeassistant.util import slugify
-            
+
             data = {
                 "ircut": ircut_data,
                 "supplement_light": supplement_light,
@@ -359,13 +358,13 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
                 alarm_output = await self.hass.async_add_executor_job(
                     self.api.get_alarm_output, 1
                 )
-                # Get device name from stored data (with fallback if not available yet)
                 device_info = {}
                 if DOMAIN in self.hass.data and self.entry.entry_id in self.hass.data[DOMAIN]:
                     device_info = self.hass.data[DOMAIN][self.entry.entry_id].get("device_info", {})
                 device_name = device_info.get("deviceName", self.entry.data.get("host", ""))
-                _id = ENTITY_ID_FORMAT.format(f"{slugify(device_name.lower())}_1_alarm_output")
-                data[_id] = alarm_output.get("enabled", False)
+                data[alarm_output_data_key(device_name, 1)] = alarm_output.get(
+                    "enabled", False
+                )
 
             await self._async_maybe_rescan_capabilities()
             await self._async_maybe_refresh_device_firmware(domain_data)

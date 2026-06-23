@@ -280,8 +280,8 @@ Friendly names start with your device name (e.g. `Garage Motion`). **Entity IDs*
 | `switch.{device_name}_region_entrance_detection` | Region entrance detection enable/disable | Enabled        |
 | `switch.{device_name}_region_exiting_detection`  | Region exiting detection enable/disable  | Enabled        |
 | `switch.{device_name}_defocus_detection`         | Defocus detection enable/disable         | Enabled        |
-| `switch.{device_name}_alarm_input_1`             | Alarm input port 1 enable/disable        | Enabled        |
-| `switch.{device_name}_alarm_output_1`            | Alarm output port 1 control (high/low)   | Enabled        |
+| `switch.{device_name}_alarm_input_1`             | Alarm input port 1 enable/disable in camera config | Enabled        |
+| `switch.{device_name}_alarm_output_1`            | Alarm output relay high/low (external siren)       | Enabled        |
 
 ### Binary sensor entities (real-time events)
 

@@ -1433,7 +1433,7 @@ class HikvisionISAPI:
                 return
             except FirmwareUpgradeError as err:
                 if attempt == 0 and err.sub_status == "rebootRequired":
-                    _LOGGER.warning(
+                    _LOGGER.info(
                         "Camera %s requires reboot before firmware upload; rebooting and retrying",
                         self.host,
                     )
@@ -1456,8 +1456,10 @@ class HikvisionISAPI:
             last_error = str(err)
             if err.sub_status in ("rebootRequired", "connection_lost"):
                 raise
-            _LOGGER.warning(
-                "PUT firmware upload failed for %s, trying POST multipart: %s",
+            if err.sub_status in ("badDevType", "badLanguage", "badFlash", "notSupport"):
+                raise
+            _LOGGER.info(
+                "PUT firmware upload not accepted for %s, trying POST multipart: %s",
                 self.host,
                 err,
             )

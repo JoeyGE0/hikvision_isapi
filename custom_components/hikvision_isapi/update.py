@@ -1077,7 +1077,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         async with lock:
             try:
                 self._report_install_progress(0)
-                _LOGGER.warning(
+                _LOGGER.info(
                     "Starting firmware upgrade on %s (%s): %s -> %s",
                     self._host,
                     self._model,
@@ -1101,14 +1101,14 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                     if err.sub_status != "connection_lost":
                         raise
                     upload_disconnected = True
-                    _LOGGER.warning(
+                    _LOGGER.info(
                         "Firmware upload connection dropped on %s; "
                         "camera may still be flashing — waiting for reboot",
                         self._host,
                     )
                 except (ConnectionError, OSError) as err:
                     upload_disconnected = True
-                    _LOGGER.warning(
+                    _LOGGER.info(
                         "Firmware upload connection lost on %s (%s); "
                         "camera may still be flashing — waiting for reboot",
                         self._host,
@@ -1129,7 +1129,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 except FirmwareUpgradeError as err:
                     if not upload_disconnected:
                         raise
-                    _LOGGER.warning(
+                    _LOGGER.info(
                         "upgradeStatus polling inconclusive on %s after disconnect: %s",
                         self._host,
                         err,
@@ -1172,7 +1172,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
 
                 install_succeeded = True
                 self._report_install_progress(100)
-                _LOGGER.warning(
+                _LOGGER.info(
                     "Firmware upgrade completed on %s: now running %s%s",
                     self._host,
                     new_firmware,

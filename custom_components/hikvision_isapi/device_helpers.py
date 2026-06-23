@@ -10,6 +10,16 @@ from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN
 
 
+def alarm_output_data_key(device_name: str, port_no: int = 1) -> str:
+    """Coordinator dict key for alarm output state (matches switch entity_id slug)."""
+    from homeassistant.components.switch import ENTITY_ID_FORMAT
+    from homeassistant.util import slugify
+
+    return ENTITY_ID_FORMAT.format(
+        f"{slugify(device_name.lower())}_{port_no}_alarm_output"
+    )
+
+
 def primary_device_identifier(device_info: dict, host: str) -> str:
     """Stable device id: serial when present, else host (matches __init__.py)."""
     sn = (device_info.get("serialNumber") or "").strip()
