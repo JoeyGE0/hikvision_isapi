@@ -851,7 +851,7 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
     """Enable/disable alarm input port in camera config (not physical contact state)."""
 
     _attr_unique_id = "hikvision_alarm_input_1"
-    _attr_icon = "mdi:alarm-sensor"
+    _attr_icon = "mdi:electric-switch"
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
         """Initialize the switch."""

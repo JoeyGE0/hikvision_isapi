@@ -3322,34 +3322,25 @@ class HikvisionISAPI:
     def set_alarm_input(self, port_id: int = 1, enabled: bool = True) -> bool:
         """Enable/disable alarm input port."""
         try:
-            url = f"http://{self.host}/ISAPI/System/IO/inputs/{port_id}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            xml = self._get(f"/ISAPI/System/IO/inputs/{port_id}")
+            port = xml.find(f".//{XML_NS}IOInputPort")
+            if port is None:
+                port = xml.find(".//IOInputPort")
+            if port is None:
+                _LOGGER.error("IOInputPort not found for alarm input %s on %s", port_id, self.host)
+                return False
+
+            enabled_elem = port.find(f".//{XML_NS}enabled")
+            if enabled_elem is None:
+                enabled_elem = port.find(".//enabled")
+            if enabled_elem is None:
+                _LOGGER.error("enabled element not found for alarm input %s on %s", port_id, self.host)
+                return False
+
+            enabled_elem.text = "true" if enabled else "false"
+            ET.register_namespace("", "http://www.hikvision.com/ver20/XMLSchema")
+            payload = ET.tostring(xml, encoding="unicode", xml_declaration=True)
+            self._put(f"/ISAPI/System/IO/inputs/{port_id}", payload)
             return True
         except AuthenticationError:
             raise
@@ -3663,18 +3654,27 @@ class HikvisionISAPI:
                 "protocol": None
             }
 
-    def _event_trigger_probe_paths(self, event_id: str, channel_id: int) -> list[str]:
+    def _event_trigger_probe_paths(
+        self, event_id: str, channel_id: int, io_port_id: int = 0
+    ) -> list[str]:
         """Candidate GET paths for a single event trigger (G2 often 500s on the bulk list)."""
-        from .const import EVENTS
+        from .const import EVENTS, EVENT_IO
 
         cfg = EVENTS.get(event_id, {})
         slug = cfg.get("slug", event_id)
-        paths = [
-            f"/ISAPI/Event/triggers/{event_id}-{channel_id}",
-            f"/ISAPI/Event/triggers/{slug}-{channel_id}",
-            f"/ISAPI/Event/triggers/{event_id}",
-            f"/ISAPI/Event/triggers/{slug}",
-        ]
+        if event_id == EVENT_IO and io_port_id > 0:
+            paths = [
+                f"/ISAPI/Event/triggers/IO-{io_port_id}",
+                f"/ISAPI/Event/triggers/io-{io_port_id}",
+                f"/ISAPI/Event/triggers/{slug}-{io_port_id}",
+            ]
+        else:
+            paths = [
+                f"/ISAPI/Event/triggers/{event_id}-{channel_id}",
+                f"/ISAPI/Event/triggers/{slug}-{channel_id}",
+                f"/ISAPI/Event/triggers/{event_id}",
+                f"/ISAPI/Event/triggers/{slug}",
+            ]
         # De-duplicate while preserving order
         seen: set[str] = set()
         ordered: list[str] = []
@@ -3752,7 +3752,16 @@ class HikvisionISAPI:
                 event_id = event_type.lower()
                 if event_id in EVENTS_ALTERNATE_ID:
                     event_id = EVENTS_ALTERNATE_ID[event_id]
-                if event_id not in EVENTS or event_id == EVENT_IO:
+                if event_id not in EVENTS:
+                    continue
+                if event_id == EVENT_IO:
+                    input_ports = 1
+                    if hasattr(self, "capabilities") and isinstance(self.capabilities, dict):
+                        input_ports = max(1, self.capabilities.get("input_ports", 1))
+                    for port in range(1, input_ports + 1):
+                        self._append_event_info(
+                            events, event_id=EVENT_IO, channel_id=0, io_port_id=port
+                        )
                     continue
                 self._append_event_info(events, event_id=event_id, channel_id=channel_id)
 
@@ -3786,6 +3795,15 @@ class HikvisionISAPI:
             except Exception:
                 pass
 
+        if features.get("alarm_input"):
+            input_ports = 1
+            if hasattr(self, "capabilities") and isinstance(self.capabilities, dict):
+                input_ports = max(1, self.capabilities.get("input_ports", 1))
+            for port in range(1, input_ports + 1):
+                self._append_event_info(
+                    events, event_id=EVENT_IO, channel_id=0, io_port_id=port
+                )
+
     def _collect_events_from_trigger_probes(self, events: list) -> None:
         """Probe individual /ISAPI/Event/triggers/<id> endpoints (works on many G2 models)."""
         from .const import EVENT_IO, EVENTS
@@ -3793,6 +3811,21 @@ class HikvisionISAPI:
         channel_id = self.channel
         for event_id in EVENTS:
             if event_id == EVENT_IO:
+                input_ports = 0
+                if hasattr(self, "capabilities") and isinstance(self.capabilities, dict):
+                    input_ports = self.capabilities.get("input_ports", 0)
+                for port in range(1, max(1, input_ports) + 1):
+                    for path in self._event_trigger_probe_paths(
+                        event_id, channel_id, io_port_id=port
+                    ):
+                        if self._test_endpoint_exists(path):
+                            self._append_event_info(
+                                events,
+                                event_id=EVENT_IO,
+                                channel_id=0,
+                                io_port_id=port,
+                            )
+                            break
                 continue
             for path in self._event_trigger_probe_paths(event_id, channel_id):
                 if self._test_endpoint_exists(path):
@@ -3861,66 +3894,85 @@ class HikvisionISAPI:
             if (getattr(self, "detected_features", None) or {}).get(feature_key):
                 ids.add(event_id)
 
+        if (getattr(self, "detected_features", None) or {}).get("alarm_input"):
+            from .const import EVENT_IO
+
+            ids.add(EVENT_IO)
+
         return sorted(ids)
 
     def ensure_http_alarm_notifications_for_events(
         self, event_ids: list[str] | None = None
     ) -> None:
         """Enable HTTP (Surveillance Center) linkage on event triggers for HA webhooks."""
-        from .const import EVENTS
+        from .const import EVENTS, EVENT_IO
 
         channel = self.channel
         targets = event_ids if event_ids is not None else self._events_needing_alarm_linkage()
         if not targets:
             _LOGGER.debug("No supported events to link on %s; skipping alarm notification setup", self.host)
             return
+        input_ports = 0
+        if hasattr(self, "capabilities") and isinstance(self.capabilities, dict):
+            input_ports = self.capabilities.get("input_ports", 0)
+
         for event_id in targets:
             if event_id not in EVENTS:
                 continue
-            for path in self._event_trigger_probe_paths(event_id, channel):
-                try:
-                    xml = self._get(path)
-                except AuthenticationError:
-                    _LOGGER.debug(
-                        "Permission denied enabling Surveillance Center on %s for %s",
-                        path,
-                        self.host,
-                    )
-                    continue
-                except Exception:
-                    continue
+            if event_id == EVENT_IO:
+                probe_specs = [
+                    (0, port) for port in range(1, max(1, input_ports) + 1)
+                ]
+            else:
+                probe_specs = [(channel, 0)]
 
-                event_trigger = xml.find(f".//{XML_NS}EventTrigger")
-                if event_trigger is None and xml.tag.endswith("EventTrigger"):
-                    event_trigger = xml
-                if event_trigger is None:
-                    continue
+            for probe_channel, io_port_id in probe_specs:
+                for path in self._event_trigger_probe_paths(
+                    event_id, probe_channel, io_port_id=io_port_id
+                ):
+                    try:
+                        xml = self._get(path)
+                    except AuthenticationError:
+                        _LOGGER.debug(
+                            "Permission denied enabling Surveillance Center on %s for %s",
+                            path,
+                            self.host,
+                        )
+                        continue
+                    except Exception:
+                        continue
 
-                if not self._ensure_center_on_trigger(event_trigger):
-                    _LOGGER.debug(
-                        "Surveillance Center already enabled for %s on %s",
-                        event_id,
-                        self.host,
-                    )
+                    event_trigger = xml.find(f".//{XML_NS}EventTrigger")
+                    if event_trigger is None and xml.tag.endswith("EventTrigger"):
+                        event_trigger = xml
+                    if event_trigger is None:
+                        continue
+
+                    if not self._ensure_center_on_trigger(event_trigger):
+                        _LOGGER.debug(
+                            "Surveillance Center already enabled for %s on %s",
+                            event_id,
+                            self.host,
+                        )
+                        break
+
+                    try:
+                        ET.register_namespace("", "http://www.hikvision.com/ver20/XMLSchema")
+                        payload = ET.tostring(xml, encoding="unicode", xml_declaration=True)
+                        self._put(path, payload)
+                        _LOGGER.info(
+                            "Enabled Surveillance Center notification for %s on %s",
+                            event_id,
+                            self.host,
+                        )
+                    except Exception as err:
+                        _LOGGER.warning(
+                            "Failed to enable Surveillance Center for %s on %s: %s",
+                            event_id,
+                            self.host,
+                            err,
+                        )
                     break
-
-                try:
-                    ET.register_namespace("", "http://www.hikvision.com/ver20/XMLSchema")
-                    payload = ET.tostring(xml, encoding="unicode", xml_declaration=True)
-                    self._put(path, payload)
-                    _LOGGER.info(
-                        "Enabled Surveillance Center notification for %s on %s",
-                        event_id,
-                        self.host,
-                    )
-                except Exception as err:
-                    _LOGGER.warning(
-                        "Failed to enable Surveillance Center for %s on %s: %s",
-                        event_id,
-                        self.host,
-                        err,
-                    )
-                break
 
     def get_supported_events(self):
         """Get list of all supported events from Event/triggers API."""

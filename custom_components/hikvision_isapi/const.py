@@ -97,6 +97,12 @@ EVENTS: Final = {
         "slug": "DefocusDetection",
         "device_class": BinarySensorDeviceClass.PROBLEM,
     },
+    "io": {
+        "type": EVENT_IO,
+        "label": "Alarm Input",
+        "slug": "inputs",
+        "device_class": BinarySensorDeviceClass.CONNECTIVITY,
+    },
 }
 
 # Alternate event IDs (some cameras use different names)

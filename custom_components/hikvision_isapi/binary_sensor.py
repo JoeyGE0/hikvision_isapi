@@ -126,10 +126,17 @@ async def async_setup_entry(
                 )
             )
     
-    # Create channel 0 entities for I/O events only when input ports are present.
-    if has_io_inputs and supported_events:
-        # Use I/O events from Event/triggers
-        device_io_events = [e for e in supported_events if e.id == EVENT_IO]
+    # Create channel 0 entities for alarm inputs when the device reports I/O ports.
+    if has_io_inputs and detected_features.get("alarm_input", False):
+        device_io_events = [e for e in (supported_events or []) if e.id == EVENT_IO]
+        existing_ports = {e.io_port_id for e in device_io_events}
+        input_ports = capabilities.get("input_ports", 1)
+        for port in range(1, input_ports + 1):
+            if port in existing_ports:
+                continue
+            device_io_events.append(
+                EventInfo(id=EVENT_IO, channel_id=0, io_port_id=port, disabled=False)
+            )
         for event in device_io_events:
             # I/O events are device-level (channel 0)
             device_id_param = ""  # No channel_id for I/O events
