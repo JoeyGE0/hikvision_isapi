@@ -196,11 +196,11 @@ class EventBinarySensor(BinarySensorEntity):
         event_label = event_config.get("label", event.id.title())
         if event.id == EVENT_IO:
             self._attr_name = f"{device_name} Alarm Input {event.io_port_id}"
+            self._attr_device_class = None
+            self._attr_icon = "mdi:video-input-hdmi"
         else:
             self._attr_name = f"{device_name} {event_label}"
-        
-        # Set device class from event config
-        self._attr_device_class = event_config.get("device_class")
+            self._attr_device_class = event_config.get("device_class")
         
         # Set icons based on event type (dynamic based on state)
         if event.id == "videoloss":

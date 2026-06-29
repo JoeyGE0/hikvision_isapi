@@ -20,6 +20,7 @@ from typing import Callable, Optional
 _LOGGER = logging.getLogger(__name__)
 
 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+ISAPI_XML_NS_ALT = "{http://www.isapi.org/ver20/XMLSchema}"
 
 # G.711 telephony audio: 8 kHz mono, 64 kbps → 8000 bytes/s
 G711_CHUNK_SIZE = 128  # 16 ms per chunk at 8 kHz (common ISAPI packet size)
@@ -3297,20 +3298,117 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set region exiting: %s", e)
             return False
 
+    @staticmethod
+    def _xml_local_name(tag: str) -> str:
+        """Element tag without XML namespace prefix."""
+        if "}" in tag:
+            return tag.rsplit("}", 1)[-1]
+        return tag
+
+    @classmethod
+    def _find_by_local_name(cls, root: ET.Element, local_name: str) -> ET.Element | None:
+        """Find first element by local tag name (any namespace)."""
+        if cls._xml_local_name(root.tag) == local_name:
+            return root
+        for elem in root.iter():
+            if cls._xml_local_name(elem.tag) == local_name:
+                return elem
+        return None
+
+    @classmethod
+    def _find_child_by_local_name(cls, parent: ET.Element, local_name: str) -> ET.Element | None:
+        """Find direct or nested child by local tag name."""
+        for child in parent:
+            if cls._xml_local_name(child.tag) == local_name:
+                return child
+        return None
+
+    @classmethod
+    def _xml_namespace_uri(cls, elem: ET.Element) -> str | None:
+        """Namespace URI from an element tag, if present."""
+        tag = elem.tag
+        if tag.startswith("{") and "}" in tag:
+            return tag[1 : tag.index("}")]
+        return None
+
+    @classmethod
+    def _serialize_xml_root(cls, root: ET.Element) -> str:
+        """Serialize XML for PUT, preserving the element namespace."""
+        ns_uri = cls._xml_namespace_uri(root) or "http://www.hikvision.com/ver20/XMLSchema"
+        ET.register_namespace("", ns_uri)
+        return ET.tostring(root, encoding="unicode", xml_declaration=True)
+
+    def _io_input_port_element(self, xml: ET.Element, port_id: int) -> ET.Element | None:
+        """Locate IOInputPort in a GET /ISAPI/System/IO/inputs response."""
+        ports: list[ET.Element] = []
+        for elem in xml.iter():
+            if self._xml_local_name(elem.tag) == "IOInputPort":
+                ports.append(elem)
+        if not ports:
+            return None
+        if len(ports) == 1:
+            return ports[0]
+        for port in ports:
+            id_elem = self._find_child_by_local_name(port, "id")
+            if id_elem is not None and id_elem.text:
+                try:
+                    if int(id_elem.text.strip()) == port_id:
+                        return port
+                except ValueError:
+                    continue
+        if 1 <= port_id <= len(ports):
+            return ports[port_id - 1]
+        return None
+
+    def _fetch_io_input_port_xml(self, port_id: int) -> ET.Element | None:
+        """GET alarm input config; fall back to list endpoint if per-port GET is empty."""
+        for endpoint in (
+            f"/ISAPI/System/IO/inputs/{port_id}",
+            "/ISAPI/System/IO/inputs",
+        ):
+            xml = self._get(endpoint)
+            port = self._io_input_port_element(xml, port_id)
+            if port is not None:
+                return port
+        return None
+
+    def _parse_alarm_input_port(self, port: ET.Element) -> dict:
+        """Parse IOInputPort XML into a dict."""
+        result: dict = {}
+        enabled_elem = self._find_child_by_local_name(port, "enabled")
+        if enabled_elem is not None and enabled_elem.text is not None:
+            result["enabled"] = enabled_elem.text.strip().lower() == "true"
+        else:
+            use_type = self._find_child_by_local_name(port, "IOUseType")
+            if use_type is not None and use_type.text is not None:
+                result["enabled"] = use_type.text.strip().lower() != "disable"
+        triggering = self._find_child_by_local_name(port, "triggering")
+        if triggering is not None and triggering.text:
+            result["triggering"] = triggering.text.strip()
+        return result
+
+    def _apply_alarm_input_enabled(self, port: ET.Element, enabled: bool) -> bool:
+        """Set enabled state on IOInputPort XML."""
+        enabled_elem = self._find_child_by_local_name(port, "enabled")
+        if enabled_elem is not None:
+            enabled_elem.text = "true" if enabled else "false"
+            return True
+
+        use_type = self._find_child_by_local_name(port, "IOUseType")
+        if use_type is not None:
+            if enabled:
+                if (use_type.text or "").strip().lower() == "disable":
+                    use_type.text = "alarm"
+            else:
+                use_type.text = "disable"
+            return True
+        return False
+
     def get_alarm_input(self, port_id: int = 1) -> dict:
         """Get alarm input port settings."""
         try:
-            xml = self._get(f"/ISAPI/System/IO/inputs/{port_id}")
-            result = {}
-            port = xml.find(f".//{XML_NS}IOInputPort")
-            if port is not None:
-                enabled = port.find(f".//{XML_NS}enabled")
-                if enabled is not None:
-                    result["enabled"] = enabled.text.strip().lower() == "true"
-                triggering = port.find(f".//{XML_NS}triggering")
-                if triggering is not None:
-                    result["triggering"] = triggering.text.strip()
-            return result
+            port = self._fetch_io_input_port_xml(port_id)
+            return self._parse_alarm_input_port(port) if port is not None else {}
         except Exception as e:
             # Connection errors are expected during camera restarts - log as debug
             if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
@@ -3322,24 +3420,24 @@ class HikvisionISAPI:
     def set_alarm_input(self, port_id: int = 1, enabled: bool = True) -> bool:
         """Enable/disable alarm input port."""
         try:
-            xml = self._get(f"/ISAPI/System/IO/inputs/{port_id}")
-            port = xml.find(f".//{XML_NS}IOInputPort")
+            port = self._fetch_io_input_port_xml(port_id)
             if port is None:
-                port = xml.find(".//IOInputPort")
-            if port is None:
-                _LOGGER.error("IOInputPort not found for alarm input %s on %s", port_id, self.host)
+                _LOGGER.error(
+                    "IOInputPort not found for alarm input %s on %s",
+                    port_id,
+                    self.host,
+                )
                 return False
 
-            enabled_elem = port.find(f".//{XML_NS}enabled")
-            if enabled_elem is None:
-                enabled_elem = port.find(".//enabled")
-            if enabled_elem is None:
-                _LOGGER.error("enabled element not found for alarm input %s on %s", port_id, self.host)
+            if not self._apply_alarm_input_enabled(port, enabled):
+                _LOGGER.error(
+                    "No enabled/IOUseType element for alarm input %s on %s",
+                    port_id,
+                    self.host,
+                )
                 return False
 
-            enabled_elem.text = "true" if enabled else "false"
-            ET.register_namespace("", "http://www.hikvision.com/ver20/XMLSchema")
-            payload = ET.tostring(xml, encoding="unicode", xml_declaration=True)
+            payload = self._serialize_xml_root(port)
             self._put(f"/ISAPI/System/IO/inputs/{port_id}", payload)
             return True
         except AuthenticationError:

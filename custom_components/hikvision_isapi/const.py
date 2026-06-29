@@ -101,7 +101,6 @@ EVENTS: Final = {
         "type": EVENT_IO,
         "label": "Alarm Input",
         "slug": "inputs",
-        "device_class": BinarySensorDeviceClass.CONNECTIVITY,
     },
 }
 
