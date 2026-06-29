@@ -104,9 +104,11 @@ class HikvisionAudioAlarmSiren(SirenEntity):
 
         previous_tone_id = self._active_tone_id
         was_on = self._attr_is_on
+        explicit_tone = tone is not None
+        explicit_volume = volume_level is not None
 
-        tone_id = self._resolve_tone_id(tone)
-        if tone is not None and tone_id is None:
+        tone_id = self._resolve_tone_id(tone) if explicit_tone else None
+        if explicit_tone and tone_id is None:
             _LOGGER.error(
                 "Unknown siren tone %r on %s — available: %s",
                 tone,
@@ -116,14 +118,20 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             return
 
         volume_percent = self._resolve_volume_percent(volume_level)
-        if volume_percent is not None:
-            self._active_volume_level = volume_percent / 100.0
 
         cap_rows = self._capability_warning_rows_only()
-        if tone_id is not None:
+        if not explicit_tone and not explicit_volume:
+            tone_id, volume_percent = self._audio_config_from_coordinator()
+            if tone_id is None:
+                _LOGGER.error(
+                    "No audio alarm tone in coordinator for %s — siren not started",
+                    self._host,
+                )
+                return
+
             audio_class = HikvisionISAPI.resolve_audio_class_for_sound_id(tone_id, cap_rows)
             _LOGGER.debug(
-                "Setting siren on %s: tone_id=%s class=%s volume=%s",
+                "Restoring siren on %s from coordinator: tone_id=%s class=%s volume=%s",
                 self._host,
                 tone_id,
                 audio_class,
@@ -134,8 +142,7 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             )
             if not success:
                 _LOGGER.error(
-                    "Failed to set audio alarm tone %s on %s — siren not started",
-                    tone_id,
+                    "Failed to restore audio alarm config on %s — siren not started",
                     self._host,
                 )
                 return
@@ -145,7 +152,7 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             )
             if configured_id != tone_id:
                 _LOGGER.error(
-                    "Audio alarm on %s reports audioID %s after requesting %s — siren not started",
+                    "Audio alarm on %s reports audioID %s after restore (wanted %s) — siren not started",
                     self._host,
                     configured_id,
                     tone_id,
@@ -153,20 +160,60 @@ class HikvisionAudioAlarmSiren(SirenEntity):
                 return
 
             self._active_tone_id = tone_id
-        elif volume_percent is not None:
-            if self._active_tone_id is None:
-                self._active_tone_id = self._current_audio_id_from_coordinator()
-            success = await self.hass.async_add_executor_job(
-                self.api.set_audio_alarm, None, None, volume_percent, None
+            self._active_volume_level = (
+                volume_percent / 100.0 if volume_percent is not None else None
             )
-            if not success:
-                _LOGGER.error(
-                    "Failed to set audio alarm volume on %s — siren not started",
+        else:
+            if volume_percent is not None:
+                self._active_volume_level = volume_percent / 100.0
+
+            if tone_id is not None:
+                audio_class = HikvisionISAPI.resolve_audio_class_for_sound_id(tone_id, cap_rows)
+                _LOGGER.debug(
+                    "Setting siren on %s: tone_id=%s class=%s volume=%s",
                     self._host,
+                    tone_id,
+                    audio_class,
+                    volume_percent,
                 )
-                return
-        elif self._active_tone_id is None:
-            self._active_tone_id = self._current_audio_id_from_coordinator()
+                success = await self.hass.async_add_executor_job(
+                    self.api.set_audio_alarm, audio_class, tone_id, volume_percent, None
+                )
+                if not success:
+                    _LOGGER.error(
+                        "Failed to set audio alarm tone %s on %s — siren not started",
+                        tone_id,
+                        self._host,
+                    )
+                    return
+
+                configured_id = await self.hass.async_add_executor_job(
+                    self.api.get_configured_audio_id
+                )
+                if configured_id != tone_id:
+                    _LOGGER.error(
+                        "Audio alarm on %s reports audioID %s after requesting %s — siren not started",
+                        self._host,
+                        configured_id,
+                        tone_id,
+                    )
+                    return
+
+                self._active_tone_id = tone_id
+            elif volume_percent is not None:
+                if self._active_tone_id is None:
+                    self._active_tone_id = self._current_audio_id_from_coordinator()
+                success = await self.hass.async_add_executor_job(
+                    self.api.set_audio_alarm, None, None, volume_percent, None
+                )
+                if not success:
+                    _LOGGER.error(
+                        "Failed to set audio alarm volume on %s — siren not started",
+                        self._host,
+                    )
+                    return
+            elif self._active_tone_id is None:
+                self._active_tone_id = self._current_audio_id_from_coordinator()
 
         if self._active_tone_id is None:
             _LOGGER.error(
@@ -232,6 +279,24 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             return int(raw)
         except (TypeError, ValueError):
             return None
+
+    def _volume_percent_from_coordinator(self) -> int | None:
+        """Alarm output volume (0–100) from coordinator snapshot."""
+        audio_alarm = (self.coordinator.data or {}).get("audio_alarm") or {}
+        raw = audio_alarm.get("audioVolume")
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _audio_config_from_coordinator(self) -> tuple[int | None, int | None]:
+        """Warning sound + volume as shown by HA entities (coordinator snapshot)."""
+        return (
+            self._current_audio_id_from_coordinator(),
+            self._volume_percent_from_coordinator(),
+        )
 
     def _tone_options_from_capabilities(self) -> dict[int, str]:
         """Build id -> label map (mirrors Warning Sound select logic)."""
