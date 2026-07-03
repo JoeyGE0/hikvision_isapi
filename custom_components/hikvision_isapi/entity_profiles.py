@@ -10,6 +10,7 @@ from .const import (
     CONF_ENTITY_GROUPS,
     CONF_ENTITY_ITEMS,
     CONF_INTEGRATION_PROFILE,
+    CUSTOMIZE_SECTION_ITEMS_KEY,
     ENTITY_GROUP_AUDIO_ALARM,
     ENTITY_GROUP_ALARM_IO,
     ENTITY_GROUP_CAMERA,
@@ -353,6 +354,18 @@ def default_customize_form_values(
     return values
 
 
+def extract_customize_group_items(user_input: dict[str, Any], group: str) -> list[str]:
+    """Read picked items from a section field or legacy flat field."""
+    raw = user_input.get(group)
+    if isinstance(raw, dict):
+        picked = raw.get(CUSTOMIZE_SECTION_ITEMS_KEY)
+        if isinstance(picked, list):
+            return [str(v) for v in picked]
+    if isinstance(raw, list):
+        return [str(v) for v in raw]
+    return []
+
+
 def parse_customize_submission(
     user_input: dict[str, Any],
 ) -> tuple[list[str], dict[str, list[str]]]:
@@ -360,10 +373,12 @@ def parse_customize_submission(
     extras: list[str] = []
     entity_items: dict[str, list[str]] = {}
     for group in ADVANCED_EXTRA_ENTITY_GROUPS:
-        picked = user_input.get(group)
-        if isinstance(picked, list) and picked:
+        if group not in user_input:
+            continue
+        picked = extract_customize_group_items(user_input, group)
+        entity_items[group] = picked
+        if picked:
             extras.append(group)
-            entity_items[group] = [str(v) for v in picked]
     return sorted(extras), entity_items
 
 
@@ -506,14 +521,13 @@ def get_enabled_entity_items(entry: ConfigEntry, group: str) -> frozenset[str] |
             return BASIC_ENTITY_ITEMS[group]
         return None
     stored = entry.data.get(CONF_ENTITY_ITEMS)
-    if not isinstance(stored, dict):
-        return None
-    group_items = stored.get(group)
-    if group_items is None:
-        return None
-    if not isinstance(group_items, list):
-        return None
-    return frozenset(str(item) for item in group_items)
+    if isinstance(stored, dict):
+        if group in stored and isinstance(stored[group], list):
+            return frozenset(str(item) for item in stored[group])
+        if group not in BASIC_ENTITY_GROUPS:
+            return frozenset()
+    # Legacy Advanced entries: no per-item map → all items in enabled extra groups.
+    return None
 
 
 def entity_group_enabled(entry: ConfigEntry, group: str) -> bool:

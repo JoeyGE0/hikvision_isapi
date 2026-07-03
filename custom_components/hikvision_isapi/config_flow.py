@@ -38,6 +38,7 @@ from .const import (
     CONF_SET_ALARM_SERVER,
     CONF_ALARM_SERVER_HOST,
     CONF_VERIFY_SSL,
+    CUSTOMIZE_SECTION_ITEMS_KEY,
     PROFILE_ADVANCED,
     PROFILE_BASIC,
     RTSP_PORT_FORCED,
@@ -292,6 +293,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             detected_features, saved_extras, saved_items
         )
         schema_dict: dict = {}
+        section_suggested: dict[str, dict[str, list[str]]] = {}
         for group in ALL_ENTITY_GROUPS:
             if group not in ADVANCED_EXTRA_ENTITY_GROUPS:
                 continue
@@ -302,17 +304,28 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             if not options:
                 continue
-            schema_dict[vol.Optional(group)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        selector.SelectOptionDict(value=o["value"], label=o["label"])
-                        for o in options
-                    ],
-                    multiple=True,
-                    mode=SelectSelectorMode.LIST,
-                )
+            group_items = suggested.get(group, [])
+            section_suggested[group] = {CUSTOMIZE_SECTION_ITEMS_KEY: group_items}
+            schema_dict[vol.Required(group)] = data_entry_flow.section(
+                vol.Schema({
+                    vol.Optional(CUSTOMIZE_SECTION_ITEMS_KEY): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=o["value"], label=o["label"]
+                                )
+                                for o in options
+                            ],
+                            multiple=True,
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }),
+                {"collapsed": not bool(group_items)},
             )
-        return _apply_suggested_values(self, vol.Schema(schema_dict), suggested)
+        return _apply_suggested_values(
+            self, vol.Schema(schema_dict), section_suggested
+        )
 
     async def _async_finish_advanced_setup(
         self,

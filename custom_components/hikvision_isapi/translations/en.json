@@ -22,7 +22,7 @@
       },
       "entity_customize": {
         "title": "Choose extra entities",
-        "description": "Basic is always on (detections, camera, uptime, firmware, CPU/memory). Below, each **category** has its own checklist — tick only what you want. Leave a category empty to skip it.",
+        "description": "Basic is always on. Expand a **category** below and use its dropdown to pick entities. Collapse categories you do not need.",
         "data": {
           "day_night": "Day / night & IR cut",
           "supplement_light": "Supplement light",
