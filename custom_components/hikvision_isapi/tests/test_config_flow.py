@@ -259,3 +259,75 @@ class TestConfigFlow:
         assert result["type"] == FlowResultType.ABORT
         call_kwargs = flow.async_update_reload_and_abort.call_args.kwargs
         assert call_kwargs["data_updates"][CONF_PASSWORD] == "old_password"
+
+
+class TestEntityCustomizeCoverage:
+    """Registry + flow probe must list every integration entity."""
+
+    def test_alarm_io_from_capabilities(self):
+        from custom_components.hikvision_isapi.const import ENTITY_GROUP_ALARM_IO, EVENT_IO
+        from custom_components.hikvision_isapi.entity_profiles import (
+            CUSTOMIZE_FLOW_GROUPS,
+            customize_item_specs,
+            enrich_flow_probe,
+            entity_item_options_for_flow,
+        )
+
+        enriched = enrich_flow_probe({}, frozenset(), {"input_ports": 1, "output_ports": 1})
+        opts = entity_item_options_for_flow(
+            ENTITY_GROUP_ALARM_IO, enriched, customize=True, supported_event_ids=frozenset()
+        )
+        assert {o["value"] for o in opts} == {
+            "alarm_input_binary", "alarm_input_switch", "alarm_output_switch",
+        }
+
+    def test_detection_switch_from_event_trigger(self):
+        from custom_components.hikvision_isapi.entity_profiles import (
+            enrich_flow_probe,
+            entity_item_options_for_flow,
+        )
+
+        enriched = enrich_flow_probe({}, frozenset({"linedetection"}), {})
+        opts = entity_item_options_for_flow(
+            "detection_switches",
+            enriched,
+            customize=True,
+            supported_event_ids=frozenset({"linedetection"}),
+        )
+        assert "line_crossing_detection" in {o["value"] for o in opts}
+
+    def test_full_probe_lists_all_customize_items(self):
+        from custom_components.hikvision_isapi.const import EVENT_IO
+        from custom_components.hikvision_isapi.entity_profiles import (
+            CUSTOMIZE_FLOW_GROUPS,
+            customize_item_specs,
+            enrich_flow_probe,
+            entity_item_options_for_flow,
+        )
+
+        all_features = {k: True for k in (
+            "motion_detection", "tamper_detection", "intrusion_detection",
+            "line_crossing_detection", "scene_change_detection", "region_entrance_detection",
+            "region_exiting_detection", "defocus_detection", "day_night_mode", "ir_sensitivity",
+            "ir_filter_time", "white_light_time", "white_light_brightness", "ir_light_brightness",
+            "white_light_brightness_limit", "ir_light_brightness_limit", "supplement_light_mode",
+            "test_audio_alarm", "audio_alarm_type", "audio_alarm_sound", "alarm_times",
+            "loudspeaker_volume", "media_player", "speaker_volume", "microphone_volume",
+            "noise_reduce", "brightness", "contrast", "saturation", "sharpness",
+            "motion_sensitivity", "motion_start_trigger_time", "motion_end_trigger_time",
+            "restart", "alarm_input", "alarm_output",
+        )}
+        events = frozenset({
+            "motiondetection", "tamperdetection", "videoloss", "fielddetection", "linedetection",
+            "scenechangedetection", "regionentrance", "regionexiting", "defocus", EVENT_IO,
+        })
+        enriched = enrich_flow_probe(all_features, events, {"input_ports": 1, "output_ports": 1})
+        for group in CUSTOMIZE_FLOW_GROUPS:
+            expected = {s.item_id for s in customize_item_specs(group)}
+            got = {
+                o["value"]
+                for o in entity_item_options_for_flow(
+                    group, enriched, customize=True, supported_event_ids=events
+                )
+            }
+            assert got == expected, f"{group}: missing {expected - got}"

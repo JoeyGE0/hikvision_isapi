@@ -47,6 +47,7 @@ from .api import HikvisionISAPI, _extract_error_message, _normalize_host
 from .entity_profiles import (
     CUSTOMIZE_FLOW_GROUPS,
     default_customize_form_values,
+    enrich_flow_probe,
     entity_item_options_for_flow,
     parse_customize_submission,
     stored_extra_entity_groups,
@@ -260,6 +261,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._reconfigure_entry: config_entries.ConfigEntry | None = None
         self._detected_features: dict[str, bool] = {}
         self._supported_event_ids: frozenset[str] = frozenset()
+        self._device_capabilities: dict[str, Any] = {}
 
     async def _async_probe_detected_features(
         self, host: str, username: str, password: str, verify_ssl: bool
@@ -267,9 +269,15 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Run feature + event detection during setup (for entity customize picker)."""
         api = HikvisionISAPI(host, username, password, verify_ssl=verify_ssl)
         self._supported_event_ids = frozenset()
+        self._device_capabilities = {}
         try:
             await self.hass.async_add_executor_job(api.get_device_info)
+            self._device_capabilities = (
+                dict(api.capabilities) if isinstance(api.capabilities, dict) else {}
+            )
             features = await self.hass.async_add_executor_job(api.detect_features)
+            if isinstance(features, dict):
+                api.detected_features = features
             if hasattr(api, "get_supported_events"):
                 try:
                     supported = await self.hass.async_add_executor_job(
@@ -316,8 +324,16 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             or self.context.get("supported_event_ids")
             or frozenset()
         )
+        capabilities = (
+            self._device_capabilities
+            or self.context.get("device_capabilities")
+            or {}
+        )
+        enriched = enrich_flow_probe(
+            detected_features, supported_event_ids, capabilities
+        )
         suggested = default_customize_form_values(
-            detected_features,
+            enriched,
             saved_extras,
             saved_items,
             supported_event_ids=supported_event_ids,
@@ -327,7 +343,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         for group in CUSTOMIZE_FLOW_GROUPS:
             options = entity_item_options_for_flow(
                 group,
-                detected_features,
+                enriched,
                 suggested.get(group),
                 customize=True,
                 supported_event_ids=supported_event_ids,

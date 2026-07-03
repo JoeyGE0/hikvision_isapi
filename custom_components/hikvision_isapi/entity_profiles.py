@@ -111,6 +111,13 @@ _DETECTION_EVENT_FEATURES: dict[str, tuple[str, str | None]] = {
     "defocus": ("Defocus", "defocus_detection"),
 }
 
+# detect_features keys ↔ event ids (same map as api._collect_events_from_detected_features).
+FEATURE_KEY_TO_EVENT_ID: dict[str, str] = {
+    feature_key: event_id
+    for event_id, (_, feature_key) in _DETECTION_EVENT_FEATURES.items()
+    if feature_key
+}
+
 
 class EntityItemSpec(NamedTuple):
     """One configurable entity within a group."""
@@ -294,6 +301,27 @@ _GROUP_FEATURE_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
+def enrich_flow_probe(
+    detected_features: dict[str, bool],
+    supported_event_ids: frozenset[str],
+    capabilities: dict[str, Any] | None,
+) -> dict[str, bool]:
+    """Merge feature probe, Event/triggers, and hardware caps for the customize picker."""
+    enriched = {str(k): bool(v) for k, v in (detected_features or {}).items()}
+    caps = capabilities if isinstance(capabilities, dict) else {}
+
+    for feature_key, event_id in FEATURE_KEY_TO_EVENT_ID.items():
+        if event_id in supported_event_ids:
+            enriched[feature_key] = True
+
+    if EVENT_IO in supported_event_ids or caps.get("input_ports", 0) > 0:
+        enriched["alarm_input"] = True
+    if caps.get("output_ports", 0) > 0:
+        enriched["alarm_output"] = True
+
+    return enriched
+
+
 def _item_supported_on_device(
     spec: EntityItemSpec,
     detected_features: dict,
@@ -303,8 +331,15 @@ def _item_supported_on_device(
         return bool(detected_features.get("restart", True))
     if spec.feature_key and detected_features.get(spec.feature_key):
         return True
-    if supported_event_ids and spec.item_id in supported_event_ids:
-        return True
+    if supported_event_ids:
+        if spec.item_id in supported_event_ids:
+            return True
+        if spec.feature_key:
+            event_id = FEATURE_KEY_TO_EVENT_ID.get(spec.feature_key)
+            if event_id and event_id in supported_event_ids:
+                return True
+        if spec.feature_key == "alarm_input" and EVENT_IO in supported_event_ids:
+            return True
     if spec.feature_key is None:
         return True
     return False
@@ -341,7 +376,11 @@ def entity_item_options_for_flow(
 ) -> list[dict[str, str]]:
     """Multi-select options for one group's config-flow customize step."""
     specs = customize_item_specs(group) if customize else ENTITY_ITEM_REGISTRY.get(group, ())
-    event_ids = supported_event_ids if group == ENTITY_GROUP_DETECTIONS else None
+    event_ids = (
+        supported_event_ids
+        if group in (ENTITY_GROUP_DETECTIONS, ENTITY_GROUP_DETECTION_SWITCHES, ENTITY_GROUP_ALARM_IO)
+        else None
+    )
     options_by_id: dict[str, dict[str, str]] = {}
     for spec in specs:
         if _item_supported_on_device(spec, detected_features, event_ids):
