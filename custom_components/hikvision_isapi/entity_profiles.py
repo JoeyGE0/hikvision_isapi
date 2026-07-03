@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from homeassistant.config_entries import ConfigEntry
 
@@ -323,6 +323,48 @@ def entity_item_options_for_flow(
         for spec in specs
         if spec.item_id in options_by_id
     ]
+
+
+def default_customize_form_values(
+    detected_features: dict,
+    saved_extra_groups: list[str] | frozenset[str] | None,
+    saved_items: dict[str, list[str]] | None,
+) -> dict[str, list[str]]:
+    """Suggested checkbox values per extra category (reconfigure / legacy aware)."""
+    saved_items = saved_items or {}
+    saved_extra_set = frozenset(str(g) for g in (saved_extra_groups or ()))
+    values: dict[str, list[str]] = {}
+    for group in ADVANCED_EXTRA_ENTITY_GROUPS:
+        options = entity_item_options_for_flow(
+            group,
+            detected_features,
+            saved_items.get(group) if isinstance(saved_items.get(group), list) else None,
+        )
+        if not options:
+            continue
+        option_ids = [o["value"] for o in options]
+        if group in saved_items and isinstance(saved_items[group], list):
+            values[group] = [str(i) for i in saved_items[group] if str(i) in option_ids]
+        elif group in saved_extra_set:
+            # Legacy: category was enabled but no per-item list yet → all items.
+            values[group] = option_ids
+        else:
+            values[group] = []
+    return values
+
+
+def parse_customize_submission(
+    user_input: dict[str, Any],
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Split combined customize form into extra groups + entity item map."""
+    extras: list[str] = []
+    entity_items: dict[str, list[str]] = {}
+    for group in ADVANCED_EXTRA_ENTITY_GROUPS:
+        picked = user_input.get(group)
+        if isinstance(picked, list) and picked:
+            extras.append(group)
+            entity_items[group] = [str(v) for v in picked]
+    return sorted(extras), entity_items
 
 
 def default_entity_items_for_group(

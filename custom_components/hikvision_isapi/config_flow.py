@@ -44,16 +44,12 @@ from .const import (
 )
 from .api import HikvisionISAPI, _extract_error_message, _normalize_host
 from .entity_profiles import (
+    ADVANCED_EXTRA_ENTITY_GROUPS,
     ALL_ENTITY_GROUPS,
-    ENTITY_GROUP_LABELS,
-    ENTITY_ITEM_REGISTRY,
-    EXTRA_ENTITY_GROUP_LABELS,
-    default_entity_groups_for_flow,
-    default_entity_groups_for_profile,
-    default_entity_items_for_group,
-    default_entity_items_for_groups,
+    default_customize_form_values,
     entity_item_options_for_flow,
     extra_entity_group_options_for_flow,
+    parse_customize_submission,
     stored_extra_entity_groups,
 )
 
@@ -287,15 +283,26 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         })
 
-    def _entity_groups_schema(self, detected_features: dict) -> vol.Schema:
-        saved = self.context.get("default_entity_groups")
-        saved_list = saved if isinstance(saved, list) else None
-        options = extra_entity_group_options_for_flow(detected_features, saved_list)
-        default = default_entity_groups_for_flow(
-            PROFILE_ADVANCED, detected_features, saved_list
+    def _entity_customize_schema(self, detected_features: dict) -> vol.Schema:
+        saved_extras = self.context.get("saved_extra_groups") or []
+        saved_items = self.context.get("default_entity_items") or {}
+        if not isinstance(saved_items, dict):
+            saved_items = {}
+        suggested = default_customize_form_values(
+            detected_features, saved_extras, saved_items
         )
-        return vol.Schema({
-            vol.Optional(CONF_ENTITY_GROUPS, default=default): selector.SelectSelector(
+        schema_dict: dict = {}
+        for group in ALL_ENTITY_GROUPS:
+            if group not in ADVANCED_EXTRA_ENTITY_GROUPS:
+                continue
+            options = entity_item_options_for_flow(
+                group,
+                detected_features,
+                suggested.get(group),
+            )
+            if not options:
+                continue
+            schema_dict[vol.Optional(group)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
                         selector.SelectOptionDict(value=o["value"], label=o["label"])
@@ -303,10 +310,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ],
                     multiple=True,
                     mode=SelectSelectorMode.LIST,
-                    translation_key="entity_groups",
                 )
-            ),
-        })
+            )
+        return _apply_suggested_values(self, vol.Schema(schema_dict), suggested)
 
     async def _async_finish_advanced_setup(
         self,
@@ -346,53 +352,13 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             entry_data.get(CONF_VERIFY_SSL, True),
         )
 
-    def _entity_items_schema(
-        self, selected_groups: list[str], detected_features: dict
-    ) -> vol.Schema:
-        saved = self.context.get("default_entity_items")
-        saved_dict = saved if isinstance(saved, dict) else {}
-        schema_dict: dict = {}
-        for group in ALL_ENTITY_GROUPS:
-            if group not in selected_groups:
-                continue
-            if group not in ENTITY_ITEM_REGISTRY:
-                continue
-            options = entity_item_options_for_flow(
-                group, detected_features, saved_dict.get(group)
-            )
-            if not options:
-                continue
-            default = default_entity_items_for_group(
-                group, detected_features, saved_dict.get(group)
-            )
-            schema_dict[
-                vol.Required(
-                    group,
-                    default=default,
-                    description=EXTRA_ENTITY_GROUP_LABELS.get(
-                        group, ENTITY_GROUP_LABELS.get(group, group)
-                    ),
-                )
-            ] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        selector.SelectOptionDict(value=o["value"], label=o["label"])
-                        for o in options
-                    ],
-                    multiple=True,
-                    mode=SelectSelectorMode.LIST,
-                )
-            )
-        return vol.Schema(schema_dict)
-
     def _finalize_advanced_entry_data(
         self, base_data: dict[str, Any], groups: list[str], entity_items: dict[str, list[str]]
     ) -> dict[str, Any]:
         data = dict(base_data)
         data[CONF_INTEGRATION_PROFILE] = PROFILE_ADVANCED
         data[CONF_ENTITY_GROUPS] = groups
-        if entity_items:
-            data[CONF_ENTITY_ITEMS] = entity_items
+        data[CONF_ENTITY_ITEMS] = entity_items
         return data
 
     async def _async_create_entry_from_context(
@@ -590,15 +556,16 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 data_updates=entry_data,
                                 title=device_name,
                             )
-                        self.context["default_entity_groups"] = list(
+                        self.context["saved_extra_groups"] = list(
                             stored_extra_entity_groups(
                                 entry.data.get(CONF_ENTITY_GROUPS)
                             )
                         )
-                        self.context["default_entity_items"] = entry.data.get(
-                            CONF_ENTITY_ITEMS
+                        saved_items = entry.data.get(CONF_ENTITY_ITEMS)
+                        self.context["default_entity_items"] = (
+                            saved_items if isinstance(saved_items, dict) else {}
                         )
-                        return await self.async_step_entity_groups()
+                        return await self.async_step_entity_customize()
                     entry_data = self._build_entry_data(user_input)
                     return self.async_update_reload_and_abort(
                         entry,
@@ -852,10 +819,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 extras = extra_entity_group_options_for_flow(self._detected_features)
                 if not extras:
                     return await self._async_finish_advanced_setup([], {})
-                self.context["default_entity_groups"] = default_entity_groups_for_flow(
-                    PROFILE_ADVANCED, self._detected_features
-                )
-                return await self.async_step_entity_groups()
+                self.context["saved_extra_groups"] = []
+                self.context["default_entity_items"] = {}
+                return await self.async_step_entity_customize()
 
             schema = get_advanced_schema(
                 default_alarm_server, set_alarm_server=set_alarm_server
@@ -867,62 +833,23 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = get_advanced_schema(default_alarm_server, set_alarm_server=True)
         return self.async_show_form(step_id="advanced", data_schema=schema, errors=errors)
 
-    async def async_step_entity_groups(
+    async def async_step_entity_customize(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Pick optional extra features on top of the Basic core (Advanced only)."""
+        """One screen: each extra category with its own entity checklist."""
         errors: dict[str, str] = {}
         detected = self._detected_features or self.context.get("detected_features") or {}
-        extras_available = extra_entity_group_options_for_flow(detected)
 
         if user_input is not None:
-            groups = user_input.get(CONF_ENTITY_GROUPS) or []
-            self.context["selected_entity_groups"] = groups
-            if not groups:
-                return await self._async_finish_advanced_setup([], {})
-            saved_items = None
-            if self.context.get("reconfigure_input"):
-                entry = self._reconfigure_entry or self._get_reconfigure_entry()
-                saved_items = entry.data.get(CONF_ENTITY_ITEMS)
-            self.context["default_entity_items"] = saved_items
-            return await self.async_step_entity_items()
+            groups, entity_items = parse_customize_submission(user_input)
+            return await self._async_finish_advanced_setup(groups, entity_items)
 
-        if not extras_available:
+        schema = self._entity_customize_schema(detected)
+        if not schema.schema:
             return await self._async_finish_advanced_setup([], {})
 
         return self.async_show_form(
-            step_id="entity_groups",
-            data_schema=self._entity_groups_schema(detected),
-            errors=errors,
-        )
-
-    async def async_step_entity_items(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Pick individual entities within each Advanced group."""
-        errors: dict[str, str] = {}
-        detected = self._detected_features or self.context.get("detected_features") or {}
-        selected_groups = self.context.get("selected_entity_groups") or []
-
-        if user_input is not None:
-            entity_items: dict[str, list[str]] = {}
-            for group in selected_groups:
-                picked = user_input.get(group)
-                if isinstance(picked, list):
-                    entity_items[group] = [str(v) for v in picked]
-            return await self._async_finish_advanced_setup(selected_groups, entity_items)
-
-        schema = self._entity_items_schema(selected_groups, detected)
-        if not schema.schema:
-            entity_items = default_entity_items_for_groups(
-                selected_groups,
-                detected,
-                self.context.get("default_entity_items"),
-            )
-            return await self._async_finish_advanced_setup(selected_groups, entity_items)
-
-        return self.async_show_form(
-            step_id="entity_items",
+            step_id="entity_customize",
             data_schema=schema,
             errors=errors,
         )
