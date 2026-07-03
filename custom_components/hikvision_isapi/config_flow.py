@@ -170,12 +170,20 @@ def _fallback_apply_suggested_values(
         if not isinstance(key, vol.Marker):
             continue
         new_key = copy.copy(key)
-        if key.schema in suggested:
+        field_suggested = suggested.get(key.schema)
+        if isinstance(value, data_entry_flow.section) and isinstance(field_suggested, dict):
+            new_value = data_entry_flow.section(
+                _fallback_apply_suggested_values(value.schema, field_suggested),
+                value.options,
+            )
+            schema[new_key] = new_value
+            continue
+        if field_suggested is not None:
             existing = new_key.description
             if isinstance(existing, dict):
-                new_key.description = {**existing, "suggested_value": suggested[key.schema]}
+                new_key.description = {**existing, "suggested_value": field_suggested}
             else:
-                new_key.description = {"suggested_value": suggested[key.schema]}
+                new_key.description = {"suggested_value": field_suggested}
         schema[new_key] = value
     return vol.Schema(schema)
 

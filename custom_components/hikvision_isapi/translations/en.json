@@ -23,33 +23,67 @@
       "entity_customize": {
         "title": "Choose extra entities",
         "description": "Basic is always on. Expand a **category** below and use its dropdown to pick entities. Collapse categories you do not need.",
-        "data": {
-          "detections": "Event detections",
-          "essential_system": "Maintenance extras",
-          "system_diagnostics": "Extended diagnostics",
-          "day_night": "Day / night & IR cut",
-          "supplement_light": "Supplement light",
-          "siren": "Siren",
-          "detection_switches": "Detection on/off switches",
-          "motion_tuning": "Motion tuning",
-          "image_adjustment": "Image adjustment",
-          "audio_alarm": "Audio alarm",
-          "two_way_audio": "Two-way audio & speaker",
-          "alarm_io": "Alarm input / output"
-        },
-        "data_description": {
-          "detections": "Motion, line crossing, tamper, and other event binary sensors",
-          "essential_system": "Restart button and other maintenance controls",
-          "system_diagnostics": "Streaming sessions, clients, and notification host details",
-          "day_night": "IR cut modes, sensitivity, filter time",
-          "supplement_light": "Light mode, brightness, timers, limits",
-          "siren": "Play camera alarm from Home Assistant",
-          "detection_switches": "Enable/disable detection types on the camera",
-          "motion_tuning": "Sensitivity, target type, trigger times",
-          "image_adjustment": "Brightness, contrast, saturation, sharpness",
-          "audio_alarm": "Alarm tone, volume, test button",
-          "two_way_audio": "Media player, speaker/mic volume, noise reduction",
-          "alarm_io": "Alarm input sensor and output relay"
+        "sections": {
+          "detections": {
+            "name": "Event detections",
+            "description": "Motion, line crossing, tamper, and other event binary sensors",
+            "data": { "items": "Entities" }
+          },
+          "essential_system": {
+            "name": "Maintenance extras",
+            "description": "Restart button and other maintenance controls",
+            "data": { "items": "Entities" }
+          },
+          "system_diagnostics": {
+            "name": "Extended diagnostics",
+            "description": "Streaming sessions, clients, and notification host details",
+            "data": { "items": "Entities" }
+          },
+          "day_night": {
+            "name": "Day / night & IR cut",
+            "description": "IR cut modes, sensitivity, filter time",
+            "data": { "items": "Entities" }
+          },
+          "supplement_light": {
+            "name": "Supplement light",
+            "description": "Light mode, brightness, timers, limits",
+            "data": { "items": "Entities" }
+          },
+          "siren": {
+            "name": "Siren",
+            "description": "Play camera alarm from Home Assistant",
+            "data": { "items": "Entities" }
+          },
+          "detection_switches": {
+            "name": "Detection on/off switches",
+            "description": "Enable/disable detection types on the camera",
+            "data": { "items": "Entities" }
+          },
+          "motion_tuning": {
+            "name": "Motion tuning",
+            "description": "Sensitivity, target type, trigger times",
+            "data": { "items": "Entities" }
+          },
+          "image_adjustment": {
+            "name": "Image adjustment",
+            "description": "Brightness, contrast, saturation, sharpness",
+            "data": { "items": "Entities" }
+          },
+          "audio_alarm": {
+            "name": "Audio alarm",
+            "description": "Alarm tone, volume, test button",
+            "data": { "items": "Entities" }
+          },
+          "two_way_audio": {
+            "name": "Two-way audio & speaker",
+            "description": "Media player, speaker/mic volume, noise reduction",
+            "data": { "items": "Entities" }
+          },
+          "alarm_io": {
+            "name": "Alarm input / output",
+            "description": "Alarm input sensor and output relay",
+            "data": { "items": "Entities" }
+          }
         }
       },
       "reauth_confirm": {
