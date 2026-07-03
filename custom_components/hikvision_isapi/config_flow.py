@@ -295,7 +295,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         for o in options
                     ],
                     multiple=True,
-                    mode=SelectSelectorMode.DROPDOWN,
+                    mode=SelectSelectorMode.LIST,
                     translation_key="entity_groups",
                 )
             ),

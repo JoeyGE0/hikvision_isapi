@@ -22,7 +22,7 @@
       },
       "entity_groups": {
         "title": "Entity groups",
-        "description": "Choose which entity groups to create. Only groups supported by your device are listed. Deselect anything you do not want in Home Assistant.",
+        "description": "Tick the entity groups you want in Home Assistant. Only groups your device supports are listed, plus any you already had enabled.",
         "data": {
           "entity_groups": "Exposed entities"
         },
