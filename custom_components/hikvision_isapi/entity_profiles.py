@@ -294,12 +294,20 @@ _GROUP_FEATURE_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _item_supported_on_device(spec: EntityItemSpec, detected_features: dict) -> bool:
-    if spec.feature_key is None:
-        return True
+def _item_supported_on_device(
+    spec: EntityItemSpec,
+    detected_features: dict,
+    supported_event_ids: frozenset[str] | None = None,
+) -> bool:
     if spec.feature_key == "restart":
         return bool(detected_features.get("restart", True))
-    return bool(detected_features.get(spec.feature_key))
+    if spec.feature_key and detected_features.get(spec.feature_key):
+        return True
+    if supported_event_ids and spec.item_id in supported_event_ids:
+        return True
+    if spec.feature_key is None:
+        return True
+    return False
 
 
 def group_supported_on_device(group: str, detected_features: dict) -> bool:
@@ -329,12 +337,14 @@ def entity_item_options_for_flow(
     saved_items: list[str] | None = None,
     *,
     customize: bool = False,
+    supported_event_ids: frozenset[str] | None = None,
 ) -> list[dict[str, str]]:
     """Multi-select options for one group's config-flow customize step."""
     specs = customize_item_specs(group) if customize else ENTITY_ITEM_REGISTRY.get(group, ())
+    event_ids = supported_event_ids if group == ENTITY_GROUP_DETECTIONS else None
     options_by_id: dict[str, dict[str, str]] = {}
     for spec in specs:
-        if _item_supported_on_device(spec, detected_features):
+        if _item_supported_on_device(spec, detected_features, event_ids):
             options_by_id[spec.item_id] = {"value": spec.item_id, "label": spec.label}
     for item_id in saved_items or ():
         item_str = str(item_id)
@@ -367,6 +377,8 @@ def default_customize_form_values(
     detected_features: dict,
     saved_extra_groups: list[str] | frozenset[str] | None,
     saved_items: dict[str, list[str]] | None,
+    *,
+    supported_event_ids: frozenset[str] | None = None,
 ) -> dict[str, list[str]]:
     """Suggested dropdown values per customize category (reconfigure / legacy aware)."""
     saved_items = saved_items or {}
@@ -382,6 +394,7 @@ def default_customize_form_values(
             detected_features,
             saved_group_items,
             customize=True,
+            supported_event_ids=supported_event_ids,
         )
         if not options:
             continue

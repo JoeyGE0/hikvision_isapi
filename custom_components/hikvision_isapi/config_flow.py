@@ -259,15 +259,31 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_host: str | None = None
         self._reconfigure_entry: config_entries.ConfigEntry | None = None
         self._detected_features: dict[str, bool] = {}
+        self._supported_event_ids: frozenset[str] = frozenset()
 
     async def _async_probe_detected_features(
         self, host: str, username: str, password: str, verify_ssl: bool
     ) -> dict[str, bool]:
-        """Run feature detection during setup (for entity-group picker)."""
+        """Run feature + event detection during setup (for entity customize picker)."""
         api = HikvisionISAPI(host, username, password, verify_ssl=verify_ssl)
+        self._supported_event_ids = frozenset()
         try:
             await self.hass.async_add_executor_job(api.get_device_info)
             features = await self.hass.async_add_executor_job(api.detect_features)
+            if hasattr(api, "get_supported_events"):
+                try:
+                    supported = await self.hass.async_add_executor_job(
+                        api.get_supported_events
+                    )
+                    self._supported_event_ids = frozenset(
+                        str(e.id) for e in (supported or []) if getattr(e, "id", None)
+                    )
+                except Exception:
+                    _LOGGER.debug(
+                        "Supported-events probe failed during config flow for %s",
+                        host,
+                        exc_info=True,
+                    )
             return features if isinstance(features, dict) else {}
         except Exception:
             _LOGGER.exception("Feature probe during config flow failed for %s", host)
@@ -295,8 +311,16 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         saved_items = self.context.get("default_entity_items") or {}
         if not isinstance(saved_items, dict):
             saved_items = {}
+        supported_event_ids = (
+            self._supported_event_ids
+            or self.context.get("supported_event_ids")
+            or frozenset()
+        )
         suggested = default_customize_form_values(
-            detected_features, saved_extras, saved_items
+            detected_features,
+            saved_extras,
+            saved_items,
+            supported_event_ids=supported_event_ids,
         )
         schema_dict: dict = {}
         section_suggested: dict[str, dict[str, list[str]]] = {}
@@ -306,6 +330,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 detected_features,
                 suggested.get(group),
                 customize=True,
+                supported_event_ids=supported_event_ids,
             )
             if not options:
                 continue
@@ -322,7 +347,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 for o in options
                             ],
                             multiple=True,
-                            mode=SelectSelectorMode.DROPDOWN,
+                            mode=SelectSelectorMode.LIST,
                         )
                     ),
                 }),

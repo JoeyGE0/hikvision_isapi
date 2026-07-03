@@ -22,7 +22,7 @@
       },
       "entity_customize": {
         "title": "Choose extra entities",
-        "description": "Basic is always on. Expand a **category** below and use its dropdown to pick entities. Collapse categories you do not need.",
+        "description": "Basic is always on. Expand a **category** below and tick the checkboxes you want. Collapse categories you do not need.",
         "sections": {
           "detections": {
             "name": "Event detections",
