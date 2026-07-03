@@ -7,7 +7,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import slugify
 
-from .const import DOMAIN
+from .const import DOMAIN, ENTITY_GROUP_CAMERA
+from .entity_profiles import entity_group_enabled
 from .device_helpers import build_configuration_url
 from .api import HikvisionISAPI
 from .coordinator import HikvisionDataUpdateCoordinator
@@ -23,6 +24,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ):
     """Set up camera entities for the entry."""
+    if not entity_group_enabled(entry, ENTITY_GROUP_CAMERA):
+        async_add_entities([])
+        return
+
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     api = data["api"]

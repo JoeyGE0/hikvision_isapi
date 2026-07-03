@@ -22,11 +22,13 @@ import voluptuous as vol
 from custom_components.hikvision_isapi.const import (
     CONF_ALARM_SERVER_HOST,
     CONF_HOST,
+    CONF_INTEGRATION_PROFILE,
     CONF_PASSWORD,
     CONF_SET_ALARM_SERVER,
     CONF_UPDATE_INTERVAL,
     CONF_USERNAME,
     CONF_VERIFY_SSL,
+    PROFILE_BASIC,
 )
 
 
@@ -53,6 +55,7 @@ def mock_entry():
         CONF_UPDATE_INTERVAL: 30,
         CONF_SET_ALARM_SERVER: True,
         CONF_ALARM_SERVER_HOST: "http://192.168.1.1:8123",
+        CONF_INTEGRATION_PROFILE: PROFILE_BASIC,
     }
     entry.entry_id = "test_entry_id"
     entry.title = "Backyard Camera"
@@ -107,14 +110,17 @@ class TestConfigFlowHelpers:
 class TestConfigFlow:
     """Test cases for config flow."""
 
+    @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
     @patch("custom_components.hikvision_isapi.config_flow.requests.get")
-    async def test_user_step_success(self, mock_get, flow):
-        """Test successful user step."""
+    async def test_user_step_success(self, mock_get, mock_source_ip, flow):
+        """Test successful user step (Basic profile)."""
         response = Mock()
         response.status_code = 200
         response.ok = True
         response.text = ""
         mock_get.return_value = response
+        mock_source_ip.return_value = "192.168.1.1"
+        flow.hass.async_add_executor_job = AsyncMock(return_value={})
 
         flow.async_set_unique_id = AsyncMock()
         flow._abort_if_unique_id_configured = Mock()
@@ -124,6 +130,7 @@ class TestConfigFlow:
             "host": "192.168.1.100",
             "username": "admin",
             "password": "password",
+            CONF_INTEGRATION_PROFILE: PROFILE_BASIC,
         })
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -212,6 +219,7 @@ class TestConfigFlow:
             CONF_USERNAME: "admin",
             CONF_PASSWORD: "new_password_after_reset",
             CONF_VERIFY_SSL: True,
+            CONF_INTEGRATION_PROFILE: PROFILE_BASIC,
             CONF_UPDATE_INTERVAL: 30,
             CONF_SET_ALARM_SERVER: True,
             CONF_ALARM_SERVER_HOST: "http://192.168.1.1:8123",
@@ -242,6 +250,7 @@ class TestConfigFlow:
             CONF_USERNAME: "admin",
             CONF_PASSWORD: "",
             CONF_VERIFY_SSL: True,
+            CONF_INTEGRATION_PROFILE: PROFILE_BASIC,
             CONF_UPDATE_INTERVAL: 30,
             CONF_SET_ALARM_SERVER: True,
             CONF_ALARM_SERVER_HOST: "http://192.168.1.1:8123",

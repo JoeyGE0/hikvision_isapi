@@ -17,13 +17,18 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
 )
 from homeassistant.components.network import async_get_source_ip
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import selector
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.helpers.device_registry import format_mac
+from homeassistant.helpers.selector import SelectSelectorMode
 
 _LOGGER = logging.getLogger(__name__)
 
 from .const import (
+    CONF_ENTITY_GROUPS,
     CONF_HOST,
+    CONF_INTEGRATION_PROFILE,
     CONF_PASSWORD,
     CONF_UPDATE_INTERVAL,
     CONF_USERNAME,
@@ -32,9 +37,15 @@ from .const import (
     CONF_SET_ALARM_SERVER,
     CONF_ALARM_SERVER_HOST,
     CONF_VERIFY_SSL,
+    PROFILE_ADVANCED,
+    PROFILE_BASIC,
     RTSP_PORT_FORCED,
 )
-from .api import _extract_error_message, _normalize_host
+from .api import HikvisionISAPI, _extract_error_message, _normalize_host
+from .entity_profiles import (
+    default_entity_groups_for_profile,
+    supported_entity_group_options,
+)
 
 _XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
 
@@ -119,6 +130,9 @@ def _coerce_config_entry_for_form(entry_data: dict[str, Any]) -> dict[str, Any]:
         CONF_UPDATE_INTERVAL: int(entry_data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)),
         CONF_SET_ALARM_SERVER: _as_bool(entry_data.get(CONF_SET_ALARM_SERVER), True),
         CONF_ALARM_SERVER_HOST: str(entry_data.get(CONF_ALARM_SERVER_HOST, "")),
+        CONF_INTEGRATION_PROFILE: str(
+            entry_data.get(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
+        ),
     }
     if RTSP_PORT_FORCED in entry_data and entry_data[RTSP_PORT_FORCED] is not None:
         coerced[RTSP_PORT_FORCED] = str(entry_data[RTSP_PORT_FORCED])
@@ -185,7 +199,9 @@ def get_basic_schema(default_host: str | None = None):
         vol.Optional(CONF_VERIFY_SSL, default=True): bool,
         vol.Required(CONF_USERNAME, default="admin"): str,
         vol.Required(CONF_PASSWORD): str,
-        vol.Optional("configure_advanced", default=False): bool,
+        vol.Optional(CONF_INTEGRATION_PROFILE, default=PROFILE_BASIC): vol.In(
+            (PROFILE_BASIC, PROFILE_ADVANCED)
+        ),
     })
 
 
@@ -210,6 +226,7 @@ def _reconfigure_schema() -> vol.Schema:
         vol.Optional(CONF_VERIFY_SSL): bool,
         vol.Required(CONF_USERNAME): str,
         vol.Optional(CONF_PASSWORD): str,
+        vol.Required(CONF_INTEGRATION_PROFILE): vol.In((PROFILE_BASIC, PROFILE_ADVANCED)),
         vol.Optional(CONF_UPDATE_INTERVAL): vol.All(
             vol.Coerce(int), vol.Range(min=5, max=300)
         ),
@@ -222,12 +239,98 @@ def _reconfigure_schema() -> vol.Schema:
 class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hikvision ISAPI."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         """Initialize flow handler."""
         self._discovered_host: str | None = None
         self._reconfigure_entry: config_entries.ConfigEntry | None = None
+        self._detected_features: dict[str, bool] = {}
+
+    @classmethod
+    @callback
+    def async_migrate_entry(
+        cls, hass: HomeAssistant, config_entry: config_entries.ConfigEntry
+    ) -> bool:
+        """Migrate v1 entries: treat as Advanced with full entity groups."""
+        if config_entry.version == 1:
+            data = dict(config_entry.data)
+            data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
+            data.setdefault(
+                CONF_ENTITY_GROUPS,
+                default_entity_groups_for_profile(PROFILE_ADVANCED),
+            )
+            hass.config_entries.async_update_entry(
+                config_entry, data=data, version=2
+            )
+        return True
+
+    async def _async_probe_detected_features(
+        self, host: str, username: str, password: str, verify_ssl: bool
+    ) -> dict[str, bool]:
+        """Run feature detection during setup (for entity-group picker)."""
+        api = HikvisionISAPI(host, username, password, verify_ssl=verify_ssl)
+        try:
+            await self.hass.async_add_executor_job(api.get_device_info)
+            features = await self.hass.async_add_executor_job(api.detect_features)
+            return features if isinstance(features, dict) else {}
+        except Exception:
+            _LOGGER.exception("Feature probe during config flow failed for %s", host)
+            return {}
+
+    def _integration_profile_schema(self) -> vol.Schema:
+        return vol.Schema({
+            vol.Required(CONF_INTEGRATION_PROFILE): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(
+                            value=PROFILE_BASIC, label="Basic"
+                        ),
+                        selector.SelectOptionDict(
+                            value=PROFILE_ADVANCED, label="Advanced"
+                        ),
+                    ],
+                    translation_key="integration_profile",
+                )
+            ),
+        })
+
+    def _entity_groups_schema(self, detected_features: dict) -> vol.Schema:
+        options = supported_entity_group_options(detected_features)
+        if not options:
+            options = [{"value": "camera", "label": "Camera streams"}]
+        default = self.context.get("default_entity_groups") or [
+            o["value"] for o in options
+        ]
+        return vol.Schema({
+            vol.Required(CONF_ENTITY_GROUPS, default=default): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value=o["value"], label=o["label"])
+                        for o in options
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="entity_groups",
+                )
+            ),
+        })
+
+    async def _async_create_entry_from_context(
+        self, entry_data: dict[str, Any], device_name: str, host: str, verify_ssl: bool
+    ) -> ConfigFlowResult:
+        """Set unique_id and create the config entry."""
+        _, _, serial_number = await self._async_validate_connection(
+            host,
+            entry_data[CONF_USERNAME],
+            entry_data[CONF_PASSWORD],
+            verify_ssl,
+        )
+        unique_id = serial_number or self.unique_id or host
+        await self.async_set_unique_id(unique_id)
+        self._abort_if_unique_id_configured()
+        title = entry_data.pop("device_name", device_name)
+        return self.async_create_entry(title=title, data=entry_data)
 
     async def _async_default_alarm_server(self) -> str:
         """Home Assistant URL for camera event notifications."""
@@ -248,14 +351,16 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             suggested[CONF_HOST] = self._discovered_host
         suggested.setdefault(CONF_USERNAME, "admin")
         suggested.setdefault(CONF_VERIFY_SSL, True)
-        suggested.setdefault("configure_advanced", False)
+        suggested.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
 
         schema = vol.Schema({
             vol.Required(CONF_HOST): str,
             vol.Optional(CONF_VERIFY_SSL): bool,
             vol.Required(CONF_USERNAME): str,
             vol.Required(CONF_PASSWORD): str,
-            vol.Optional("configure_advanced"): bool,
+            vol.Required(CONF_INTEGRATION_PROFILE): vol.In(
+                (PROFILE_BASIC, PROFILE_ADVANCED)
+            ),
         })
         return _apply_suggested_values(self, schema, suggested)
 
@@ -333,6 +438,21 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data[RTSP_PORT_FORCED] = port
         elif self._reconfigure_entry and RTSP_PORT_FORCED in self._reconfigure_entry.data:
             data[RTSP_PORT_FORCED] = self._reconfigure_entry.data[RTSP_PORT_FORCED]
+        profile = user_input.get(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
+        data[CONF_INTEGRATION_PROFILE] = profile
+        if profile == PROFILE_ADVANCED:
+            groups = user_input.get(CONF_ENTITY_GROUPS)
+            if isinstance(groups, list) and groups:
+                data[CONF_ENTITY_GROUPS] = groups
+            elif self._reconfigure_entry:
+                data[CONF_ENTITY_GROUPS] = self._reconfigure_entry.data.get(
+                    CONF_ENTITY_GROUPS,
+                    default_entity_groups_for_profile(PROFILE_ADVANCED),
+                )
+            else:
+                data[CONF_ENTITY_GROUPS] = default_entity_groups_for_profile(
+                    PROFILE_ADVANCED
+                )
         return data
 
     async def async_step_reconfigure(
@@ -368,6 +488,18 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     host, username, password, verify_ssl
                 )
                 if not errors:
+                    self.context["reconfigure_input"] = user_input
+                    self.context["reconfigure_device_name"] = device_name
+                    profile = user_input.get(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
+                    if profile == PROFILE_ADVANCED:
+                        self._detected_features = await self._async_probe_detected_features(
+                            host, username, password, verify_ssl
+                        )
+                        self.context["default_entity_groups"] = entry.data.get(
+                            CONF_ENTITY_GROUPS,
+                            default_entity_groups_for_profile(PROFILE_ADVANCED),
+                        )
+                        return await self.async_step_entity_groups()
                     entry_data = self._build_entry_data(user_input)
                     return self.async_update_reload_and_abort(
                         entry,
@@ -523,7 +655,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             username = user_input.get(CONF_USERNAME, "").strip()
             password = user_input.get(CONF_PASSWORD, "")
             verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
-            configure_advanced = user_input.get("configure_advanced", False)
+            profile = user_input.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
 
             if not host:
                 errors[CONF_HOST] = "host_required"
@@ -543,27 +675,29 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_USERNAME: username,
                         CONF_PASSWORD: password,
                         CONF_VERIFY_SSL: verify_ssl,
+                        CONF_INTEGRATION_PROFILE: profile,
                         "device_name": device_name,
                     }
+                    self._detected_features = await self._async_probe_detected_features(
+                        host, username, password, verify_ssl
+                    )
 
-                    if configure_advanced:
-                        return await self.async_step_advanced()
+                    if profile == PROFILE_BASIC:
+                        entry_data = {
+                            CONF_HOST: host,
+                            CONF_USERNAME: username,
+                            CONF_PASSWORD: password,
+                            CONF_VERIFY_SSL: verify_ssl,
+                            CONF_INTEGRATION_PROFILE: PROFILE_BASIC,
+                            CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL,
+                            CONF_SET_ALARM_SERVER: True,
+                            CONF_ALARM_SERVER_HOST: await self._async_default_alarm_server(),
+                        }
+                        return await self._async_create_entry_from_context(
+                            entry_data, device_name, host, verify_ssl
+                        )
 
-                    entry_data = {
-                        CONF_HOST: host,
-                        CONF_USERNAME: username,
-                        CONF_PASSWORD: password,
-                        CONF_VERIFY_SSL: verify_ssl,
-                        CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL,
-                        CONF_SET_ALARM_SERVER: True,
-                        CONF_ALARM_SERVER_HOST: await self._async_default_alarm_server(),
-                    }
-
-                    unique_id = serial_number or self.unique_id or host
-                    await self.async_set_unique_id(unique_id)
-                    self._abort_if_unique_id_configured()
-
-                    return self.async_create_entry(title=device_name, data=entry_data)
+                    return await self.async_step_advanced()
 
         data_schema = await self._async_get_user_schema(user_input)
         return self.async_show_form(
@@ -602,8 +736,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _validate_rtsp_port_field(user_input.get(RTSP_PORT_FORCED), errors)
 
             if not errors:
-                entry_data = {
-                    **basic_data,
+                self.context["advanced_options"] = {
                     CONF_UPDATE_INTERVAL: user_input.get(
                         CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
                     ),
@@ -616,22 +749,11 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
                 rtsp_port = _parse_rtsp_port(user_input.get(RTSP_PORT_FORCED))
                 if rtsp_port is not None:
-                    entry_data[RTSP_PORT_FORCED] = rtsp_port
-                device_name = entry_data.pop("device_name", basic_data.get(CONF_HOST, "Hikvision"))
-
-                host = entry_data[CONF_HOST]
-                verify_ssl = entry_data.get(CONF_VERIFY_SSL, True)
-                _, _, serial_number = await self._async_validate_connection(
-                    host,
-                    entry_data[CONF_USERNAME],
-                    entry_data[CONF_PASSWORD],
-                    verify_ssl,
+                    self.context["advanced_options"][RTSP_PORT_FORCED] = rtsp_port
+                self.context["default_entity_groups"] = default_entity_groups_for_profile(
+                    PROFILE_ADVANCED
                 )
-                unique_id = serial_number or self.unique_id or host
-                await self.async_set_unique_id(unique_id)
-                self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(title=device_name, data=entry_data)
+                return await self.async_step_entity_groups()
 
             schema = get_advanced_schema(
                 default_alarm_server, set_alarm_server=set_alarm_server
@@ -642,3 +764,51 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = get_advanced_schema(default_alarm_server, set_alarm_server=True)
         return self.async_show_form(step_id="advanced", data_schema=schema, errors=errors)
+
+    async def async_step_entity_groups(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pick which entity groups to expose (Advanced profile only)."""
+        errors: dict[str, str] = {}
+        detected = self._detected_features or self.context.get("detected_features") or {}
+
+        if user_input is not None:
+            groups = user_input.get(CONF_ENTITY_GROUPS)
+            if not groups:
+                errors[CONF_ENTITY_GROUPS] = "entity_groups_required"
+            if not errors:
+                if reconfigure_input := self.context.get("reconfigure_input"):
+                    merged = {**reconfigure_input, CONF_ENTITY_GROUPS: groups}
+                    entry = self._reconfigure_entry or self._get_reconfigure_entry()
+                    entry_data = self._build_entry_data(merged)
+                    title = self.context.get(
+                        "reconfigure_device_name", entry.title
+                    )
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates=entry_data,
+                        title=title,
+                    )
+
+                basic_data = self.context.get("user_input", {})
+                advanced = self.context.get("advanced_options", {})
+                if not basic_data:
+                    return self.async_abort(reason="no_basic_data")
+                entry_data = {
+                    **basic_data,
+                    **advanced,
+                    CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+                    CONF_ENTITY_GROUPS: groups,
+                }
+                device_name = basic_data.get("device_name", basic_data.get(CONF_HOST, "Hikvision"))
+                host = entry_data[CONF_HOST]
+                verify_ssl = entry_data.get(CONF_VERIFY_SSL, True)
+                return await self._async_create_entry_from_context(
+                    entry_data, device_name, host, verify_ssl
+                )
+
+        return self.async_show_form(
+            step_id="entity_groups",
+            data_schema=self._entity_groups_schema(detected),
+            errors=errors,
+        )

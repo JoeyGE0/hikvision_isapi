@@ -6,7 +6,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    ENTITY_GROUP_AUDIO_ALARM,
+    ENTITY_GROUP_ESSENTIAL_SYSTEM,
+    ENTITY_GROUP_SIREN,
+)
+from .entity_profiles import entity_group_enabled
 from .device_helpers import get_primary_device_info
 from .api import HikvisionISAPI
 
@@ -29,10 +35,12 @@ async def async_setup_entry(
 
     entities = []
     
-    # Only add entities if their features are detected
-    if detected_features.get("restart", True):  # Restart is usually always available
+    if entity_group_enabled(entry, ENTITY_GROUP_ESSENTIAL_SYSTEM) and detected_features.get("restart", True):
         entities.append(HikvisionRestartButton(api, entry, host, device_name))
-    if detected_features.get("test_audio_alarm", False):
+    if (
+        entity_group_enabled(entry, ENTITY_GROUP_AUDIO_ALARM)
+        and detected_features.get("test_audio_alarm", False)
+    ):
         entities.append(HikvisionTestAudioAlarmButton(api, entry, host, device_name))
 
     async_add_entities(entities)

@@ -9,7 +9,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
-from .const import DOMAIN
+from .const import DOMAIN, ENTITY_GROUP_ESSENTIAL_SYSTEM, ENTITY_GROUP_SYSTEM_DIAGNOSTICS
+from .entity_profiles import entity_group_enabled
 from .device_helpers import get_primary_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,20 +29,25 @@ async def async_setup_entry(
     host = data["host"]
     device_name = data["device_info"].get("deviceName", host)
 
-    entities = [
-        # System status sensors (no controls)
-        HikvisionCPUUtilizationSensor(coordinator, entry, host, device_name),
-        HikvisionMemoryUsageSensor(coordinator, entry, host, device_name),
-        HikvisionDeviceUptimeSensor(coordinator, entry, host, device_name),
-        HikvisionRebootCountSensor(coordinator, entry, host, device_name),
-        HikvisionStreamingSessionsSensor(coordinator, entry, host, device_name),
-        HikvisionStreamingClientsSensor(coordinator, entry, host, device_name),
-        # Notification host sensors
-        HikvisionNotificationHostSensor(coordinator, entry, host, device_name),
-        HikvisionNotificationHostPathSensor(coordinator, entry, host, device_name),
-        HikvisionNotificationHostPortSensor(coordinator, entry, host, device_name),
-        HikvisionNotificationHostProtocolSensor(coordinator, entry, host, device_name),
-    ]
+    entities = []
+
+    if entity_group_enabled(entry, ENTITY_GROUP_ESSENTIAL_SYSTEM):
+        entities.extend([
+            HikvisionDeviceUptimeSensor(coordinator, entry, host, device_name),
+            HikvisionRebootCountSensor(coordinator, entry, host, device_name),
+        ])
+
+    if entity_group_enabled(entry, ENTITY_GROUP_SYSTEM_DIAGNOSTICS):
+        entities.extend([
+            HikvisionCPUUtilizationSensor(coordinator, entry, host, device_name),
+            HikvisionMemoryUsageSensor(coordinator, entry, host, device_name),
+            HikvisionStreamingSessionsSensor(coordinator, entry, host, device_name),
+            HikvisionStreamingClientsSensor(coordinator, entry, host, device_name),
+            HikvisionNotificationHostSensor(coordinator, entry, host, device_name),
+            HikvisionNotificationHostPathSensor(coordinator, entry, host, device_name),
+            HikvisionNotificationHostPortSensor(coordinator, entry, host, device_name),
+            HikvisionNotificationHostProtocolSensor(coordinator, entry, host, device_name),
+        ])
 
     async_add_entities(entities)
 

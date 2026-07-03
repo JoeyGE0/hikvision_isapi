@@ -27,7 +27,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import AuthenticationError, FirmwareUpgradeError, HikvisionISAPI
-from .const import DOMAIN
+from .const import DOMAIN, ENTITY_GROUP_ESSENTIAL_SYSTEM
+from .entity_profiles import entity_group_enabled
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -613,6 +614,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up update entity for the entry."""
+    if not entity_group_enabled(entry, ENTITY_GROUP_ESSENTIAL_SYSTEM):
+        return
+
     data = hass.data[DOMAIN][entry.entry_id]
     device_info = data["device_info"]
     host = data["host"]

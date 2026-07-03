@@ -6,7 +6,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    ENTITY_GROUP_AUDIO_ALARM,
+    ENTITY_GROUP_DAY_NIGHT,
+    ENTITY_GROUP_MOTION_TUNING,
+    ENTITY_GROUP_SUPPLEMENT_LIGHT,
+)
+from .entity_profiles import entity_group_enabled
 from .device_helpers import get_primary_device_info
 from .api import HikvisionISAPI
 
@@ -30,18 +37,18 @@ async def async_setup_entry(
 
     entities = []
     
-    # Only add entities if their features are detected
-    if detected_features.get("supplement_light_mode", False):
+    if entity_group_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT) and detected_features.get("supplement_light_mode", False):
         entities.append(HikvisionLightModeSelect(coordinator, api, entry, host, device_name))
-    if detected_features.get("day_night_mode", False):
+    if entity_group_enabled(entry, ENTITY_GROUP_DAY_NIGHT) and detected_features.get("day_night_mode", False):
         entities.append(HikvisionBrightnessControlSelect(coordinator, api, entry, host, device_name))
         entities.append(HikvisionIRModeSelect(coordinator, api, entry, host, device_name))
-    if detected_features.get("motion_detection", False):
+    if entity_group_enabled(entry, ENTITY_GROUP_MOTION_TUNING) and detected_features.get("motion_detection", False):
         entities.append(HikvisionMotionTargetTypeSelect(coordinator, api, entry, host, device_name))
-    if detected_features.get("audio_alarm_type", False):
-        entities.append(HikvisionAudioTypeSelect(coordinator, api, entry, host, device_name))
-    if detected_features.get("audio_alarm_sound", False):
-        entities.append(HikvisionWarningSoundSelect(coordinator, api, entry, host, device_name))
+    if entity_group_enabled(entry, ENTITY_GROUP_AUDIO_ALARM):
+        if detected_features.get("audio_alarm_type", False):
+            entities.append(HikvisionAudioTypeSelect(coordinator, api, entry, host, device_name))
+        if detected_features.get("audio_alarm_sound", False):
+            entities.append(HikvisionWarningSoundSelect(coordinator, api, entry, host, device_name))
 
     async_add_entities(entities)
 

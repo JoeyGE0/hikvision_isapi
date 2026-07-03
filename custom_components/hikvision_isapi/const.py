@@ -22,6 +22,26 @@ CONF_SET_ALARM_SERVER: Final = "set_alarm_server"
 CONF_ALARM_SERVER_HOST: Final = "alarm_server"
 RTSP_PORT_FORCED: Final = "rtsp_port_forced"
 
+# Basic vs Advanced entity profiles (config flow + platform gating).
+CONF_INTEGRATION_PROFILE: Final = "integration_profile"
+CONF_ENTITY_GROUPS: Final = "entity_groups"
+PROFILE_BASIC: Final = "basic"
+PROFILE_ADVANCED: Final = "advanced"
+
+ENTITY_GROUP_DETECTIONS: Final = "detections"
+ENTITY_GROUP_CAMERA: Final = "camera"
+ENTITY_GROUP_ESSENTIAL_SYSTEM: Final = "essential_system"
+ENTITY_GROUP_SYSTEM_DIAGNOSTICS: Final = "system_diagnostics"
+ENTITY_GROUP_DAY_NIGHT: Final = "day_night"
+ENTITY_GROUP_SUPPLEMENT_LIGHT: Final = "supplement_light"
+ENTITY_GROUP_SIREN: Final = "siren"
+ENTITY_GROUP_DETECTION_SWITCHES: Final = "detection_switches"
+ENTITY_GROUP_MOTION_TUNING: Final = "motion_tuning"
+ENTITY_GROUP_IMAGE_ADJUSTMENT: Final = "image_adjustment"
+ENTITY_GROUP_AUDIO_ALARM: Final = "audio_alarm"
+ENTITY_GROUP_TWO_WAY_AUDIO: Final = "two_way_audio"
+ENTITY_GROUP_ALARM_IO: Final = "alarm_io"
+
 DEFAULT_UPDATE_INTERVAL = 30
 SIREN_RETRIGGER_INTERVAL_SECONDS: Final = 0.5
 # Brief pause before PUT when switching tones while a retrigger loop was active.

@@ -4,20 +4,30 @@
     "step": {
       "user": {
         "title": "Hikvision ISAPI Controls",
-        "description": "Enter your camera/NVR credentials to get started",
+        "description": "Enter your camera/NVR credentials. Choose **Basic** for detections, camera, uptime, day/night, supplement light, and siren. Choose **Advanced** for full control and to pick which entity groups to expose.",
         "data": {
           "host": "IP Address or Hostname",
           "verify_ssl": "Verify SSL certificate",
           "username": "Username",
           "password": "Password",
-          "configure_advanced": "Configure advanced options"
+          "integration_profile": "Setup mode"
         },
         "data_description": {
           "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.12)",
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Password for camera login",
-          "configure_advanced": "Enable this to configure advanced options like update interval and event notifications"
+          "integration_profile": "Basic keeps things simple. Advanced exposes more entities and lets you choose groups."
+        }
+      },
+      "entity_groups": {
+        "title": "Entity groups",
+        "description": "Choose which entity groups to create. Only groups supported by your device are listed. Deselect anything you do not want in Home Assistant.",
+        "data": {
+          "entity_groups": "Exposed entities"
+        },
+        "data_description": {
+          "entity_groups": "Advanced defaults match the previous full integration. Trim groups you do not need, or add optional ones your camera supports."
         }
       },
       "reauth_confirm": {
@@ -32,6 +42,7 @@
           "verify_ssl": "Verify SSL certificate",
           "username": "Username",
           "password": "Password",
+          "integration_profile": "Setup mode",
           "update_interval": "Update Interval (seconds)",
           "set_alarm_server": "Enable event notifications",
           "alarm_server": "Home Assistant Address",
@@ -42,6 +53,7 @@
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Leave blank to keep the current password, or enter a new one",
+          "integration_profile": "Basic or Advanced. Advanced shows an extra step to pick entity groups.",
           "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
           "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
           "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
@@ -74,7 +86,8 @@
       "username_required": "Username is required",
       "password_required": "Password is required",
       "alarm_server_required": "Home Assistant address is required when event notifications are enabled",
-      "invalid_rtsp_port": "RTSP port must be between 1 and 65535"
+      "invalid_rtsp_port": "RTSP port must be between 1 and 65535",
+      "entity_groups_required": "Select at least one entity group"
     },
     "abort": {
       "already_configured": "Device is already configured",
