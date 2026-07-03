@@ -19,10 +19,12 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIREN_RETRIGGER_INTERVAL_SECONDS, SIREN_TONE_SWITCH_SETTLE_SECONDS
-from .device_helpers import get_primary_device_info
+from .device_helpers import async_run_api, get_primary_device_info
 from .api import HikvisionISAPI
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
@@ -68,6 +70,7 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         self._attr_is_on = False
         self._loop_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
+        self._turn_generation = 0
         self._active_tone_id: int | None = None
         self._active_volume_level: float | None = None
 
@@ -137,8 +140,14 @@ class HikvisionAudioAlarmSiren(SirenEntity):
                 audio_class,
                 volume_percent,
             )
-            success = await self.hass.async_add_executor_job(
-                self.api.set_audio_alarm, audio_class, tone_id, volume_percent, None
+            success = await async_run_api(
+                self.hass,
+                self._entry,
+                self.api.set_audio_alarm,
+                audio_class,
+                tone_id,
+                volume_percent,
+                None,
             )
             if not success:
                 _LOGGER.error(
@@ -147,8 +156,8 @@ class HikvisionAudioAlarmSiren(SirenEntity):
                 )
                 return
 
-            configured_id = await self.hass.async_add_executor_job(
-                self.api.get_configured_audio_id
+            configured_id = await async_run_api(
+                self.hass, self._entry, self.api.get_configured_audio_id
             )
             if configured_id != tone_id:
                 _LOGGER.error(
@@ -176,8 +185,14 @@ class HikvisionAudioAlarmSiren(SirenEntity):
                     audio_class,
                     volume_percent,
                 )
-                success = await self.hass.async_add_executor_job(
-                    self.api.set_audio_alarm, audio_class, tone_id, volume_percent, None
+                success = await async_run_api(
+                    self.hass,
+                    self._entry,
+                    self.api.set_audio_alarm,
+                    audio_class,
+                    tone_id,
+                    volume_percent,
+                    None,
                 )
                 if not success:
                     _LOGGER.error(
@@ -187,8 +202,8 @@ class HikvisionAudioAlarmSiren(SirenEntity):
                     )
                     return
 
-                configured_id = await self.hass.async_add_executor_job(
-                    self.api.get_configured_audio_id
+                configured_id = await async_run_api(
+                    self.hass, self._entry, self.api.get_configured_audio_id
                 )
                 if configured_id != tone_id:
                     _LOGGER.error(
@@ -203,8 +218,14 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             elif volume_percent is not None:
                 if self._active_tone_id is None:
                     self._active_tone_id = self._current_audio_id_from_coordinator()
-                success = await self.hass.async_add_executor_job(
-                    self.api.set_audio_alarm, None, None, volume_percent, None
+                success = await async_run_api(
+                    self.hass,
+                    self._entry,
+                    self.api.set_audio_alarm,
+                    None,
+                    None,
+                    volume_percent,
+                    None,
                 )
                 if not success:
                     _LOGGER.error(
@@ -232,10 +253,14 @@ class HikvisionAudioAlarmSiren(SirenEntity):
             await asyncio.sleep(SIREN_TONE_SWITCH_SETTLE_SECONDS)
 
         self._stop_event.clear()
+        self._turn_generation += 1
+        generation = self._turn_generation
         self._attr_is_on = True
         self.async_write_ha_state()
 
-        self._loop_task = self.hass.async_create_task(self._async_trigger_loop(duration))
+        self._loop_task = self.hass.async_create_task(
+            self._async_trigger_loop(duration, generation)
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the siren off.
@@ -252,6 +277,10 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         self._loop_task = None
         self._attr_is_on = False
         self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop retriggers when entity is removed."""
+        await self.async_turn_off()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -384,7 +413,7 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         v = max(0.0, min(1.0, v))
         return int(round(v * 100))
 
-    async def _async_trigger_loop(self, duration: int | None) -> None:
+    async def _async_trigger_loop(self, duration: int | None, generation: int) -> None:
         """Keep triggering alarm until duration ends or turn_off is called."""
         deadline: datetime | None = None
         if duration is not None:
@@ -397,8 +426,10 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         play_id = self._active_tone_id
         try:
             while not self._stop_event.is_set():
-                await self.hass.async_add_executor_job(
-                    self.api.trigger_audio_alarm, play_id
+                if generation != self._turn_generation:
+                    break
+                await async_run_api(
+                    self.hass, self._entry, self.api.trigger_audio_alarm, play_id
                 )
 
                 if deadline is not None and datetime.now() >= deadline:
@@ -407,6 +438,7 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         except asyncio.CancelledError:
             pass
         finally:
-            self._attr_is_on = False
-            self._loop_task = None
-            self.async_write_ha_state()
+            if generation == self._turn_generation:
+                self._attr_is_on = False
+                self._loop_task = None
+                self.async_write_ha_state()

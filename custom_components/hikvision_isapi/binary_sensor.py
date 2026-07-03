@@ -16,6 +16,8 @@ from .models import EventInfo
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 0
+
 # Map event type -> detect_features key; binary sensors only if feature probe passed.
 EVENT_ID_TO_DETECTED_FEATURE = {
     "motiondetection": "motion_detection",

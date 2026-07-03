@@ -229,6 +229,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Store data BEFORE creating coordinator (coordinator needs it)
     hass.data[DOMAIN][entry.entry_id] = {
         "api": api,
+        "api_lock": asyncio.Lock(),
         "device_info": device_info,
         "capabilities": capabilities,
         "cameras": cameras,
@@ -257,35 +258,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     else:
         _LOGGER.info("=== HIKVISION ISAPI: Using existing webhook (not first instance) ===")
 
-    # Set alarm server if enabled
+    # Set alarm server if enabled (background — don't block setup)
     if entry.data.get(CONF_SET_ALARM_SERVER, True):
-        alarm_server_host = entry.data.get(CONF_ALARM_SERVER_HOST)
-        if not alarm_server_host:
-            local_ip = await async_get_source_ip(hass)
-            alarm_server_host = f"http://{local_ip}:8123"
-        try:
-            actual_path = await hass.async_add_executor_job(
-                api.set_alarm_server, alarm_server_host, ALARM_SERVER_PATH
-            )
-            if actual_path:
-                _LOGGER.info("=== HIKVISION ISAPI: Successfully configured notification host on camera (path: %s) ===", actual_path)
-                # Update ALARM_SERVER_PATH if it was changed to match existing (e.g., /api/hikvision)
-                if actual_path != ALARM_SERVER_PATH:
-                    _LOGGER.info("=== HIKVISION ISAPI: Using existing notification path: %s ===", actual_path)
-                try:
-                    await hass.async_add_executor_job(
-                        api.ensure_http_alarm_notifications_for_events,
-                        None,
-                    )
-                except Exception as notify_err:
-                    _LOGGER.warning(
-                        "=== HIKVISION ISAPI: Could not enable Surveillance Center on event triggers: %s ===",
-                        notify_err,
-                    )
-            else:
-                _LOGGER.warning("=== HIKVISION ISAPI: Failed to configure notification host on camera ===")
-        except Exception as e:
-            _LOGGER.error("=== HIKVISION ISAPI: Error configuring notification host: %s ===", e)
+        async def _configure_alarm_server() -> None:
+            alarm_server_host = entry.data.get(CONF_ALARM_SERVER_HOST)
+            if not alarm_server_host:
+                local_ip = await async_get_source_ip(hass)
+                alarm_server_host = f"http://{local_ip}:8123"
+            try:
+                actual_path = await hass.async_add_executor_job(
+                    api.set_alarm_server, alarm_server_host, ALARM_SERVER_PATH
+                )
+                if actual_path:
+                    _LOGGER.info("=== HIKVISION ISAPI: Successfully configured notification host on camera (path: %s) ===", actual_path)
+                    if actual_path != ALARM_SERVER_PATH:
+                        _LOGGER.info("=== HIKVISION ISAPI: Using existing notification path: %s ===", actual_path)
+                    try:
+                        await hass.async_add_executor_job(
+                            api.ensure_http_alarm_notifications_for_events,
+                            None,
+                        )
+                    except Exception as notify_err:
+                        _LOGGER.warning(
+                            "=== HIKVISION ISAPI: Could not enable Surveillance Center on event triggers: %s ===",
+                            notify_err,
+                        )
+                else:
+                    _LOGGER.warning("=== HIKVISION ISAPI: Failed to configure notification host on camera ===")
+            except Exception as e:
+                _LOGGER.error("=== HIKVISION ISAPI: Error configuring notification host: %s ===", e)
+
+        hass.async_create_task(_configure_alarm_server())
 
     return True
 

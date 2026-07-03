@@ -21,6 +21,7 @@ from homeassistant.components.update import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -29,6 +30,8 @@ from .api import AuthenticationError, FirmwareUpgradeError, HikvisionISAPI
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 0
 
 # GitHub raw URLs for firmware archive
 FIRMWARE_ARCHIVE_BASE = "https://raw.githubusercontent.com/JoeyGE0/hikvision-fw-archive/main"
@@ -349,6 +352,49 @@ def _pick_index_record(
     return latest if isinstance(latest, dict) else None
 
 
+async def _async_fetch_firmware_archive_json(
+    hass: HomeAssistant, url: str, session: aiohttp.ClientSession
+) -> dict[str, Any]:
+    """Fetch one firmware archive JSON file."""
+    async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+        if response.status != 200:
+            _LOGGER.warning("Failed to fetch firmware archive %s: HTTP %s", url, response.status)
+            return {}
+        text = await response.text()
+        if not text:
+            return {}
+        try:
+            import json
+
+            return json.loads(text)
+        except Exception as err:
+            _LOGGER.warning("Failed to parse firmware archive JSON from %s: %s", url, err)
+            return {}
+
+
+async def async_get_firmware_archive_bundle(hass: HomeAssistant) -> dict[str, Any]:
+    """Fetch index + live + manual JSON once per HA instance (shared cache)."""
+    domain_store = hass.data.setdefault(DOMAIN, {})
+    cache = domain_store.setdefault(
+        "_firmware_archive_cache",
+        {"lock": asyncio.Lock(), "bundle": None},
+    )
+    async with cache["lock"]:
+        if cache["bundle"] is not None:
+            return cache["bundle"]
+
+        session = async_get_clientsession(hass)
+        bundle = {
+            "index": await _async_fetch_firmware_archive_json(hass, FIRMWARE_INDEX_URL, session),
+            "live": await _async_fetch_firmware_archive_json(hass, FIRMWARES_LIVE_URL, session),
+            "manual": await _async_fetch_firmware_archive_json(
+                hass, FIRMWARES_MANUAL_URL, session
+            ),
+        }
+        cache["bundle"] = bundle
+        return bundle
+
+
 class FirmwareUpdateCoordinator(DataUpdateCoordinator):
     """Coordinator for fetching firmware update information."""
     
@@ -376,62 +422,37 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch firmware update data from GitHub archive."""
         entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry_id, {})
-        api = entry_data.get("api")
-        if api is not None:
-            try:
-                device_info = await self.hass.async_add_executor_job(api.get_device_info)
-                live_fw = (device_info.get("firmwareVersion") or "").strip()
-                if live_fw:
-                    self.current_firmware = live_fw
-                    entry_data.setdefault("device_info", {}).update(device_info)
-            except Exception as err:
-                _LOGGER.debug("Could not read live firmware version: %s", err)
+        live_fw = (entry_data.get("device_info") or {}).get("firmwareVersion", "")
+        if live_fw := (live_fw or "").strip():
+            self.current_firmware = live_fw
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async def _fetch_firmware_json(url: str) -> dict[str, Any]:
-                    """Fetch JSON with tolerant parsing for GitHub raw content-types."""
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                        if response.status != 200:
-                            _LOGGER.warning("Failed to fetch firmware archive %s: HTTP %s", url, response.status)
-                            return {}
-                        text = await response.text()
-                        if not text:
-                            return {}
-                        try:
-                            # GitHub raw can occasionally send text/plain; parse manually.
-                            import json
-                            return json.loads(text)
-                        except Exception as err:
-                            _LOGGER.warning("Failed to parse firmware archive JSON from %s: %s", url, err)
-                            return {}
-
-                firmware_index = await _fetch_firmware_json(FIRMWARE_INDEX_URL)
-                index_record = _pick_index_record(
-                    firmware_index,
-                    self.device_model,
-                    self.hardware_version,
+            archive = await async_get_firmware_archive_bundle(self.hass)
+            firmware_index = archive["index"]
+            index_record = _pick_index_record(
+                firmware_index,
+                self.device_model,
+                self.hardware_version,
+            )
+            if index_record:
+                archive_version = (index_record.get("version") or "").strip()
+                available = bool(
+                    archive_version
+                    and compare_versions(self.current_firmware, archive_version)
                 )
-                if index_record:
-                    archive_version = (index_record.get("version") or "").strip()
-                    available = bool(
-                        archive_version
-                        and compare_versions(self.current_firmware, archive_version)
-                    )
-                    ahead = bool(
-                        archive_version
-                        and compare_versions(archive_version, self.current_firmware)
-                    )
-                    return _coordinator_data_from_firmware(
-                        index_record,
-                        available=available,
-                        ahead_of_archive=ahead and not available,
-                        device_model=self.device_model,
-                    )
+                ahead = bool(
+                    archive_version
+                    and compare_versions(archive_version, self.current_firmware)
+                )
+                return _coordinator_data_from_firmware(
+                    index_record,
+                    available=available,
+                    ahead_of_archive=ahead and not available,
+                    device_model=self.device_model,
+                )
 
-                # Fallback: scan live + manual JSON (older archive commits)
-                live_firmwares = await _fetch_firmware_json(FIRMWARES_LIVE_URL)
-                manual_firmwares = await _fetch_firmware_json(FIRMWARES_MANUAL_URL)
+            live_firmwares = archive["live"]
+            manual_firmwares = archive["manual"]
 
             # Combine firmware lists - GitHub JSON structure is flat dict with keys like "DS-2CD1043G0-I_UNKNOWN_5.7.23"
             # Each value is a dict with: model, version, download_url, date, supported_models, etc.
@@ -626,8 +647,8 @@ async def async_setup_entry(
     )
     hass.data[DOMAIN][entry.entry_id]["firmware_update_coordinator"] = coordinator
 
-    # Avoid failing platform setup if archive fetch is temporarily unavailable.
-    await coordinator.async_refresh()
+    # Defer archive fetch so platform setup is not blocked (6 entries × 3 JSON files).
+    hass.async_create_task(coordinator.async_refresh())
     
     entity = HikvisionFirmwareUpdate(
         coordinator,

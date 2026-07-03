@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TypeVar
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
+
+T = TypeVar("T")
 
 # Supplement-light API values where white-LED settings apply.
 SUPPLEMENT_MODES_WHITE_ACTIVE = frozenset({"eventIntelligence", "colorVuWhiteLight"})
@@ -126,3 +131,16 @@ def build_primary_device_info(domain: str, device_info: dict, host: str) -> Devi
 def get_primary_device_info(hass: HomeAssistant, entry: ConfigEntry) -> DeviceInfo:
     """Return cached primary DeviceInfo for entities on this config entry."""
     return hass.data[DOMAIN][entry.entry_id]["ha_device_info"]
+
+
+async def async_run_api(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    func: Callable[..., T],
+    *args,
+    **kwargs,
+) -> T:
+    """Run a blocking ISAPI call under the per-entry API lock."""
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    async with entry_data["api_lock"]:
+        return await hass.async_add_executor_job(func, *args, **kwargs)

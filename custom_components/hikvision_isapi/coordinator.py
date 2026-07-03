@@ -182,194 +182,11 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
         """Fetch data from Hikvision ISAPI."""
         try:
             domain_data = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
-            detected_features = domain_data.get("detected_features") or {}
-            capabilities = domain_data.get("capabilities") or {}
-
-            # Fetch camera state only for supported capabilities to avoid hammering
-            # unsupported/forbidden endpoints (prevents 403 log spam).
-            has_ir = any(
-                detected_features.get(key, False)
-                for key in ("ir_sensitivity", "ir_filter_time", "day_night_mode")
-            )
-            ircut_data = (
-                await self.hass.async_add_executor_job(self.api.get_ircut_filter)
-                if has_ir
-                else {}
-            )
-
-            has_supplement_light = any(
-                detected_features.get(key, False)
-                for key in (
-                    "supplement_light_mode",
-                    "white_light_time",
-                    "white_light_brightness",
-                    "ir_light_brightness",
-                    "white_light_brightness_limit",
-                    "ir_light_brightness_limit",
-                )
-            )
-            supplement_light = (
-                await self.hass.async_add_executor_job(self.api.get_supplement_light)
-                if has_supplement_light
-                else {}
-            )
-
-            has_two_way_audio = any(
-                detected_features.get(key, False)
-                for key in (
-                    "speaker_volume",
-                    "microphone_volume",
-                    "noise_reduce",
-                    "media_player",
-                )
-            )
-            audio_data = (
-                await self.hass.async_add_executor_job(self.api.get_two_way_audio)
-                if has_two_way_audio
-                else {}
-            )
-
-            motion_data = (
-                await self.hass.async_add_executor_job(self.api.get_motion_detection)
-                if detected_features.get("motion_detection", False)
-                else {}
-            )
-            tamper_data = (
-                await self.hass.async_add_executor_job(self.api.get_tamper_detection)
-                if detected_features.get("tamper_detection", False)
-                else {}
-            )
-            field_detection = (
-                await self.hass.async_add_executor_job(self.api.get_field_detection)
-                if detected_features.get("intrusion_detection", False)
-                else {}
-            )
-            line_detection = (
-                await self.hass.async_add_executor_job(self.api.get_line_detection)
-                if detected_features.get("line_crossing_detection", False)
-                else {}
-            )
-            scene_change = (
-                await self.hass.async_add_executor_job(self.api.get_scene_change_detection)
-                if detected_features.get("scene_change_detection", False)
-                else {}
-            )
-            defocus = (
-                await self.hass.async_add_executor_job(self.api.get_defocus_detection)
-                if detected_features.get("defocus_detection", False)
-                else {}
-            )
-            region_entrance = (
-                await self.hass.async_add_executor_job(self.api.get_region_entrance)
-                if detected_features.get("region_entrance_detection", False)
-                else {}
-            )
-            region_exiting = (
-                await self.hass.async_add_executor_job(self.api.get_region_exiting)
-                if detected_features.get("region_exiting_detection", False)
-                else {}
-            )
-            white_light_time = (
-                await self.hass.async_add_executor_job(self.api.get_white_light_time)
-                if detected_features.get("white_light_time", False)
-                else {}
-            )
-
-            has_color = any(
-                detected_features.get(key, False)
-                for key in ("brightness", "contrast", "saturation")
-            )
-            color_data = (
-                await self.hass.async_add_executor_job(self.api.get_color)
-                if has_color
-                else {}
-            )
-            sharpness_data = (
-                await self.hass.async_add_executor_job(self.api.get_sharpness)
-                if detected_features.get("sharpness", False)
-                else {}
-            )
-            audio_alarm_data = None
-            audio_alarm_caps_raw = None
-            if any(
-                detected_features.get(key, False)
-                for key in (
-                    "alarm_times",
-                    "loudspeaker_volume",
-                    "audio_alarm_type",
-                    "audio_alarm_sound",
-                    "test_audio_alarm",
-                )
-            ):
-                audio_alarm_data = await self.hass.async_add_executor_job(
-                    self.api.get_audio_alarm
-                )
-                audio_alarm_caps_raw = await self.hass.async_add_executor_job(
-                    self.api.get_audio_alarm_capabilities
-                )
-            system_status = await self.hass.async_add_executor_job(
-                self.api.get_system_status
-            )
-            streaming_status = await self.hass.async_add_executor_job(
-                self.api.get_streaming_status
-            )
-            alarm_input = {}
-            if (
-                capabilities.get("input_ports", 0) > 0
-                and detected_features.get("alarm_input", False)
-            ):
-                alarm_input = await self.hass.async_add_executor_job(
-                    self.api.get_alarm_input, 1
-                )
-            alarm_server = await self.hass.async_add_executor_job(
-                self.api.get_alarm_server
-            )
-
-            data = {
-                "ircut": ircut_data,
-                "supplement_light": supplement_light,
-                "audio": audio_data,
-                "motion": motion_data,
-                "tamper": tamper_data,
-                "field_detection": field_detection,
-                "line_detection": line_detection,
-                "scene_change": scene_change,
-                "defocus": defocus,
-                "region_entrance": region_entrance,
-                "region_exiting": region_exiting,
-                "white_light_time": white_light_time,
-                "color": color_data,
-                "sharpness": sharpness_data,
-                "audio_alarm": audio_alarm_data.get("AudioAlarm") if audio_alarm_data else None,
-                "audio_alarm_capabilities": HikvisionISAPI.normalize_audio_alarm_capabilities(
-                    audio_alarm_caps_raw
-                ),
-                "system_status": system_status,
-                "streaming_status": streaming_status,
-                "alarm_input": alarm_input,
-                "alarm_server": alarm_server,
-            }
-            
-            # Store alarm output status using unique_id as key only when the model has outputs.
-            if (
-                capabilities.get("output_ports", 0) > 0
-                and detected_features.get("alarm_output", False)
-            ):
-                alarm_output = await self.hass.async_add_executor_job(
-                    self.api.get_alarm_output, 1
-                )
-                device_info = {}
-                if DOMAIN in self.hass.data and self.entry.entry_id in self.hass.data[DOMAIN]:
-                    device_info = self.hass.data[DOMAIN][self.entry.entry_id].get("device_info", {})
-                device_name = device_info.get("deviceName", self.entry.data.get("host", ""))
-                data[alarm_output_data_key(device_name, 1)] = alarm_output.get(
-                    "enabled", False
-                )
-
-            await self._async_maybe_rescan_capabilities()
-            await self._async_maybe_refresh_device_firmware(domain_data)
-
-            return data
+            api_lock = domain_data.get("api_lock")
+            if api_lock is not None:
+                async with api_lock:
+                    return await self._async_fetch_data(domain_data)
+            return await self._async_fetch_data(domain_data)
         except AuthenticationError as err:
             self.entry.async_start_reauth(self.hass)
             raise UpdateFailed(
@@ -378,4 +195,195 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             ) from err
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
+
+    async def _async_fetch_data(self, domain_data: dict) -> dict:
+        """Fetch coordinator data (caller holds api_lock when present)."""
+        detected_features = domain_data.get("detected_features") or {}
+        capabilities = domain_data.get("capabilities") or {}
+
+        # Fetch camera state only for supported capabilities to avoid hammering
+        # unsupported/forbidden endpoints (prevents 403 log spam).
+        has_ir = any(
+            detected_features.get(key, False)
+            for key in ("ir_sensitivity", "ir_filter_time", "day_night_mode")
+        )
+        ircut_data = (
+            await self.hass.async_add_executor_job(self.api.get_ircut_filter)
+            if has_ir
+            else {}
+        )
+
+        has_supplement_light = any(
+            detected_features.get(key, False)
+            for key in (
+                "supplement_light_mode",
+                "white_light_time",
+                "white_light_brightness",
+                "ir_light_brightness",
+                "white_light_brightness_limit",
+                "ir_light_brightness_limit",
+            )
+        )
+        supplement_light = (
+            await self.hass.async_add_executor_job(self.api.get_supplement_light)
+            if has_supplement_light
+            else {}
+        )
+
+        has_two_way_audio = any(
+            detected_features.get(key, False)
+            for key in (
+                "speaker_volume",
+                "microphone_volume",
+                "noise_reduce",
+                "media_player",
+            )
+        )
+        audio_data = (
+            await self.hass.async_add_executor_job(self.api.get_two_way_audio)
+            if has_two_way_audio
+            else {}
+        )
+
+        motion_data = (
+            await self.hass.async_add_executor_job(self.api.get_motion_detection)
+            if detected_features.get("motion_detection", False)
+            else {}
+        )
+        tamper_data = (
+            await self.hass.async_add_executor_job(self.api.get_tamper_detection)
+            if detected_features.get("tamper_detection", False)
+            else {}
+        )
+        field_detection = (
+            await self.hass.async_add_executor_job(self.api.get_field_detection)
+            if detected_features.get("intrusion_detection", False)
+            else {}
+        )
+        line_detection = (
+            await self.hass.async_add_executor_job(self.api.get_line_detection)
+            if detected_features.get("line_crossing_detection", False)
+            else {}
+        )
+        scene_change = (
+            await self.hass.async_add_executor_job(self.api.get_scene_change_detection)
+            if detected_features.get("scene_change_detection", False)
+            else {}
+        )
+        defocus = (
+            await self.hass.async_add_executor_job(self.api.get_defocus_detection)
+            if detected_features.get("defocus_detection", False)
+            else {}
+        )
+        region_entrance = (
+            await self.hass.async_add_executor_job(self.api.get_region_entrance)
+            if detected_features.get("region_entrance_detection", False)
+            else {}
+        )
+        region_exiting = (
+            await self.hass.async_add_executor_job(self.api.get_region_exiting)
+            if detected_features.get("region_exiting_detection", False)
+            else {}
+        )
+        white_light_time = (
+            await self.hass.async_add_executor_job(self.api.get_white_light_time)
+            if detected_features.get("white_light_time", False)
+            else {}
+        )
+
+        has_color = any(
+            detected_features.get(key, False)
+            for key in ("brightness", "contrast", "saturation")
+        )
+        color_data = (
+            await self.hass.async_add_executor_job(self.api.get_color)
+            if has_color
+            else {}
+        )
+        sharpness_data = (
+            await self.hass.async_add_executor_job(self.api.get_sharpness)
+            if detected_features.get("sharpness", False)
+            else {}
+        )
+        audio_alarm_data = None
+        audio_alarm_caps_raw = None
+        if any(
+            detected_features.get(key, False)
+            for key in (
+                "alarm_times",
+                "loudspeaker_volume",
+                "audio_alarm_type",
+                "audio_alarm_sound",
+                "test_audio_alarm",
+            )
+        ):
+            audio_alarm_data = await self.hass.async_add_executor_job(
+                self.api.get_audio_alarm
+            )
+            audio_alarm_caps_raw = await self.hass.async_add_executor_job(
+                self.api.get_audio_alarm_capabilities
+            )
+        system_status = await self.hass.async_add_executor_job(
+            self.api.get_system_status
+        )
+        streaming_status = await self.hass.async_add_executor_job(
+            self.api.get_streaming_status
+        )
+        alarm_input = {}
+        if (
+            capabilities.get("input_ports", 0) > 0
+            and detected_features.get("alarm_input", False)
+        ):
+            alarm_input = await self.hass.async_add_executor_job(
+                self.api.get_alarm_input, 1
+            )
+        alarm_server = await self.hass.async_add_executor_job(
+            self.api.get_alarm_server
+        )
+
+        data = {
+            "ircut": ircut_data,
+            "supplement_light": supplement_light,
+            "audio": audio_data,
+            "motion": motion_data,
+            "tamper": tamper_data,
+            "field_detection": field_detection,
+            "line_detection": line_detection,
+            "scene_change": scene_change,
+            "defocus": defocus,
+            "region_entrance": region_entrance,
+            "region_exiting": region_exiting,
+            "white_light_time": white_light_time,
+            "color": color_data,
+            "sharpness": sharpness_data,
+            "audio_alarm": audio_alarm_data.get("AudioAlarm") if audio_alarm_data else None,
+            "audio_alarm_capabilities": HikvisionISAPI.normalize_audio_alarm_capabilities(
+                audio_alarm_caps_raw
+            ),
+            "system_status": system_status,
+            "streaming_status": streaming_status,
+            "alarm_input": alarm_input,
+            "alarm_server": alarm_server,
+        }
+
+        # Store alarm output status using unique_id as key only when the model has outputs.
+        if (
+            capabilities.get("output_ports", 0) > 0
+            and detected_features.get("alarm_output", False)
+        ):
+            alarm_output = await self.hass.async_add_executor_job(
+                self.api.get_alarm_output, 1
+            )
+            device_info = {}
+            if DOMAIN in self.hass.data and self.entry.entry_id in self.hass.data[DOMAIN]:
+                device_info = self.hass.data[DOMAIN][self.entry.entry_id].get("device_info", {})
+            device_name = device_info.get("deviceName", self.entry.data.get("host", ""))
+            data[alarm_output_data_key(device_name, 1)] = alarm_output.get(
+                "enabled", False
+            )
+
+        await self._async_maybe_rescan_capabilities()
+        await self._async_maybe_refresh_device_firmware(domain_data)
+
+        return data
 

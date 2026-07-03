@@ -366,6 +366,25 @@ class AuthenticationError(Exception):
     pass
 
 
+def _check_isapi_http_response(
+    response: requests.Response, endpoint: str, method: str = "GET"
+) -> None:
+    """Raise AuthenticationError only for 401; log 403 and defer to raise_for_status."""
+    if response.status_code == 401:
+        raise AuthenticationError(
+            "Authentication failed - check username and password (401)"
+        )
+    if response.status_code == 403:
+        error_msg = _extract_error_message(response)
+        _LOGGER.warning(
+            "HTTP 403 %s %s: %s",
+            method,
+            endpoint,
+            error_msg or "forbidden (endpoint may be unsupported for this user/model)",
+        )
+    response.raise_for_status()
+
+
 class FirmwareUpgradeError(Exception):
     """Raised when local firmware upload or upgrade fails."""
 
@@ -436,14 +455,10 @@ class HikvisionISAPI:
                 verify=self.verify_ssl,
                 timeout=5
             )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            _check_isapi_http_response(response, endpoint, "GET")
             return ET.fromstring(response.text)
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code in (401, 403):
+            if e.response is not None and e.response.status_code == 401:
                 raise AuthenticationError(f"Authentication failed: {e}") from e
             # Extract detailed error message from camera response
             error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
@@ -495,14 +510,10 @@ class HikvisionISAPI:
                 verify=self.verify_ssl,
                 timeout=5
             )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            _check_isapi_http_response(response, endpoint, "PUT")
             return ET.fromstring(response.text)
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code in (401, 403):
+            if e.response is not None and e.response.status_code == 401:
                 raise AuthenticationError(f"Authentication failed: {e}") from e
             # Extract detailed error message from camera response
             error_msg = _extract_error_message(e.response) if hasattr(e, 'response') and e.response else ""
