@@ -247,24 +247,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._reconfigure_entry: config_entries.ConfigEntry | None = None
         self._detected_features: dict[str, bool] = {}
 
-    @classmethod
-    @callback
-    def async_migrate_entry(
-        cls, hass: HomeAssistant, config_entry: config_entries.ConfigEntry
-    ) -> bool:
-        """Migrate v1 entries: treat as Advanced with full entity groups."""
-        if config_entry.version == 1:
-            data = dict(config_entry.data)
-            data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
-            data.setdefault(
-                CONF_ENTITY_GROUPS,
-                default_entity_groups_for_profile(PROFILE_ADVANCED),
-            )
-            hass.config_entries.async_update_entry(
-                config_entry, data=data, version=2
-            )
-        return True
-
     async def _async_probe_detected_features(
         self, host: str, username: str, password: str, verify_ssl: bool
     ) -> dict[str, bool]:

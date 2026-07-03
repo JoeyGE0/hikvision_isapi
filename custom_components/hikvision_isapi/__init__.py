@@ -10,7 +10,21 @@ from homeassistant.components.network import async_get_source_ip
 
 from pathlib import Path
 
-from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED, ISAPI_BOOT_RETRY_DELAYS
+from .const import (
+    DOMAIN,
+    CONF_ENTITY_GROUPS,
+    CONF_INTEGRATION_PROFILE,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
+    ALARM_SERVER_PATH,
+    CONF_SET_ALARM_SERVER,
+    CONF_ALARM_SERVER_HOST,
+    CONF_VERIFY_SSL,
+    RTSP_PORT_FORCED,
+    ISAPI_BOOT_RETRY_DELAYS,
+    PROFILE_ADVANCED,
+)
+from .entity_profiles import default_entity_groups_for_profile
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
 from .device_helpers import build_configuration_url, build_primary_device_info
@@ -48,6 +62,21 @@ def _entry_platforms() -> list[str]:
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate config entries when config flow VERSION changes."""
+    if config_entry.version > 2:
+        return False
+    if config_entry.version < 2:
+        data = dict(config_entry.data)
+        data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
+        data.setdefault(
+            CONF_ENTITY_GROUPS,
+            default_entity_groups_for_profile(PROFILE_ADVANCED),
+        )
+        hass.config_entries.async_update_entry(config_entry, data=data, version=2)
     return True
 
 
