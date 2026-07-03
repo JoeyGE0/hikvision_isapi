@@ -24,6 +24,9 @@
         "title": "Choose extra entities",
         "description": "Basic is always on. Expand a **category** below and use its dropdown to pick entities. Collapse categories you do not need.",
         "data": {
+          "detections": "Event detections",
+          "essential_system": "Maintenance extras",
+          "system_diagnostics": "Extended diagnostics",
           "day_night": "Day / night & IR cut",
           "supplement_light": "Supplement light",
           "siren": "Siren",
@@ -35,6 +38,9 @@
           "alarm_io": "Alarm input / output"
         },
         "data_description": {
+          "detections": "Motion, line crossing, tamper, and other event binary sensors",
+          "essential_system": "Restart button and other maintenance controls",
+          "system_diagnostics": "Streaming sessions, clients, and notification host details",
           "day_night": "IR cut modes, sensitivity, filter time",
           "supplement_light": "Light mode, brightness, timers, limits",
           "siren": "Play camera alarm from Home Assistant",

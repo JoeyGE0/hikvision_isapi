@@ -45,11 +45,9 @@ from .const import (
 )
 from .api import HikvisionISAPI, _extract_error_message, _normalize_host
 from .entity_profiles import (
-    ADVANCED_EXTRA_ENTITY_GROUPS,
-    ALL_ENTITY_GROUPS,
+    CUSTOMIZE_FLOW_GROUPS,
     default_customize_form_values,
     entity_item_options_for_flow,
-    extra_entity_group_options_for_flow,
     parse_customize_submission,
     stored_extra_entity_groups,
 )
@@ -294,13 +292,12 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         schema_dict: dict = {}
         section_suggested: dict[str, dict[str, list[str]]] = {}
-        for group in ALL_ENTITY_GROUPS:
-            if group not in ADVANCED_EXTRA_ENTITY_GROUPS:
-                continue
+        for group in CUSTOMIZE_FLOW_GROUPS:
             options = entity_item_options_for_flow(
                 group,
                 detected_features,
                 suggested.get(group),
+                customize=True,
             )
             if not options:
                 continue
@@ -559,16 +556,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._detected_features = await self._async_probe_detected_features(
                             host, username, password, verify_ssl
                         )
-                        extras = extra_entity_group_options_for_flow(
-                            self._detected_features
-                        )
-                        if not extras:
-                            entry_data = self._build_entry_data(user_input)
-                            return self.async_update_reload_and_abort(
-                                entry,
-                                data_updates=entry_data,
-                                title=device_name,
-                            )
                         self.context["saved_extra_groups"] = list(
                             stored_extra_entity_groups(
                                 entry.data.get(CONF_ENTITY_GROUPS)
@@ -829,9 +816,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 rtsp_port = _parse_rtsp_port(user_input.get(RTSP_PORT_FORCED))
                 if rtsp_port is not None:
                     self.context["advanced_options"][RTSP_PORT_FORCED] = rtsp_port
-                extras = extra_entity_group_options_for_flow(self._detected_features)
-                if not extras:
-                    return await self._async_finish_advanced_setup([], {})
                 self.context["saved_extra_groups"] = []
                 self.context["default_entity_items"] = {}
                 return await self.async_step_entity_customize()

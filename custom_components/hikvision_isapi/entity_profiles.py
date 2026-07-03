@@ -76,6 +76,18 @@ ADVANCED_EXTRA_ENTITY_GROUPS: frozenset[str] = frozenset(
     g for g in ALL_ENTITY_GROUPS if g not in BASIC_ENTITY_GROUPS
 )
 
+# Basic groups with per-item picks on the Advanced customize screen (beyond the core preset).
+ADVANCED_CUSTOMIZE_BASIC_GROUPS: tuple[str, ...] = (
+    ENTITY_GROUP_DETECTIONS,
+    ENTITY_GROUP_ESSENTIAL_SYSTEM,
+    ENTITY_GROUP_SYSTEM_DIAGNOSTICS,
+)
+
+# Every category shown on the Advanced entity_customize step (stable order).
+CUSTOMIZE_FLOW_GROUPS: tuple[str, ...] = ADVANCED_CUSTOMIZE_BASIC_GROUPS + tuple(
+    g for g in ALL_ENTITY_GROUPS if g in ADVANCED_EXTRA_ENTITY_GROUPS
+)
+
 EXTRA_ENTITY_GROUP_LABELS: dict[str, str] = {
     ENTITY_GROUP_DAY_NIGHT: "Day / night & IR cut controls",
     ENTITY_GROUP_SUPPLEMENT_LIGHT: "Supplement light (brightness, timers, limits)",
@@ -300,13 +312,26 @@ def group_supported_on_device(group: str, detected_features: dict) -> bool:
     return any(detected_features.get(key) for key in keys)
 
 
+def customize_item_specs(group: str) -> tuple[EntityItemSpec, ...]:
+    """Items offered on the Advanced customize screen for one group."""
+    specs = ENTITY_ITEM_REGISTRY.get(group, ())
+    if group in ADVANCED_EXTRA_ENTITY_GROUPS:
+        return specs
+    core = BASIC_ENTITY_ITEMS.get(group)
+    if core is None:
+        return specs
+    return tuple(spec for spec in specs if spec.item_id not in core)
+
+
 def entity_item_options_for_flow(
     group: str,
     detected_features: dict,
     saved_items: list[str] | None = None,
+    *,
+    customize: bool = False,
 ) -> list[dict[str, str]]:
-    """Checkbox options for one group's customize step."""
-    specs = ENTITY_ITEM_REGISTRY.get(group, ())
+    """Multi-select options for one group's config-flow customize step."""
+    specs = customize_item_specs(group) if customize else ENTITY_ITEM_REGISTRY.get(group, ())
     options_by_id: dict[str, dict[str, str]] = {}
     for spec in specs:
         if _item_supported_on_device(spec, detected_features):
@@ -326,28 +351,44 @@ def entity_item_options_for_flow(
     ]
 
 
+def _legacy_full_advanced_customize(
+    saved_extra_groups: frozenset[str],
+    saved_items: dict[str, list[str]],
+) -> bool:
+    """Pre-migration Advanced install: no extras map and no per-item prefs yet."""
+    if saved_extra_groups:
+        return False
+    if not saved_items:
+        return True
+    return not any(saved_items.values())
+
+
 def default_customize_form_values(
     detected_features: dict,
     saved_extra_groups: list[str] | frozenset[str] | None,
     saved_items: dict[str, list[str]] | None,
 ) -> dict[str, list[str]]:
-    """Suggested checkbox values per extra category (reconfigure / legacy aware)."""
+    """Suggested dropdown values per customize category (reconfigure / legacy aware)."""
     saved_items = saved_items or {}
     saved_extra_set = frozenset(str(g) for g in (saved_extra_groups or ()))
+    legacy_full = _legacy_full_advanced_customize(saved_extra_set, saved_items)
     values: dict[str, list[str]] = {}
-    for group in ADVANCED_EXTRA_ENTITY_GROUPS:
+    for group in CUSTOMIZE_FLOW_GROUPS:
+        saved_group_items = (
+            saved_items.get(group) if isinstance(saved_items.get(group), list) else None
+        )
         options = entity_item_options_for_flow(
             group,
             detected_features,
-            saved_items.get(group) if isinstance(saved_items.get(group), list) else None,
+            saved_group_items,
+            customize=True,
         )
         if not options:
             continue
         option_ids = [o["value"] for o in options]
         if group in saved_items and isinstance(saved_items[group], list):
             values[group] = [str(i) for i in saved_items[group] if str(i) in option_ids]
-        elif group in saved_extra_set:
-            # Legacy: category was enabled but no per-item list yet → all items.
+        elif legacy_full or group in saved_extra_set:
             values[group] = option_ids
         else:
             values[group] = []
@@ -372,12 +413,12 @@ def parse_customize_submission(
     """Split combined customize form into extra groups + entity item map."""
     extras: list[str] = []
     entity_items: dict[str, list[str]] = {}
-    for group in ADVANCED_EXTRA_ENTITY_GROUPS:
+    for group in CUSTOMIZE_FLOW_GROUPS:
         if group not in user_input:
             continue
         picked = extract_customize_group_items(user_input, group)
         entity_items[group] = picked
-        if picked:
+        if group in ADVANCED_EXTRA_ENTITY_GROUPS and picked:
             extras.append(group)
     return sorted(extras), entity_items
 
@@ -516,11 +557,20 @@ def get_enabled_entity_items(entry: ConfigEntry, group: str) -> frozenset[str] |
     profile = entry.data.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
     if profile == PROFILE_BASIC and group in BASIC_ENTITY_ITEMS:
         return BASIC_ENTITY_ITEMS[group]
-    if profile == PROFILE_ADVANCED and group in BASIC_ENTITY_GROUPS:
-        if group in BASIC_ENTITY_ITEMS:
-            return BASIC_ENTITY_ITEMS[group]
-        return None
     stored = entry.data.get(CONF_ENTITY_ITEMS)
+    has_item_map = isinstance(stored, dict)
+    if profile == PROFILE_ADVANCED and group in BASIC_ENTITY_GROUPS:
+        if not has_item_map:
+            return None
+        core = BASIC_ENTITY_ITEMS.get(group)
+        if group in stored and isinstance(stored[group], list):
+            picked = frozenset(str(item) for item in stored[group])
+            if core is not None:
+                return core | picked
+            return picked
+        if core is not None:
+            return core
+        return None
     if isinstance(stored, dict):
         if group in stored and isinstance(stored[group], list):
             return frozenset(str(item) for item in stored[group])
