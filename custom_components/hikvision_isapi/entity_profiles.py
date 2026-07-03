@@ -136,6 +136,45 @@ def group_supported_on_device(group: str, detected_features: dict) -> bool:
     return any(detected_features.get(key) for key in keys)
 
 
+def entity_group_options_for_flow(
+    detected_features: dict,
+    saved_groups: list[str] | frozenset[str] | None = None,
+) -> list[dict[str, str]]:
+    """Picker options: detected groups plus any already saved on the entry."""
+    options_by_value: dict[str, dict[str, str]] = {}
+    for opt in supported_entity_group_options(detected_features):
+        options_by_value[opt["value"]] = opt
+    for group in saved_groups or ():
+        group_str = str(group)
+        if group_str in ENTITY_GROUP_LABELS and group_str not in options_by_value:
+            options_by_value[group_str] = {
+                "value": group_str,
+                "label": ENTITY_GROUP_LABELS[group_str],
+            }
+    return [
+        options_by_value[g]
+        for g in ALL_ENTITY_GROUPS
+        if g in options_by_value
+    ]
+
+
+def default_entity_groups_for_flow(
+    profile: str,
+    detected_features: dict,
+    saved_groups: list[str] | None = None,
+) -> list[str]:
+    """Default multi-select values that always validate against flow options."""
+    options = entity_group_options_for_flow(detected_features, saved_groups)
+    option_values = {o["value"] for o in options}
+    if saved_groups:
+        selected = [str(g) for g in saved_groups if str(g) in option_values]
+        if selected:
+            return selected
+    preset = default_entity_groups_for_profile(profile)
+    selected = [g for g in preset if g in option_values]
+    return selected or sorted(option_values)
+
+
 def supported_entity_group_options(
     detected_features: dict,
 ) -> list[dict[str, str]]:

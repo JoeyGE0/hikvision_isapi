@@ -43,8 +43,9 @@ from .const import (
 )
 from .api import HikvisionISAPI, _extract_error_message, _normalize_host
 from .entity_profiles import (
+    default_entity_groups_for_flow,
     default_entity_groups_for_profile,
-    supported_entity_group_options,
+    entity_group_options_for_flow,
 )
 
 _XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
@@ -278,12 +279,14 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         })
 
     def _entity_groups_schema(self, detected_features: dict) -> vol.Schema:
-        options = supported_entity_group_options(detected_features)
+        saved = self.context.get("default_entity_groups")
+        saved_list = saved if isinstance(saved, list) else None
+        options = entity_group_options_for_flow(detected_features, saved_list)
         if not options:
             options = [{"value": "camera", "label": "Camera streams"}]
-        default = self.context.get("default_entity_groups") or [
-            o["value"] for o in options
-        ]
+        default = default_entity_groups_for_flow(
+            PROFILE_ADVANCED, detected_features, saved_list
+        )
         return vol.Schema({
             vol.Required(CONF_ENTITY_GROUPS, default=default): selector.SelectSelector(
                 selector.SelectSelectorConfig(
@@ -732,8 +735,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 rtsp_port = _parse_rtsp_port(user_input.get(RTSP_PORT_FORCED))
                 if rtsp_port is not None:
                     self.context["advanced_options"][RTSP_PORT_FORCED] = rtsp_port
-                self.context["default_entity_groups"] = default_entity_groups_for_profile(
-                    PROFILE_ADVANCED
+                self.context["default_entity_groups"] = default_entity_groups_for_flow(
+                    PROFILE_ADVANCED, self._detected_features
                 )
                 return await self.async_step_entity_groups()
 
