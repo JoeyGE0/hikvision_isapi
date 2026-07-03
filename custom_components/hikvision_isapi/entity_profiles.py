@@ -49,17 +49,43 @@ ENTITY_GROUP_LABELS: dict[str, str] = {
 # Ordered list for stable UI.
 ALL_ENTITY_GROUPS: tuple[str, ...] = tuple(ENTITY_GROUP_LABELS.keys())
 
+# Core preset: what most people use (always included in Basic; also always on in Advanced).
 BASIC_ENTITY_GROUPS: frozenset[str] = frozenset({
     ENTITY_GROUP_DETECTIONS,
     ENTITY_GROUP_CAMERA,
     ENTITY_GROUP_ESSENTIAL_SYSTEM,
-    ENTITY_GROUP_DAY_NIGHT,
-    ENTITY_GROUP_SUPPLEMENT_LIGHT,
-    ENTITY_GROUP_SIREN,
+    ENTITY_GROUP_SYSTEM_DIAGNOSTICS,
 })
 
-# Matches today's default exposure when hardware supports everything.
-ADVANCED_DEFAULT_ENTITY_GROUPS: frozenset[str] = frozenset(ALL_ENTITY_GROUPS)
+# Within basic groups, only expose these items (None = all supported items in that group).
+BASIC_ENTITY_ITEMS: dict[str, frozenset[str]] = {
+    ENTITY_GROUP_ESSENTIAL_SYSTEM: frozenset({
+        "device_uptime",
+        "reboot_count",
+        "firmware_update",
+    }),
+    ENTITY_GROUP_SYSTEM_DIAGNOSTICS: frozenset({
+        "cpu_utilization",
+        "memory_usage",
+    }),
+}
+
+# Advanced adds optional groups on top of BASIC (day/night, volumes, IR tuning, siren, etc.).
+ADVANCED_EXTRA_ENTITY_GROUPS: frozenset[str] = frozenset(
+    g for g in ALL_ENTITY_GROUPS if g not in BASIC_ENTITY_GROUPS
+)
+
+EXTRA_ENTITY_GROUP_LABELS: dict[str, str] = {
+    ENTITY_GROUP_DAY_NIGHT: "Day / night & IR cut controls",
+    ENTITY_GROUP_SUPPLEMENT_LIGHT: "Supplement light (brightness, timers, limits)",
+    ENTITY_GROUP_SIREN: "Siren (play alarm from HA)",
+    ENTITY_GROUP_DETECTION_SWITCHES: "Detection on/off switches",
+    ENTITY_GROUP_MOTION_TUNING: "Motion tuning (sensitivity, target type)",
+    ENTITY_GROUP_IMAGE_ADJUSTMENT: "Image adjustment (brightness, contrast, …)",
+    ENTITY_GROUP_AUDIO_ALARM: "Audio alarm (tone, volume, test button)",
+    ENTITY_GROUP_TWO_WAY_AUDIO: "Two-way audio & speaker controls",
+    ENTITY_GROUP_ALARM_IO: "Alarm input / output",
+}
 
 _DETECTION_EVENT_FEATURES: dict[str, tuple[str, str | None]] = {
     "motiondetection": ("Motion", "motion_detection"),
@@ -331,6 +357,34 @@ def default_entity_items_for_groups(
     return result
 
 
+def extra_entity_group_options_for_flow(
+    detected_features: dict,
+    saved_extras: list[str] | frozenset[str] | None = None,
+) -> list[dict[str, str]]:
+    """Picker options for Advanced extras (not included in Basic)."""
+    options: list[dict[str, str]] = []
+    saved_set = {str(g) for g in saved_extras} if saved_extras else set()
+    for group in ALL_ENTITY_GROUPS:
+        if group not in ADVANCED_EXTRA_ENTITY_GROUPS:
+            continue
+        if group_supported_on_device(group, detected_features) or group in saved_set:
+            options.append({
+                "value": group,
+                "label": EXTRA_ENTITY_GROUP_LABELS.get(group, ENTITY_GROUP_LABELS[group]),
+            })
+    return options
+
+
+def stored_extra_entity_groups(stored_groups: list[str] | None) -> frozenset[str]:
+    """Normalize config: legacy full lists vs extras-only storage."""
+    if not isinstance(stored_groups, list) or not stored_groups:
+        return frozenset()
+    stored_set = frozenset(str(g) for g in stored_groups)
+    if stored_set & BASIC_ENTITY_GROUPS:
+        return stored_set - BASIC_ENTITY_GROUPS
+    return stored_set
+
+
 def entity_group_options_for_flow(
     detected_features: dict,
     saved_groups: list[str] | frozenset[str] | None = None,
@@ -358,16 +412,14 @@ def default_entity_groups_for_flow(
     detected_features: dict,
     saved_groups: list[str] | None = None,
 ) -> list[str]:
-    """Default multi-select values that always validate against flow options."""
-    options = entity_group_options_for_flow(detected_features, saved_groups)
+    """Default multi-select values for the Advanced extras step."""
+    if profile != PROFILE_ADVANCED:
+        return sorted(BASIC_ENTITY_GROUPS)
+    saved_extras = list(stored_extra_entity_groups(saved_groups)) if saved_groups else []
+    options = extra_entity_group_options_for_flow(detected_features, saved_extras)
     option_values = {o["value"] for o in options}
-    if saved_groups:
-        selected = [str(g) for g in saved_groups if str(g) in option_values]
-        if selected:
-            return selected
-    preset = default_entity_groups_for_profile(profile)
-    selected = [g for g in preset if g in option_values]
-    return selected or sorted(option_values)
+    selected = [g for g in saved_extras if g in option_values]
+    return selected
 
 
 def supported_entity_group_options(
@@ -385,27 +437,32 @@ def supported_entity_group_options(
 
 
 def default_entity_groups_for_profile(profile: str) -> list[str]:
-    """Default selected groups for basic or advanced profile."""
+    """Default stored groups for basic or advanced profile."""
     if profile == PROFILE_BASIC:
         return sorted(BASIC_ENTITY_GROUPS)
-    return sorted(ADVANCED_DEFAULT_ENTITY_GROUPS)
+    return []
 
 
 def get_enabled_entity_groups(entry: ConfigEntry) -> frozenset[str]:
     """Resolved entity groups for a config entry."""
-    profile = entry.data.get(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
+    profile = entry.data.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
     if profile == PROFILE_BASIC:
         return BASIC_ENTITY_GROUPS
-    stored = entry.data.get(CONF_ENTITY_GROUPS)
-    if isinstance(stored, list) and stored:
-        return frozenset(str(g) for g in stored)
-    return ADVANCED_DEFAULT_ENTITY_GROUPS
+    extras = stored_extra_entity_groups(entry.data.get(CONF_ENTITY_GROUPS))
+    return BASIC_ENTITY_GROUPS | extras
 
 
 def get_enabled_entity_items(entry: ConfigEntry, group: str) -> frozenset[str] | None:
     """Return enabled item ids for a group, or None meaning all items in the group."""
     if not entity_group_enabled(entry, group):
         return frozenset()
+    profile = entry.data.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
+    if profile == PROFILE_BASIC and group in BASIC_ENTITY_ITEMS:
+        return BASIC_ENTITY_ITEMS[group]
+    if profile == PROFILE_ADVANCED and group in BASIC_ENTITY_GROUPS:
+        if group in BASIC_ENTITY_ITEMS:
+            return BASIC_ENTITY_ITEMS[group]
+        return None
     stored = entry.data.get(CONF_ENTITY_ITEMS)
     if not isinstance(stored, dict):
         return None

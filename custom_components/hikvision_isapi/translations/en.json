@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Hikvision ISAPI Controls",
-        "description": "Enter your camera/NVR credentials. Choose **Basic** for a simple preset. Choose **Advanced** to pick categories and individual entities.",
+        "description": "Enter your camera/NVR credentials. **Basic** (default) includes detections, camera streams, uptime, firmware, and light diagnostics. **Advanced** adds optional extras like volumes, IR tuning, siren, and alarm controls.",
         "data": {
           "host": "IP Address or Hostname",
           "verify_ssl": "Verify SSL certificate",
@@ -17,22 +17,22 @@
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Password for camera login",
-          "integration_profile": "Basic keeps things simple. Advanced exposes more entities and lets you choose groups."
+          "integration_profile": "Basic is the everyday preset. Advanced keeps Basic and lets you add optional controls on top."
         }
       },
       "entity_groups": {
-        "title": "Entity groups",
-        "description": "Tick the categories you want. The next step lets you pick individual entities inside each category.",
+        "title": "Optional extras",
+        "description": "Basic is always included (detections, camera, uptime, firmware, CPU/memory). Tick any **extra** categories you want on top — volumes, IR limits, siren, alarm test, etc.",
         "data": {
-          "entity_groups": "Exposed categories"
+          "entity_groups": "Extra features"
         },
         "data_description": {
-          "entity_groups": "Advanced defaults match the previous full integration. Trim categories you do not need."
+          "entity_groups": "Leave all unchecked to stay on Basic-only. Your existing extras are pre-selected when reconfiguring."
         }
       },
       "entity_items": {
-        "title": "Customize entities",
-        "description": "For each category you selected, tick the specific entities to create. Lists only show what your device supports."
+        "title": "Customize extras",
+        "description": "For each extra category you ticked, choose the specific entities to create."
       },
       "reauth_confirm": {
         "title": "Re-authenticate {name}",
@@ -57,7 +57,7 @@
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Leave blank to keep the current password, or enter a new one",
-          "integration_profile": "Basic or Advanced. Advanced shows an extra step to pick entity groups.",
+          "integration_profile": "Basic or Advanced. Advanced always includes Basic, then optional extras.",
           "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
           "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
           "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
