@@ -17,7 +17,7 @@ from .const import (
     ENTITY_GROUP_SUPPLEMENT_LIGHT,
     ENTITY_GROUP_TWO_WAY_AUDIO,
 )
-from .entity_profiles import entity_group_enabled
+from .entity_profiles import entity_enabled
 from .device_helpers import (
     get_ircut_mode,
     get_primary_device_info,
@@ -51,48 +51,42 @@ async def async_setup_entry(
 
     entities = []
     
-    if entity_group_enabled(entry, ENTITY_GROUP_DAY_NIGHT):
-        if detected_features.get("ir_sensitivity", False):
-            entities.append(HikvisionIRSensitivityNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("ir_filter_time", False):
-            entities.append(HikvisionIRFilterTimeNumber(coordinator, api, entry, host, device_name))
-    if entity_group_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO):
-        if detected_features.get("speaker_volume", False):
-            entities.append(HikvisionSpeakerVolumeNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("microphone_volume", False):
-            entities.append(HikvisionMicrophoneVolumeNumber(coordinator, api, entry, host, device_name))
-    if entity_group_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT):
-        if detected_features.get("white_light_time", False):
-            entities.append(HikvisionWhiteLightTimeNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("white_light_brightness", False):
-            entities.append(HikvisionWhiteLightBrightnessNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("ir_light_brightness", False):
-            entities.append(HikvisionIRLightBrightnessNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("white_light_brightness_limit", False):
-            entities.append(HikvisionWhiteLightBrightnessLimitNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("ir_light_brightness_limit", False):
-            entities.append(HikvisionIRLightBrightnessLimitNumber(coordinator, api, entry, host, device_name))
-    if entity_group_enabled(entry, ENTITY_GROUP_MOTION_TUNING):
-        if detected_features.get("motion_sensitivity", False):
-            entities.append(HikvisionMotionSensitivityNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("motion_start_trigger_time", False):
-            entities.append(HikvisionMotionStartTriggerTimeNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("motion_end_trigger_time", False):
-            entities.append(HikvisionMotionEndTriggerTimeNumber(coordinator, api, entry, host, device_name))
-    if entity_group_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT):
-        if detected_features.get("brightness", False):
-            entities.append(HikvisionBrightnessNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("contrast", False):
-            entities.append(HikvisionContrastNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("saturation", False):
-            entities.append(HikvisionSaturationNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("sharpness", False):
-            entities.append(HikvisionSharpnessNumber(coordinator, api, entry, host, device_name))
-    if entity_group_enabled(entry, ENTITY_GROUP_AUDIO_ALARM):
-        if detected_features.get("alarm_times", False):
-            entities.append(HikvisionAlarmTimesNumber(coordinator, api, entry, host, device_name))
-        if detected_features.get("loudspeaker_volume", False):
-            entities.append(HikvisionLoudspeakerVolumeNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_DAY_NIGHT, "ir_sensitivity") and detected_features.get("ir_sensitivity", False):
+        entities.append(HikvisionIRSensitivityNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_DAY_NIGHT, "ir_filter_time") and detected_features.get("ir_filter_time", False):
+        entities.append(HikvisionIRFilterTimeNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO, "speaker_volume") and detected_features.get("speaker_volume", False):
+        entities.append(HikvisionSpeakerVolumeNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO, "microphone_volume") and detected_features.get("microphone_volume", False):
+        entities.append(HikvisionMicrophoneVolumeNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "white_light_time") and detected_features.get("white_light_time", False):
+        entities.append(HikvisionWhiteLightTimeNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "white_light_brightness") and detected_features.get("white_light_brightness", False):
+        entities.append(HikvisionWhiteLightBrightnessNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "ir_light_brightness") and detected_features.get("ir_light_brightness", False):
+        entities.append(HikvisionIRLightBrightnessNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "white_light_brightness_limit") and detected_features.get("white_light_brightness_limit", False):
+        entities.append(HikvisionWhiteLightBrightnessLimitNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "ir_light_brightness_limit") and detected_features.get("ir_light_brightness_limit", False):
+        entities.append(HikvisionIRLightBrightnessLimitNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_MOTION_TUNING, "motion_sensitivity") and detected_features.get("motion_sensitivity", False):
+        entities.append(HikvisionMotionSensitivityNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_MOTION_TUNING, "motion_start_trigger_time") and detected_features.get("motion_start_trigger_time", False):
+        entities.append(HikvisionMotionStartTriggerTimeNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_MOTION_TUNING, "motion_end_trigger_time") and detected_features.get("motion_end_trigger_time", False):
+        entities.append(HikvisionMotionEndTriggerTimeNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT, "brightness") and detected_features.get("brightness", False):
+        entities.append(HikvisionBrightnessNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT, "contrast") and detected_features.get("contrast", False):
+        entities.append(HikvisionContrastNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT, "saturation") and detected_features.get("saturation", False):
+        entities.append(HikvisionSaturationNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT, "sharpness") and detected_features.get("sharpness", False):
+        entities.append(HikvisionSharpnessNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "alarm_times") and detected_features.get("alarm_times", False):
+        entities.append(HikvisionAlarmTimesNumber(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "loudspeaker_volume") and detected_features.get("loudspeaker_volume", False):
+        entities.append(HikvisionLoudspeakerVolumeNumber(coordinator, api, entry, host, device_name))
 
     async_add_entities(entities)
 

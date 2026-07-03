@@ -25,6 +25,7 @@ RTSP_PORT_FORCED: Final = "rtsp_port_forced"
 # Basic vs Advanced entity profiles (config flow + platform gating).
 CONF_INTEGRATION_PROFILE: Final = "integration_profile"
 CONF_ENTITY_GROUPS: Final = "entity_groups"
+CONF_ENTITY_ITEMS: Final = "entity_items"
 PROFILE_BASIC: Final = "basic"
 PROFILE_ADVANCED: Final = "advanced"
 

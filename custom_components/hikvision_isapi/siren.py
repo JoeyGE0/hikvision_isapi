@@ -24,7 +24,7 @@ from .const import (
     SIREN_RETRIGGER_INTERVAL_SECONDS,
     SIREN_TONE_SWITCH_SETTLE_SECONDS,
 )
-from .entity_profiles import entity_group_enabled
+from .entity_profiles import entity_enabled
 from .device_helpers import async_run_api, get_primary_device_info
 from .api import HikvisionISAPI
 
@@ -46,7 +46,7 @@ async def async_setup_entry(
     device_name = data["device_info"].get("deviceName", host)
     detected_features = data.get("detected_features", {})
 
-    if not entity_group_enabled(entry, ENTITY_GROUP_SIREN):
+    if not entity_enabled(entry, ENTITY_GROUP_SIREN, "siren"):
         async_add_entities([])
         return
 

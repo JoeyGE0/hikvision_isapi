@@ -12,7 +12,7 @@ from .const import (
     ENTITY_GROUP_ESSENTIAL_SYSTEM,
     ENTITY_GROUP_SIREN,
 )
-from .entity_profiles import entity_group_enabled
+from .entity_profiles import entity_enabled
 from .device_helpers import get_primary_device_info
 from .api import HikvisionISAPI
 
@@ -35,10 +35,10 @@ async def async_setup_entry(
 
     entities = []
     
-    if entity_group_enabled(entry, ENTITY_GROUP_ESSENTIAL_SYSTEM) and detected_features.get("restart", True):
+    if entity_enabled(entry, ENTITY_GROUP_ESSENTIAL_SYSTEM, "restart_button") and detected_features.get("restart", True):
         entities.append(HikvisionRestartButton(api, entry, host, device_name))
     if (
-        entity_group_enabled(entry, ENTITY_GROUP_AUDIO_ALARM)
+        entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "test_alarm_button")
         and detected_features.get("test_audio_alarm", False)
     ):
         entities.append(HikvisionTestAudioAlarmButton(api, entry, host, device_name))

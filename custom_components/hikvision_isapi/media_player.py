@@ -19,7 +19,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN, ENTITY_GROUP_TWO_WAY_AUDIO
-from .entity_profiles import entity_group_enabled
+from .entity_profiles import entity_enabled
 from .device_helpers import get_primary_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ async def async_setup_entry(
     entities = []
     
     if (
-        entity_group_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO)
+        entity_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO, "media_player")
         and detected_features.get("media_player", False)
     ):
         entities.append(HikvisionMediaPlayer(coordinator, api, entry, host, device_name))

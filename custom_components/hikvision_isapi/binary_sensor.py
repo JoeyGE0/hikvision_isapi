@@ -10,7 +10,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import slugify
 
 from .const import DOMAIN, ENTITY_GROUP_DETECTIONS, ENTITY_GROUP_ALARM_IO, EVENTS, EVENT_IO
-from .entity_profiles import entity_group_enabled
+from .entity_profiles import entity_enabled, entity_group_enabled
 from .api import HikvisionISAPI
 from .coordinator import HikvisionDataUpdateCoordinator
 from .models import EventInfo
@@ -55,7 +55,6 @@ async def async_setup_entry(
     entities = []
     device_name_slug = slugify(device_name.lower())
     detections_enabled = entity_group_enabled(entry, ENTITY_GROUP_DETECTIONS)
-    alarm_io_enabled = entity_group_enabled(entry, ENTITY_GROUP_ALARM_IO)
     
     if detections_enabled:
         supported_events_lookup = {}
@@ -80,6 +79,9 @@ async def async_setup_entry(
                 if feat_key is not None and not detected_features.get(feat_key, False):
                     if event_id not in supported_events_lookup:
                         continue
+
+                if not entity_enabled(entry, ENTITY_GROUP_DETECTIONS, event_id):
+                    continue
 
                 event_from_triggers = None
                 if event_id in supported_events_lookup:
@@ -120,7 +122,7 @@ async def async_setup_entry(
                 )
 
     if (
-        alarm_io_enabled
+        entity_enabled(entry, ENTITY_GROUP_ALARM_IO, "alarm_input_binary")
         and has_io_inputs
         and detected_features.get("alarm_input", False)
     ):

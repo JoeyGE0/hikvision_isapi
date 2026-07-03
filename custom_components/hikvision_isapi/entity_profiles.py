@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from homeassistant.config_entries import ConfigEntry
 
 from .const import (
     CONF_ENTITY_GROUPS,
+    CONF_ENTITY_ITEMS,
     CONF_INTEGRATION_PROFILE,
     ENTITY_GROUP_AUDIO_ALARM,
     ENTITY_GROUP_ALARM_IO,
@@ -20,6 +23,8 @@ from .const import (
     ENTITY_GROUP_SUPPLEMENT_LIGHT,
     ENTITY_GROUP_SYSTEM_DIAGNOSTICS,
     ENTITY_GROUP_TWO_WAY_AUDIO,
+    EVENTS,
+    EVENT_IO,
     PROFILE_ADVANCED,
     PROFILE_BASIC,
 )
@@ -28,7 +33,7 @@ from .const import (
 ENTITY_GROUP_LABELS: dict[str, str] = {
     ENTITY_GROUP_DETECTIONS: "Event detections (binary sensors)",
     ENTITY_GROUP_CAMERA: "Camera streams",
-    ENTITY_GROUP_ESSENTIAL_SYSTEM: "Essentials (uptime, restart, firmware)",
+    ENTITY_GROUP_ESSENTIAL_SYSTEM: "Uptime & maintenance",
     ENTITY_GROUP_SYSTEM_DIAGNOSTICS: "System diagnostics (CPU, memory, streaming)",
     ENTITY_GROUP_DAY_NIGHT: "Day / night (IR cut)",
     ENTITY_GROUP_SUPPLEMENT_LIGHT: "Supplement light",
@@ -56,84 +61,274 @@ BASIC_ENTITY_GROUPS: frozenset[str] = frozenset({
 # Matches today's default exposure when hardware supports everything.
 ADVANCED_DEFAULT_ENTITY_GROUPS: frozenset[str] = frozenset(ALL_ENTITY_GROUPS)
 
-# Minimum feature keys that must pass detect_features for a group to appear in the picker.
-_GROUP_FEATURE_KEYS: dict[str, tuple[str, ...]] = {
-    ENTITY_GROUP_DETECTIONS: (
-        "motion_detection",
-        "tamper_detection",
-        "intrusion_detection",
-        "line_crossing_detection",
-        "scene_change_detection",
-        "defocus_detection",
-        "region_entrance_detection",
-        "region_exiting_detection",
-        "alarm_input",
+_DETECTION_EVENT_FEATURES: dict[str, tuple[str, str | None]] = {
+    "motiondetection": ("Motion", "motion_detection"),
+    "tamperdetection": ("Video tampering", "tamper_detection"),
+    "fielddetection": ("Intrusion", "intrusion_detection"),
+    "linedetection": ("Line crossing", "line_crossing_detection"),
+    "scenechangedetection": ("Scene change", "scene_change_detection"),
+    "regionentrance": ("Region entrance", "region_entrance_detection"),
+    "regionexiting": ("Region exiting", "region_exiting_detection"),
+    "defocus": ("Defocus", "defocus_detection"),
+}
+
+
+class EntityItemSpec(NamedTuple):
+    """One configurable entity within a group."""
+
+    item_id: str
+    label: str
+    feature_key: str | None = None
+
+
+def _detection_item_specs() -> tuple[EntityItemSpec, ...]:
+    specs: list[EntityItemSpec] = []
+    for event_id, event_cfg in EVENTS.items():
+        if event_id == EVENT_IO:
+            continue
+        mapped = _DETECTION_EVENT_FEATURES.get(event_id)
+        if mapped:
+            label, feature_key = mapped
+        else:
+            label = str(event_cfg.get("label", event_id))
+            feature_key = None
+        specs.append(EntityItemSpec(event_id, label, feature_key))
+    return tuple(specs)
+
+
+ENTITY_ITEM_REGISTRY: dict[str, tuple[EntityItemSpec, ...]] = {
+    ENTITY_GROUP_DETECTIONS: _detection_item_specs(),
+    ENTITY_GROUP_CAMERA: (
+        EntityItemSpec("camera_streams", "Camera stream entities", None),
+    ),
+    ENTITY_GROUP_ESSENTIAL_SYSTEM: (
+        EntityItemSpec("device_uptime", "Device uptime", None),
+        EntityItemSpec("reboot_count", "Reboot count", None),
+        EntityItemSpec("restart_button", "Restart button", "restart"),
+        EntityItemSpec("firmware_update", "Firmware update", None),
+    ),
+    ENTITY_GROUP_SYSTEM_DIAGNOSTICS: (
+        EntityItemSpec("cpu_utilization", "CPU utilization", None),
+        EntityItemSpec("memory_usage", "Memory usage", None),
+        EntityItemSpec("streaming_sessions", "Streaming sessions", None),
+        EntityItemSpec("streaming_clients", "Streaming clients", None),
+        EntityItemSpec("notification_host", "Notification host", None),
+        EntityItemSpec("notification_host_path", "Notification host path", None),
+        EntityItemSpec("notification_host_port", "Notification host port", None),
+        EntityItemSpec("notification_host_protocol", "Notification host protocol", None),
     ),
     ENTITY_GROUP_DAY_NIGHT: (
-        "day_night_mode",
-        "ir_sensitivity",
-        "ir_filter_time",
+        EntityItemSpec("day_night_brightness", "Brightness control mode", "day_night_mode"),
+        EntityItemSpec("day_night_ir_mode", "IR cut filter mode", "day_night_mode"),
+        EntityItemSpec("ir_sensitivity", "IR switch sensitivity", "ir_sensitivity"),
+        EntityItemSpec("ir_filter_time", "IR filter switch time", "ir_filter_time"),
     ),
     ENTITY_GROUP_SUPPLEMENT_LIGHT: (
-        "supplement_light_mode",
-        "white_light_time",
-        "white_light_brightness",
-        "ir_light_brightness",
-        "white_light_brightness_limit",
-        "ir_light_brightness_limit",
+        EntityItemSpec("supplement_light_mode", "Supplement light mode", "supplement_light_mode"),
+        EntityItemSpec("white_light_time", "White light duration", "white_light_time"),
+        EntityItemSpec("white_light_brightness", "White light brightness", "white_light_brightness"),
+        EntityItemSpec("ir_light_brightness", "IR light brightness", "ir_light_brightness"),
+        EntityItemSpec(
+            "white_light_brightness_limit",
+            "White light brightness limit",
+            "white_light_brightness_limit",
+        ),
+        EntityItemSpec(
+            "ir_light_brightness_limit",
+            "IR light brightness limit",
+            "ir_light_brightness_limit",
+        ),
     ),
-    ENTITY_GROUP_SIREN: ("test_audio_alarm",),
+    ENTITY_GROUP_SIREN: (
+        EntityItemSpec("siren", "Siren entity", "test_audio_alarm"),
+    ),
     ENTITY_GROUP_DETECTION_SWITCHES: (
-        "motion_detection",
-        "tamper_detection",
-        "intrusion_detection",
-        "line_crossing_detection",
-        "scene_change_detection",
-        "defocus_detection",
-        "region_entrance_detection",
-        "region_exiting_detection",
+        EntityItemSpec("motion_detection", "Motion detection switch", "motion_detection"),
+        EntityItemSpec("tamper_detection", "Tamper detection switch", "tamper_detection"),
+        EntityItemSpec("intrusion_detection", "Intrusion detection switch", "intrusion_detection"),
+        EntityItemSpec(
+            "line_crossing_detection",
+            "Line crossing detection switch",
+            "line_crossing_detection",
+        ),
+        EntityItemSpec(
+            "scene_change_detection",
+            "Scene change detection switch",
+            "scene_change_detection",
+        ),
+        EntityItemSpec("defocus_detection", "Defocus detection switch", "defocus_detection"),
+        EntityItemSpec(
+            "region_entrance_detection",
+            "Region entrance detection switch",
+            "region_entrance_detection",
+        ),
+        EntityItemSpec(
+            "region_exiting_detection",
+            "Region exiting detection switch",
+            "region_exiting_detection",
+        ),
     ),
     ENTITY_GROUP_MOTION_TUNING: (
-        "motion_detection",
-        "motion_sensitivity",
-        "motion_start_trigger_time",
-        "motion_end_trigger_time",
+        EntityItemSpec("motion_target_type", "Motion target type", "motion_detection"),
+        EntityItemSpec("motion_sensitivity", "Motion sensitivity", "motion_sensitivity"),
+        EntityItemSpec(
+            "motion_start_trigger_time",
+            "Motion start trigger time",
+            "motion_start_trigger_time",
+        ),
+        EntityItemSpec(
+            "motion_end_trigger_time",
+            "Motion end trigger time",
+            "motion_end_trigger_time",
+        ),
     ),
     ENTITY_GROUP_IMAGE_ADJUSTMENT: (
-        "brightness",
-        "contrast",
-        "saturation",
-        "sharpness",
+        EntityItemSpec("brightness", "Brightness", "brightness"),
+        EntityItemSpec("contrast", "Contrast", "contrast"),
+        EntityItemSpec("saturation", "Saturation", "saturation"),
+        EntityItemSpec("sharpness", "Sharpness", "sharpness"),
     ),
     ENTITY_GROUP_AUDIO_ALARM: (
-        "audio_alarm_type",
-        "audio_alarm_sound",
-        "alarm_times",
-        "loudspeaker_volume",
-        "test_audio_alarm",
+        EntityItemSpec("audio_alarm_type", "Alarm audio type", "audio_alarm_type"),
+        EntityItemSpec("audio_alarm_sound", "Warning sound", "audio_alarm_sound"),
+        EntityItemSpec("alarm_times", "Alarm repeat count", "alarm_times"),
+        EntityItemSpec("loudspeaker_volume", "Loudspeaker volume", "loudspeaker_volume"),
+        EntityItemSpec("test_alarm_button", "Test alarm button", "test_audio_alarm"),
     ),
     ENTITY_GROUP_TWO_WAY_AUDIO: (
-        "media_player",
-        "speaker_volume",
-        "microphone_volume",
-        "noise_reduce",
+        EntityItemSpec("media_player", "Two-way audio media player", "media_player"),
+        EntityItemSpec("speaker_volume", "Speaker volume", "speaker_volume"),
+        EntityItemSpec("microphone_volume", "Microphone volume", "microphone_volume"),
+        EntityItemSpec("noise_reduce", "Noise reduction switch", "noise_reduce"),
+    ),
+    ENTITY_GROUP_ALARM_IO: (
+        EntityItemSpec("alarm_input_binary", "Alarm input binary sensor", "alarm_input"),
+        EntityItemSpec("alarm_input_switch", "Alarm input switch", "alarm_input"),
+        EntityItemSpec("alarm_output_switch", "Alarm output switch", "alarm_output"),
+    ),
+}
+
+# Minimum feature keys that must pass detect_features for a group to appear in the picker.
+_GROUP_FEATURE_KEYS: dict[str, tuple[str, ...]] = {
+    ENTITY_GROUP_DETECTIONS: tuple(
+        spec.feature_key
+        for spec in ENTITY_ITEM_REGISTRY[ENTITY_GROUP_DETECTIONS]
+        if spec.feature_key
+    ) + ("alarm_input",),
+    ENTITY_GROUP_DAY_NIGHT: tuple(
+        spec.feature_key
+        for spec in ENTITY_ITEM_REGISTRY[ENTITY_GROUP_DAY_NIGHT]
+        if spec.feature_key
+    ),
+    ENTITY_GROUP_SUPPLEMENT_LIGHT: tuple(
+        spec.feature_key
+        for spec in ENTITY_ITEM_REGISTRY[ENTITY_GROUP_SUPPLEMENT_LIGHT]
+        if spec.feature_key
+    ),
+    ENTITY_GROUP_SIREN: ("test_audio_alarm",),
+    ENTITY_GROUP_DETECTION_SWITCHES: tuple(
+        spec.feature_key
+        for spec in ENTITY_ITEM_REGISTRY[ENTITY_GROUP_DETECTION_SWITCHES]
+        if spec.feature_key
+    ),
+    ENTITY_GROUP_MOTION_TUNING: tuple(
+        spec.feature_key
+        for spec in ENTITY_ITEM_REGISTRY[ENTITY_GROUP_MOTION_TUNING]
+        if spec.feature_key
+    ),
+    ENTITY_GROUP_IMAGE_ADJUSTMENT: tuple(
+        spec.feature_key
+        for spec in ENTITY_ITEM_REGISTRY[ENTITY_GROUP_IMAGE_ADJUSTMENT]
+        if spec.feature_key
+    ),
+    ENTITY_GROUP_AUDIO_ALARM: tuple(
+        spec.feature_key
+        for spec in ENTITY_ITEM_REGISTRY[ENTITY_GROUP_AUDIO_ALARM]
+        if spec.feature_key
+    ),
+    ENTITY_GROUP_TWO_WAY_AUDIO: tuple(
+        spec.feature_key
+        for spec in ENTITY_ITEM_REGISTRY[ENTITY_GROUP_TWO_WAY_AUDIO]
+        if spec.feature_key
     ),
     ENTITY_GROUP_ALARM_IO: ("alarm_input", "alarm_output"),
 }
 
 
+def _item_supported_on_device(spec: EntityItemSpec, detected_features: dict) -> bool:
+    if spec.feature_key is None:
+        return True
+    if spec.feature_key == "restart":
+        return bool(detected_features.get("restart", True))
+    return bool(detected_features.get(spec.feature_key))
+
+
 def group_supported_on_device(group: str, detected_features: dict) -> bool:
     """Return True if this entity group can be offered for the device."""
-    if group == ENTITY_GROUP_CAMERA:
-        return True
-    if group == ENTITY_GROUP_ESSENTIAL_SYSTEM:
-        return True
-    if group == ENTITY_GROUP_SYSTEM_DIAGNOSTICS:
+    if group in (ENTITY_GROUP_CAMERA, ENTITY_GROUP_ESSENTIAL_SYSTEM, ENTITY_GROUP_SYSTEM_DIAGNOSTICS):
         return True
     keys = _GROUP_FEATURE_KEYS.get(group)
     if not keys:
         return False
     return any(detected_features.get(key) for key in keys)
+
+
+def entity_item_options_for_flow(
+    group: str,
+    detected_features: dict,
+    saved_items: list[str] | None = None,
+) -> list[dict[str, str]]:
+    """Checkbox options for one group's customize step."""
+    specs = ENTITY_ITEM_REGISTRY.get(group, ())
+    options_by_id: dict[str, dict[str, str]] = {}
+    for spec in specs:
+        if _item_supported_on_device(spec, detected_features):
+            options_by_id[spec.item_id] = {"value": spec.item_id, "label": spec.label}
+    for item_id in saved_items or ():
+        item_str = str(item_id)
+        if item_str in options_by_id:
+            continue
+        for spec in specs:
+            if spec.item_id == item_str:
+                options_by_id[item_str] = {"value": item_str, "label": spec.label}
+                break
+    return [
+        options_by_id[spec.item_id]
+        for spec in specs
+        if spec.item_id in options_by_id
+    ]
+
+
+def default_entity_items_for_group(
+    group: str,
+    detected_features: dict,
+    saved_items: list[str] | None = None,
+) -> list[str]:
+    """Default checked items for one group."""
+    options = entity_item_options_for_flow(group, detected_features, saved_items)
+    option_ids = [o["value"] for o in options]
+    if saved_items:
+        selected = [str(i) for i in saved_items if str(i) in option_ids]
+        if selected:
+            return selected
+    return option_ids
+
+
+def default_entity_items_for_groups(
+    groups: list[str],
+    detected_features: dict,
+    saved: dict[str, list[str]] | None = None,
+) -> dict[str, list[str]]:
+    """Default item map for all selected groups."""
+    saved = saved or {}
+    result: dict[str, list[str]] = {}
+    for group in groups:
+        items = default_entity_items_for_group(
+            group, detected_features, saved.get(group)
+        )
+        if items:
+            result[group] = items
+    return result
 
 
 def entity_group_options_for_flow(
@@ -207,6 +402,34 @@ def get_enabled_entity_groups(entry: ConfigEntry) -> frozenset[str]:
     return ADVANCED_DEFAULT_ENTITY_GROUPS
 
 
+def get_enabled_entity_items(entry: ConfigEntry, group: str) -> frozenset[str] | None:
+    """Return enabled item ids for a group, or None meaning all items in the group."""
+    if not entity_group_enabled(entry, group):
+        return frozenset()
+    stored = entry.data.get(CONF_ENTITY_ITEMS)
+    if not isinstance(stored, dict):
+        return None
+    group_items = stored.get(group)
+    if group_items is None:
+        return None
+    if not isinstance(group_items, list):
+        return None
+    return frozenset(str(item) for item in group_items)
+
+
 def entity_group_enabled(entry: ConfigEntry, group: str) -> bool:
     """True when this entity group should be created for the entry."""
     return group in get_enabled_entity_groups(entry)
+
+
+def entity_item_enabled(entry: ConfigEntry, group: str, item_id: str) -> bool:
+    """True when a specific item inside an enabled group should be created."""
+    enabled_items = get_enabled_entity_items(entry, group)
+    if enabled_items is None:
+        return True
+    return item_id in enabled_items
+
+
+def entity_enabled(entry: ConfigEntry, group: str, item_id: str) -> bool:
+    """Group and sub-item must both be enabled."""
+    return entity_group_enabled(entry, group) and entity_item_enabled(entry, group, item_id)
