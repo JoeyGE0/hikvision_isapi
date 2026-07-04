@@ -11,6 +11,7 @@ from .const import (
     CONF_ENTITY_ITEMS,
     CONF_ENTITY_KNOWN_SUPPORTED,
     CONF_INTEGRATION_PROFILE,
+    CONF_LEGACY_FULL_INSTALL,
     CUSTOMIZE_SECTION_ITEMS_KEY,
     ENTITY_GROUP_AUDIO_ALARM,
     ENTITY_GROUP_ALARM_IO,
@@ -363,6 +364,15 @@ def merge_entry_entity_preferences(
     if profile != PROFILE_ADVANCED:
         return {}, {}, False
 
+    if is_legacy_full_install(entry):
+        enriched = enrich_flow_probe(detected_features, supported_event_ids, capabilities)
+        known_supported = build_supported_snapshot(
+            detected_features, supported_event_ids, capabilities
+        )
+        old_known = entry.data.get(CONF_ENTITY_KNOWN_SUPPORTED) or {}
+        changed = known_supported != old_known
+        return dict(entry.data.get(CONF_ENTITY_ITEMS) or {}), known_supported, changed
+
     enriched = enrich_flow_probe(detected_features, supported_event_ids, capabilities)
     stored_items: dict[str, list[str]] = dict(entry.data.get(CONF_ENTITY_ITEMS) or {})
     known_supported: dict[str, list[str]] = dict(
@@ -489,11 +499,20 @@ def entity_item_options_for_flow(
     ]
 
 
+def is_legacy_full_install(entry: ConfigEntry) -> bool:
+    """Upgrade from pre-profile integration: expose everything until user customizes."""
+    return bool(entry.data.get(CONF_LEGACY_FULL_INSTALL))
+
+
 def _legacy_full_advanced_customize(
     saved_extra_groups: frozenset[str],
     saved_items: dict[str, list[str]],
+    *,
+    legacy_full_install: bool = False,
 ) -> bool:
     """Pre-migration Advanced install: no extras map and no per-item prefs yet."""
+    if legacy_full_install:
+        return True
     if saved_extra_groups:
         return False
     if not saved_items:
@@ -507,11 +526,14 @@ def default_customize_form_values(
     saved_items: dict[str, list[str]] | None,
     *,
     supported_event_ids: frozenset[str] | None = None,
+    legacy_full_install: bool = False,
 ) -> dict[str, list[str]]:
     """Suggested dropdown values per customize category (reconfigure / legacy aware)."""
     saved_items = saved_items or {}
     saved_extra_set = frozenset(str(g) for g in (saved_extra_groups or ()))
-    legacy_full = _legacy_full_advanced_customize(saved_extra_set, saved_items)
+    legacy_full = _legacy_full_advanced_customize(
+        saved_extra_set, saved_items, legacy_full_install=legacy_full_install
+    )
     values: dict[str, list[str]] = {}
     for group in CUSTOMIZE_FLOW_GROUPS:
         saved_group_items = (
@@ -690,6 +712,8 @@ def get_enabled_entity_groups(entry: ConfigEntry) -> frozenset[str]:
     profile = entry.data.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
     if profile == PROFILE_BASIC:
         return BASIC_ENTITY_GROUPS
+    if is_legacy_full_install(entry):
+        return BASIC_ENTITY_GROUPS | ADVANCED_EXTRA_ENTITY_GROUPS
     extras = stored_extra_entity_groups(entry.data.get(CONF_ENTITY_GROUPS))
     return BASIC_ENTITY_GROUPS | extras
 
@@ -699,6 +723,8 @@ def get_enabled_entity_items(entry: ConfigEntry, group: str) -> frozenset[str] |
     if not entity_group_enabled(entry, group):
         return frozenset()
     profile = entry.data.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
+    if is_legacy_full_install(entry) and profile == PROFILE_ADVANCED:
+        return None
     if profile == PROFILE_BASIC and group in BASIC_ENTITY_ITEMS:
         return BASIC_ENTITY_ITEMS[group]
     stored = entry.data.get(CONF_ENTITY_ITEMS)

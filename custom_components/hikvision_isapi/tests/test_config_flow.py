@@ -377,7 +377,28 @@ class TestEntityCustomizeCoverage:
         assert changed
         assert "motiondetection" in items[ENTITY_GROUP_DETECTIONS]
 
-    def test_merge_keeps_user_disabled_default(self):
+    def test_legacy_full_install_enables_all_groups(self):
+        from custom_components.hikvision_isapi.const import (
+            CONF_LEGACY_FULL_INSTALL,
+            ENTITY_GROUP_ALARM_IO,
+            ENTITY_GROUP_IMAGE_ADJUSTMENT,
+        )
+        from custom_components.hikvision_isapi.entity_profiles import (
+            get_enabled_entity_groups,
+            get_enabled_entity_items,
+            is_legacy_full_install,
+        )
+
+        entry = Mock(spec=config_entries.ConfigEntry)
+        entry.data = {
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_LEGACY_FULL_INSTALL: True,
+        }
+        assert is_legacy_full_install(entry)
+        groups = get_enabled_entity_groups(entry)
+        assert ENTITY_GROUP_IMAGE_ADJUSTMENT in groups
+        assert ENTITY_GROUP_ALARM_IO in groups
+        assert get_enabled_entity_items(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT) is None
         from custom_components.hikvision_isapi.const import ENTITY_GROUP_DETECTIONS
         from custom_components.hikvision_isapi.entity_profiles import (
             merge_entry_entity_preferences,

@@ -21,7 +21,7 @@ from .const import (
     FEATURE_CAPABILITY_FIRST_SCAN,
     FEATURE_CAPABILITY_RESCAN_INTERVAL,
 )
-from .entity_profiles import merge_entry_entity_preferences
+from .entity_profiles import merge_entry_entity_preferences, is_legacy_full_install
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -149,14 +149,13 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             capabilities,
         )
         if prefs_changed:
-            self.hass.config_entries.async_update_entry(
-                self.entry,
-                data={
-                    **self.entry.data,
-                    CONF_ENTITY_ITEMS: merged_items,
-                    CONF_ENTITY_KNOWN_SUPPORTED: merged_known,
-                },
-            )
+            updates: dict = {
+                **self.entry.data,
+                CONF_ENTITY_KNOWN_SUPPORTED: merged_known,
+            }
+            if not is_legacy_full_install(self.entry):
+                updates[CONF_ENTITY_ITEMS] = merged_items
+            self.hass.config_entries.async_update_entry(self.entry, data=updates)
 
         _LOGGER.info(
             "Hikvision %s: capability profile changed; reloading config entry to update entities",

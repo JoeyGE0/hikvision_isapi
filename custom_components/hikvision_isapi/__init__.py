@@ -12,8 +12,10 @@ from pathlib import Path
 
 from .const import (
     DOMAIN,
-    CONF_ENTITY_GROUPS,
+    CONF_ENTITY_ITEMS,
+    CONF_ENTITY_KNOWN_SUPPORTED,
     CONF_INTEGRATION_PROFILE,
+    CONF_LEGACY_FULL_INSTALL,
     CONF_UPDATE_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
     ALARM_SERVER_PATH,
@@ -24,7 +26,6 @@ from .const import (
     ISAPI_BOOT_RETRY_DELAYS,
     PROFILE_ADVANCED,
 )
-from .entity_profiles import default_entity_groups_for_profile
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
 from .device_helpers import build_configuration_url, build_primary_device_info
@@ -66,17 +67,27 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Migrate config entries when config flow VERSION changes."""
-    if config_entry.version > 2:
+    """Migrate config entries when config entry version changes."""
+    if config_entry.version > 3:
         return False
+
+    data = dict(config_entry.data)
+    target_version = config_entry.version
+
     if config_entry.version < 2:
-        data = dict(config_entry.data)
         data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
-        data.setdefault(
-            CONF_ENTITY_GROUPS,
-            default_entity_groups_for_profile(PROFILE_ADVANCED),
+        target_version = 2
+
+    if config_entry.version < 3:
+        if not isinstance(data.get(CONF_ENTITY_ITEMS), dict):
+            data[CONF_LEGACY_FULL_INSTALL] = True
+            data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
+        target_version = 3
+
+    if target_version != config_entry.version:
+        hass.config_entries.async_update_entry(
+            config_entry, data=data, version=target_version
         )
-        hass.config_entries.async_update_entry(config_entry, data=data, version=2)
     return True
 
 

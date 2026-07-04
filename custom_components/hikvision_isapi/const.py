@@ -28,6 +28,8 @@ CONF_ENTITY_GROUPS: Final = "entity_groups"
 CONF_ENTITY_ITEMS: Final = "entity_items"
 # Per-category item ids that were supported at last probe (for default-on merge).
 CONF_ENTITY_KNOWN_SUPPORTED: Final = "entity_known_supported"
+# Pre–Basic/Advanced upgrade: keep all entities until user saves customize.
+CONF_LEGACY_FULL_INSTALL: Final = "legacy_full_install"
 # Inner field key inside each config-flow section (category dropdown).
 CUSTOMIZE_SECTION_ITEMS_KEY: Final = "items"
 PROFILE_BASIC: Final = "basic"

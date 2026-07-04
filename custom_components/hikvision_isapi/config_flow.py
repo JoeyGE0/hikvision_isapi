@@ -29,6 +29,7 @@ from .const import (
     CONF_ENTITY_GROUPS,
     CONF_ENTITY_ITEMS,
     CONF_ENTITY_KNOWN_SUPPORTED,
+    CONF_LEGACY_FULL_INSTALL,
     CONF_HOST,
     CONF_INTEGRATION_PROFILE,
     CONF_PASSWORD,
@@ -142,6 +143,8 @@ def _coerce_config_entry_for_form(entry_data: dict[str, Any]) -> dict[str, Any]:
             entry_data.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
         ),
     }
+    if entry_data.get(CONF_LEGACY_FULL_INSTALL):
+        coerced[CONF_INTEGRATION_PROFILE] = PROFILE_ADVANCED
     if RTSP_PORT_FORCED in entry_data and entry_data[RTSP_PORT_FORCED] is not None:
         coerced[RTSP_PORT_FORCED] = str(entry_data[RTSP_PORT_FORCED])
     return coerced
@@ -339,6 +342,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             saved_extras,
             saved_items,
             supported_event_ids=supported_event_ids,
+            legacy_full_install=bool(self.context.get("legacy_full_install")),
         )
         schema_dict: dict = {}
         section_suggested: dict[str, dict[str, list[str]]] = {}
@@ -442,6 +446,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data[CONF_ENTITY_KNOWN_SUPPORTED] = (
             known_supported if known_supported is not None else self._flow_supported_snapshot()
         )
+        data.pop(CONF_LEGACY_FULL_INSTALL, None)
         return data
 
     async def _async_create_entry_from_context(
@@ -594,6 +599,10 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 saved_known = self._reconfigure_entry.data.get(CONF_ENTITY_KNOWN_SUPPORTED)
                 if isinstance(saved_known, dict):
                     data[CONF_ENTITY_KNOWN_SUPPORTED] = saved_known
+            if self._reconfigure_entry and self._reconfigure_entry.data.get(
+                CONF_LEGACY_FULL_INSTALL
+            ):
+                data[CONF_LEGACY_FULL_INSTALL] = True
         return data
 
     async def async_step_reconfigure(
@@ -644,6 +653,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         saved_items = entry.data.get(CONF_ENTITY_ITEMS)
                         self.context["default_entity_items"] = (
                             saved_items if isinstance(saved_items, dict) else {}
+                        )
+                        self.context["legacy_full_install"] = bool(
+                            entry.data.get(CONF_LEGACY_FULL_INSTALL)
                         )
                         return await self.async_step_entity_customize()
                     entry_data = self._build_entry_data(user_input)
