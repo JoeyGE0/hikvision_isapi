@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from .const import (
     CONF_ENTITY_GROUPS,
     CONF_ENTITY_ITEMS,
+    CONF_ENTITY_KNOWN_SUPPORTED,
     CONF_INTEGRATION_PROFILE,
     CUSTOMIZE_SECTION_ITEMS_KEY,
     ENTITY_GROUP_AUDIO_ALARM,
@@ -68,6 +69,15 @@ BASIC_ENTITY_ITEMS: dict[str, frozenset[str]] = {
     ENTITY_GROUP_SYSTEM_DIAGNOSTICS: frozenset({
         "cpu_utilization",
         "memory_usage",
+    }),
+}
+
+# Auto-enable when newly supported; user can still turn off in customize.
+DEFAULT_ON_ENTITY_ITEMS: dict[str, frozenset[str]] = {
+    ENTITY_GROUP_DETECTIONS: frozenset({
+        "motiondetection",
+        "tamperdetection",
+        "videoloss",
     }),
 }
 
@@ -322,6 +332,85 @@ def enrich_flow_probe(
     return enriched
 
 
+def build_supported_snapshot(
+    detected_features: dict,
+    supported_event_ids: frozenset[str],
+    capabilities: dict[str, Any] | None,
+) -> dict[str, list[str]]:
+    """Item ids currently supported per customize category (for merge tracking)."""
+    enriched = enrich_flow_probe(detected_features, supported_event_ids, capabilities)
+    snapshot: dict[str, list[str]] = {}
+    for group in CUSTOMIZE_FLOW_GROUPS:
+        options = entity_item_options_for_flow(
+            group,
+            enriched,
+            customize=True,
+            supported_event_ids=supported_event_ids,
+        )
+        if options:
+            snapshot[group] = [o["value"] for o in options]
+    return snapshot
+
+
+def merge_entry_entity_preferences(
+    entry: ConfigEntry,
+    detected_features: dict,
+    supported_event_ids: frozenset[str],
+    capabilities: dict[str, Any] | None,
+) -> tuple[dict[str, list[str]], dict[str, list[str]], bool]:
+    """Merge newly supported default-on items; keep user opt-ins and opt-outs."""
+    profile = entry.data.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
+    if profile != PROFILE_ADVANCED:
+        return {}, {}, False
+
+    enriched = enrich_flow_probe(detected_features, supported_event_ids, capabilities)
+    stored_items: dict[str, list[str]] = dict(entry.data.get(CONF_ENTITY_ITEMS) or {})
+    known_supported: dict[str, list[str]] = dict(
+        entry.data.get(CONF_ENTITY_KNOWN_SUPPORTED) or {}
+    )
+    changed = False
+
+    for group in CUSTOMIZE_FLOW_GROUPS:
+        options = entity_item_options_for_flow(
+            group,
+            enriched,
+            customize=True,
+            supported_event_ids=supported_event_ids,
+        )
+        supported_list = [o["value"] for o in options]
+        supported_set = frozenset(supported_list)
+        if not supported_set:
+            continue
+
+        old_known = frozenset(known_supported.get(group, []))
+        newly_supported = supported_set - old_known
+
+        if group in stored_items:
+            enabled = {str(item) for item in stored_items[group]}
+        elif group == ENTITY_GROUP_DETECTIONS:
+            defaults = DEFAULT_ON_ENTITY_ITEMS.get(group, frozenset())
+            enabled = {item for item in defaults if item in supported_set}
+        else:
+            enabled = set()
+
+        before = frozenset(enabled)
+        enabled &= supported_set
+
+        defaults = DEFAULT_ON_ENTITY_ITEMS.get(group, frozenset())
+        for item_id in newly_supported:
+            if item_id in defaults:
+                enabled.add(item_id)
+
+        if enabled != before or newly_supported:
+            changed = True
+        stored_items[group] = sorted(enabled)
+        if known_supported.get(group) != supported_list:
+            changed = True
+        known_supported[group] = supported_list
+
+    return stored_items, known_supported, changed
+
+
 def _item_supported_on_device(
     spec: EntityItemSpec,
     detected_features: dict,
@@ -442,6 +531,9 @@ def default_customize_form_values(
             values[group] = [str(i) for i in saved_items[group] if str(i) in option_ids]
         elif legacy_full or group in saved_extra_set:
             values[group] = option_ids
+        elif group in DEFAULT_ON_ENTITY_ITEMS:
+            defaults = DEFAULT_ON_ENTITY_ITEMS[group]
+            values[group] = [i for i in option_ids if i in defaults]
         else:
             values[group] = []
     return values

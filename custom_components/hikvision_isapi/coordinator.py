@@ -15,10 +15,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import HikvisionISAPI, AuthenticationError
 from .device_helpers import alarm_output_data_key
 from .const import (
+    CONF_ENTITY_ITEMS,
+    CONF_ENTITY_KNOWN_SUPPORTED,
     DOMAIN,
     FEATURE_CAPABILITY_FIRST_SCAN,
     FEATURE_CAPABILITY_RESCAN_INTERVAL,
 )
+from .entity_profiles import merge_entry_entity_preferences
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,12 +120,48 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
         self._pending_capability_signature = None
         self._pending_capability_features = None
 
+        self.api.detected_features = new_features
+        domain_data["detected_features"] = new_features
+
+        supported_event_ids: frozenset[str] = frozenset()
+        if hasattr(self.api, "get_supported_events"):
+            try:
+                supported_events = await self.hass.async_add_executor_job(
+                    self.api.get_supported_events
+                )
+                domain_data["supported_events"] = supported_events or []
+                supported_event_ids = frozenset(
+                    str(e.id) for e in (supported_events or []) if getattr(e, "id", None)
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Supported-events refresh failed during capability rescan: %s",
+                    err,
+                )
+
+        capabilities = (
+            self.api.capabilities if isinstance(self.api.capabilities, dict) else {}
+        )
+        merged_items, merged_known, prefs_changed = merge_entry_entity_preferences(
+            self.entry,
+            new_features,
+            supported_event_ids,
+            capabilities,
+        )
+        if prefs_changed:
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                data={
+                    **self.entry.data,
+                    CONF_ENTITY_ITEMS: merged_items,
+                    CONF_ENTITY_KNOWN_SUPPORTED: merged_known,
+                },
+            )
+
         _LOGGER.info(
             "Hikvision %s: capability profile changed; reloading config entry to update entities",
             self.entry.data.get("host"),
         )
-        self.api.detected_features = new_features
-        domain_data["detected_features"] = new_features
 
         entry_id = self.entry.entry_id
         hass = self.hass

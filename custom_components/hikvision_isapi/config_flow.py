@@ -28,6 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 from .const import (
     CONF_ENTITY_GROUPS,
     CONF_ENTITY_ITEMS,
+    CONF_ENTITY_KNOWN_SUPPORTED,
     CONF_HOST,
     CONF_INTEGRATION_PROFILE,
     CONF_PASSWORD,
@@ -46,6 +47,7 @@ from .const import (
 from .api import HikvisionISAPI, _extract_error_message, _normalize_host
 from .entity_profiles import (
     CUSTOMIZE_FLOW_GROUPS,
+    build_supported_snapshot,
     default_customize_form_values,
     enrich_flow_probe,
     entity_item_options_for_flow,
@@ -373,10 +375,18 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self, vol.Schema(schema_dict), section_suggested
         )
 
+    def _flow_supported_snapshot(self) -> dict[str, list[str]]:
+        return build_supported_snapshot(
+            self._detected_features,
+            self._supported_event_ids,
+            self._device_capabilities,
+        )
+
     async def _async_finish_advanced_setup(
         self,
         groups: list[str],
         entity_items: dict[str, list[str]],
+        known_supported: dict[str, list[str]] | None = None,
     ) -> ConfigFlowResult:
         """Create or update an Advanced entry (Basic core + optional extras)."""
         if reconfigure_input := self.context.get("reconfigure_input"):
@@ -384,6 +394,11 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 **reconfigure_input,
                 CONF_ENTITY_GROUPS: groups,
                 CONF_ENTITY_ITEMS: entity_items,
+                CONF_ENTITY_KNOWN_SUPPORTED: (
+                    known_supported
+                    if known_supported is not None
+                    else self._flow_supported_snapshot()
+                ),
             }
             entry = self._reconfigure_entry or self._get_reconfigure_entry()
             entry_data = self._build_entry_data(merged)
@@ -401,7 +416,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry_data = {
             **basic_data,
             **advanced,
-            **self._finalize_advanced_entry_data({}, groups, entity_items),
+            **self._finalize_advanced_entry_data(
+                {}, groups, entity_items, known_supported
+            ),
         }
         device_name = basic_data.get("device_name", basic_data.get(CONF_HOST, "Hikvision"))
         return await self._async_create_entry_from_context(
@@ -412,12 +429,19 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _finalize_advanced_entry_data(
-        self, base_data: dict[str, Any], groups: list[str], entity_items: dict[str, list[str]]
+        self,
+        base_data: dict[str, Any],
+        groups: list[str],
+        entity_items: dict[str, list[str]],
+        known_supported: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         data = dict(base_data)
         data[CONF_INTEGRATION_PROFILE] = PROFILE_ADVANCED
         data[CONF_ENTITY_GROUPS] = groups
         data[CONF_ENTITY_ITEMS] = entity_items
+        data[CONF_ENTITY_KNOWN_SUPPORTED] = (
+            known_supported if known_supported is not None else self._flow_supported_snapshot()
+        )
         return data
 
     async def _async_create_entry_from_context(
@@ -563,6 +587,13 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 saved_items = self._reconfigure_entry.data.get(CONF_ENTITY_ITEMS)
                 if isinstance(saved_items, dict):
                     data[CONF_ENTITY_ITEMS] = saved_items
+            known = user_input.get(CONF_ENTITY_KNOWN_SUPPORTED)
+            if isinstance(known, dict):
+                data[CONF_ENTITY_KNOWN_SUPPORTED] = known
+            elif self._reconfigure_entry:
+                saved_known = self._reconfigure_entry.data.get(CONF_ENTITY_KNOWN_SUPPORTED)
+                if isinstance(saved_known, dict):
+                    data[CONF_ENTITY_KNOWN_SUPPORTED] = saved_known
         return data
 
     async def async_step_reconfigure(
@@ -888,7 +919,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             groups, entity_items = parse_customize_submission(user_input)
-            return await self._async_finish_advanced_setup(groups, entity_items)
+            return await self._async_finish_advanced_setup(
+                groups, entity_items, self._flow_supported_snapshot()
+            )
 
         schema = self._entity_customize_schema(detected)
         if not schema.schema:

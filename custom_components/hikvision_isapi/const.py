@@ -26,6 +26,8 @@ RTSP_PORT_FORCED: Final = "rtsp_port_forced"
 CONF_INTEGRATION_PROFILE: Final = "integration_profile"
 CONF_ENTITY_GROUPS: Final = "entity_groups"
 CONF_ENTITY_ITEMS: Final = "entity_items"
+# Per-category item ids that were supported at last probe (for default-on merge).
+CONF_ENTITY_KNOWN_SUPPORTED: Final = "entity_known_supported"
 # Inner field key inside each config-flow section (category dropdown).
 CUSTOMIZE_SECTION_ITEMS_KEY: Final = "items"
 PROFILE_BASIC: Final = "basic"

@@ -21,6 +21,7 @@ from custom_components.hikvision_isapi.config_flow import (
 import voluptuous as vol
 from custom_components.hikvision_isapi.const import (
     CONF_ALARM_SERVER_HOST,
+    CONF_ENTITY_KNOWN_SUPPORTED,
     CONF_HOST,
     CONF_INTEGRATION_PROFILE,
     CONF_PASSWORD,
@@ -29,6 +30,7 @@ from custom_components.hikvision_isapi.const import (
     CONF_USERNAME,
     CONF_VERIFY_SSL,
     PROFILE_BASIC,
+    PROFILE_ADVANCED,
 )
 
 
@@ -331,3 +333,70 @@ class TestEntityCustomizeCoverage:
                 )
             }
             assert got == expected, f"{group}: missing {expected - got}"
+
+    def test_merge_adds_new_default_detection_only(self):
+        from custom_components.hikvision_isapi.const import ENTITY_GROUP_DETECTIONS
+        from custom_components.hikvision_isapi.entity_profiles import (
+            merge_entry_entity_preferences,
+        )
+
+        entry = Mock(spec=config_entries.ConfigEntry)
+        entry.data = {
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_ENTITY_ITEMS: {
+                ENTITY_GROUP_DETECTIONS: ["motiondetection", "tamperdetection", "videoloss"],
+            },
+            CONF_ENTITY_KNOWN_SUPPORTED: {
+                ENTITY_GROUP_DETECTIONS: ["motiondetection", "tamperdetection", "videoloss"],
+            },
+        }
+        features = {"line_crossing_detection": True}
+        events = frozenset({"motiondetection", "tamperdetection", "videoloss", "linedetection"})
+        items, known, changed = merge_entry_entity_preferences(entry, features, events, {})
+        assert changed
+        assert "linedetection" not in items[ENTITY_GROUP_DETECTIONS]
+        assert "linedetection" in known[ENTITY_GROUP_DETECTIONS]
+
+    def test_merge_auto_enables_new_default_detection(self):
+        from custom_components.hikvision_isapi.const import ENTITY_GROUP_DETECTIONS
+        from custom_components.hikvision_isapi.entity_profiles import (
+            merge_entry_entity_preferences,
+        )
+
+        entry = Mock(spec=config_entries.ConfigEntry)
+        entry.data = {
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_ENTITY_ITEMS: {ENTITY_GROUP_DETECTIONS: ["tamperdetection"]},
+            CONF_ENTITY_KNOWN_SUPPORTED: {
+                ENTITY_GROUP_DETECTIONS: ["tamperdetection"],
+            },
+        }
+        features = {"motion_detection": True}
+        events = frozenset({"motiondetection", "tamperdetection", "videoloss"})
+        items, _, changed = merge_entry_entity_preferences(entry, features, events, {})
+        assert changed
+        assert "motiondetection" in items[ENTITY_GROUP_DETECTIONS]
+
+    def test_merge_keeps_user_disabled_default(self):
+        from custom_components.hikvision_isapi.const import ENTITY_GROUP_DETECTIONS
+        from custom_components.hikvision_isapi.entity_profiles import (
+            merge_entry_entity_preferences,
+        )
+
+        entry = Mock(spec=config_entries.ConfigEntry)
+        entry.data = {
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_ENTITY_ITEMS: {ENTITY_GROUP_DETECTIONS: ["tamperdetection"]},
+            CONF_ENTITY_KNOWN_SUPPORTED: {
+                ENTITY_GROUP_DETECTIONS: [
+                    "motiondetection", "tamperdetection", "videoloss",
+                ],
+            },
+        }
+        items, _, changed = merge_entry_entity_preferences(
+            entry, {"motion_detection": True}, frozenset({
+                "motiondetection", "tamperdetection", "videoloss",
+            }), {},
+        )
+        assert not changed
+        assert "motiondetection" not in items[ENTITY_GROUP_DETECTIONS]
