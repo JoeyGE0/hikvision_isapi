@@ -8,6 +8,7 @@ import re
 import shutil
 import socket
 import tempfile
+import threading
 import time
 import zipfile
 import urllib.request
@@ -16,6 +17,16 @@ from requests.auth import HTTPDigestAuth
 import json
 import xml.etree.ElementTree as ET
 from typing import Callable, Optional
+
+from .audio_playback import (
+    aac_frame_duration_s,
+    compression_is_aac,
+    compression_is_alaw,
+    ffmpeg_convert_to_adts,
+    ffmpeg_convert_to_g711,
+    iter_aac_isapi_packets,
+    normalize_sample_rate,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +43,10 @@ def _g711_pad_byte(compression_type: str) -> bytes:
     if compression_type and "alaw" in compression_type.lower():
         return b"\xd5"
     return b"\xff"
+
+
+def _stop_requested(stop_event: Optional[threading.Event]) -> bool:
+    return stop_event is not None and stop_event.is_set()
 
 
 class _SocketGrabber:
@@ -1867,6 +1882,8 @@ class HikvisionISAPI:
             result["speakerVolume"] = xml.find(f".//{XML_NS}speakerVolume")
             result["microphoneVolume"] = xml.find(f".//{XML_NS}microphoneVolume")
             result["audioCompressionType"] = xml.find(f".//{XML_NS}audioCompressionType")
+            result["audioSamplingRate"] = xml.find(f".//{XML_NS}audioSamplingRate")
+            result["audioBitRate"] = xml.find(f".//{XML_NS}audioBitRate")
             result["noisereduce"] = xml.find(f".//{XML_NS}noisereduce")
             
             # Extract text values
@@ -1877,6 +1894,11 @@ class HikvisionISAPI:
                         audio_info[key] = element.text.strip().lower() == "true"
                     elif key in ["speakerVolume", "microphoneVolume"]:
                         audio_info[key] = int(element.text.strip())
+                    elif key in ["audioSamplingRate", "audioBitRate"]:
+                        try:
+                            audio_info[key] = int(element.text.strip())
+                        except ValueError:
+                            audio_info[key] = element.text.strip()
                     else:
                         audio_info[key] = element.text.strip()
             
@@ -2069,7 +2091,168 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to enable two-way audio: %s", e)
             return False
 
-    def stream_two_way_audio(self, g711_data: bytes) -> bool:
+    def _open_audio_data_socket(self, session_id: str) -> socket.socket | None:
+        """Open a persistent PUT audioData socket (lab / hiksound pattern)."""
+        base = f"http://{self.host}"
+        audio_path = (
+            f"{base}/ISAPI/System/TwoWayAudio/channels/1/audioData"
+            f"?sessionId={session_id}"
+        )
+        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        mgr.add_password(None, [base], self.username, self.password)
+        digest_auth = urllib.request.HTTPDigestAuthHandler(mgr)
+        opener = urllib.request.build_opener(digest_auth)
+
+        with _SocketGrabber() as sockgrab:
+            req = urllib.request.Request(audio_path, method="PUT")
+            opener.open(req)
+            return sockgrab.sock
+
+    def play_audio_bytes(
+        self,
+        audio_bytes: bytes,
+        stop_event: Optional[threading.Event] = None,
+    ) -> bool:
+        """Convert arbitrary audio to the camera talk codec and stream it.
+
+        Matches backyard_aac_talk / go2rtc ISAPI behaviour:
+        - AAC cams: ffmpeg → AAC-LC ADTS + ``[u32be len][ADTS]`` frames
+        - G.711 cams: ffmpeg → µ-law/A-law @ 8 kHz raw chunks
+        """
+        if not audio_bytes:
+            return False
+        if _stop_requested(stop_event):
+            return False
+
+        audio_config = self.get_two_way_audio()
+        compression = audio_config.get("audioCompressionType", "G.711ulaw") or "G.711ulaw"
+
+        try:
+            if compression_is_aac(compression):
+                sample_rate = normalize_sample_rate(
+                    audio_config.get("audioSamplingRate")
+                )
+                bitrate_raw = audio_config.get("audioBitRate")
+                try:
+                    bitrate_k = int(bitrate_raw) if bitrate_raw is not None else 64
+                except (TypeError, ValueError):
+                    bitrate_k = 64
+                if bitrate_k > 256:
+                    # Some cams report bits/s (e.g. 64000)
+                    bitrate_k = max(16, bitrate_k // 1000)
+                _LOGGER.info(
+                    "Converting media → AAC-LC ADTS (%d Hz, %dk) for ISAPI talk",
+                    sample_rate,
+                    bitrate_k,
+                )
+                adts = ffmpeg_convert_to_adts(
+                    audio_bytes,
+                    sample_rate=sample_rate,
+                    bitrate_k=bitrate_k,
+                )
+                return self.stream_aac_two_way_audio(
+                    adts,
+                    sample_rate=sample_rate,
+                    stop_event=stop_event,
+                )
+
+            alaw = compression_is_alaw(compression)
+            _LOGGER.info(
+                "Converting media → G.711 %s @ 8 kHz for ISAPI talk",
+                "alaw" if alaw else "ulaw",
+            )
+            g711 = ffmpeg_convert_to_g711(audio_bytes, alaw=alaw)
+            return self.stream_two_way_audio(g711, stop_event=stop_event)
+        except Exception as e:
+            _LOGGER.error("Failed to convert/play audio for speaker: %s", e, exc_info=True)
+            return False
+
+    def stream_aac_two_way_audio(
+        self,
+        adts_data: bytes,
+        sample_rate: int = 16000,
+        stop_event: Optional[threading.Event] = None,
+    ) -> bool:
+        """Stream AAC ADTS to the camera with length-prefixed ISAPI framing.
+
+        Same wire format as backyard_aac_talk and go2rtc ``writeADTSFrames``:
+        ``[uint32 BE length][ADTS frame]``, paced at 1024/sample_rate seconds.
+        """
+        if not adts_data:
+            return False
+
+        session_id = None
+        output_sock: socket.socket | None = None
+        try:
+            if not self.ensure_two_way_audio_enabled():
+                return False
+
+            session_id = self.open_audio_session()
+            if not session_id:
+                return False
+
+            output_sock = self._open_audio_data_socket(session_id)
+            if output_sock is None:
+                _LOGGER.error("Failed to capture AAC audio streaming socket")
+                return False
+
+            pace = aac_frame_duration_s(sample_rate)
+            frames_out = 0
+            send_epoch: float | None = None
+            bytes_sent = 0
+
+            for packet in iter_aac_isapi_packets(adts_data):
+                if _stop_requested(stop_event):
+                    _LOGGER.info("AAC stream stopped by request")
+                    break
+
+                now = time.monotonic()
+                if send_epoch is None:
+                    send_epoch = now
+                due = send_epoch + frames_out * pace
+                lag = now - due
+                if lag > 0.25:
+                    send_epoch = now
+                    frames_out = 0
+                    due = now
+                elif due > now:
+                    # Sleep in short slices so stop_event is responsive
+                    while due > time.monotonic():
+                        if _stop_requested(stop_event):
+                            break
+                        time.sleep(min(0.02, due - time.monotonic()))
+
+                if _stop_requested(stop_event):
+                    break
+
+                output_sock.sendall(packet)
+                bytes_sent += len(packet)
+                frames_out += 1
+
+            _LOGGER.info(
+                "AAC streamed successfully (%d framed bytes, %d frames)",
+                bytes_sent,
+                frames_out,
+            )
+            return frames_out > 0 and not _stop_requested(stop_event)
+
+        except Exception as e:
+            _LOGGER.error("Failed to stream AAC two-way audio: %s", e, exc_info=True)
+            return False
+        finally:
+            if output_sock is not None:
+                try:
+                    output_sock.close()
+                except OSError:
+                    pass
+            if session_id:
+                self.close_audio_session()
+
+    def stream_two_way_audio(
+        self,
+        g711_data: bytes,
+        stop_event: Optional[threading.Event] = None,
+    ) -> bool:
         """Stream G.711 audio to the camera speaker in realtime-paced chunks.
 
         Uses the SocketGrabber pattern from mqtt-hikvision/hiksound.py: open a PUT to
@@ -2094,11 +2277,6 @@ class HikvisionISAPI:
             if not session_id:
                 return False
 
-            base = f"http://{self.host}"
-            audio_path = (
-                f"{base}/ISAPI/System/TwoWayAudio/channels/1/audioData"
-                f"?sessionId={session_id}"
-            )
             sleep_time = 1.0 / 64  # ~64 packets/sec — matches hiksound.py / ISAPI examples
             duration = len(g711_data) / G711_SAMPLE_RATE
             total_chunks = (len(g711_data) + G711_CHUNK_SIZE - 1) // G711_CHUNK_SIZE
@@ -2111,21 +2289,15 @@ class HikvisionISAPI:
                 G711_CHUNK_SIZE,
             )
 
-            mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-            mgr.add_password(None, [base], self.username, self.password)
-            digest_auth = urllib.request.HTTPDigestAuthHandler(mgr)
-            opener = urllib.request.build_opener(digest_auth)
-
-            with _SocketGrabber() as sockgrab:
-                req = urllib.request.Request(audio_path, method="PUT")
-                opener.open(req)
-                output_sock = sockgrab.sock
-
+            output_sock = self._open_audio_data_socket(session_id)
             if output_sock is None:
                 _LOGGER.error("Failed to capture audio streaming socket")
                 return False
 
             for offset in range(0, len(g711_data), G711_CHUNK_SIZE):
+                if _stop_requested(stop_event):
+                    _LOGGER.info("G.711 stream stopped by request")
+                    break
                 chunk = g711_data[offset : offset + G711_CHUNK_SIZE]
                 if len(chunk) < G711_CHUNK_SIZE:
                     chunk = chunk + pad_byte * (G711_CHUNK_SIZE - len(chunk))

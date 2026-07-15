@@ -1,6 +1,7 @@
 """Media player platform for Hikvision ISAPI."""
 import asyncio
 import logging
+import threading
 from typing import Any
 
 import requests
@@ -41,7 +42,7 @@ async def async_setup_entry(
     detected_features = data.get("detected_features", {})
 
     entities = []
-    
+
     if (
         entity_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO, "media_player")
         and detected_features.get("media_player", False)
@@ -52,17 +53,16 @@ async def async_setup_entry(
 
 
 class HikvisionMediaPlayer(MediaPlayerEntity):
-    """Media player entity for Hikvision camera speaker.
-    
-    Supports only pre-encoded G.711ulaw audio files:
-    - WAV files with G.711ulaw codec (8kHz, mono)
-    - Raw G.711ulaw files (.ulaw, .pcm)
-    
-    No audio conversion is performed - files must already be in G.711ulaw format.
+    """Media player for the camera loudspeaker.
+
+    Browse any Home Assistant media source audio, then ffmpeg-convert to the
+    camera's TwoWayAudio codec (AAC or G.711) and stream over ISAPI — same
+    wire format as the backyard AAC lab / go2rtc ISAPI talk client.
     """
 
     _attr_supported_features = (
         MediaPlayerEntityFeature.PLAY_MEDIA
+        | MediaPlayerEntityFeature.STOP
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.VOLUME_STEP
         | MediaPlayerEntityFeature.BROWSE_MEDIA
@@ -80,8 +80,9 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         self._entry = entry
         self._attr_name = f"{device_name} Speaker"
         self._attr_unique_id = f"{host}_media_player"
-        self._audio_session_id = None
-        self._volume_level = None
+        self._playing = False
+        self._stream_task: asyncio.Task | None = None
+        self._stop_event: threading.Event | None = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -105,7 +106,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     @property
     def state(self):
         """Return the state of the player."""
-        if self._audio_session_id:
+        if self._playing:
             return "playing"
         return "idle"
 
@@ -115,70 +116,60 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         media_id: str,
         **kwargs: Any,
     ) -> None:
-        """Play media."""
+        """Play media through the camera speaker."""
         _LOGGER.info("Play media requested: %s (type: %s)", media_id, media_type)
-        
-        # Enable two-way audio first
-        await self.hass.async_add_executor_job(
-            self._enable_two_way_audio
-        )
-        
-        # For Hikvision, audio streaming might not need explicit session opening
-        # Some cameras stream directly when enabled. Let's try streaming.
-        self._audio_session_id = "active"  # Mark as active
+
+        await self.async_media_stop()
+
+        self._stop_event = threading.Event()
+        self._playing = True
         self.async_write_ha_state()
-        
-        # Stream audio in background
-        asyncio.create_task(self._stream_audio(media_id, media_type))
-    
-    def _enable_two_way_audio(self):
-        """Enable two-way audio channel."""
-        self.api.ensure_two_way_audio_enabled()
-    
-    async def _stream_audio(self, media_id: str, media_type: str):
-        """Stream audio to camera."""
+
+        self._stream_task = self.hass.async_create_task(
+            self._stream_audio(media_id, media_type, self._stop_event)
+        )
+
+    async def _stream_audio(
+        self,
+        media_id: str,
+        media_type: str,
+        stop_event: threading.Event,
+    ) -> None:
+        """Download media, convert via ffmpeg, stream over ISAPI."""
         try:
-            # Get audio data
             audio_data = await self._get_audio_data(media_id, media_type)
             if not audio_data:
                 _LOGGER.error("Failed to get audio data for: %s", media_id)
-                await self.async_media_stop()
                 return
-            
-            # Extract G.711ulaw data (no conversion - must be pre-encoded)
-            _LOGGER.debug("Extracting ulaw data from %d bytes of audio data", len(audio_data))
-            ulaw_data = await self.hass.async_add_executor_job(
-                self._extract_ulaw_data, audio_data, media_id
+            if stop_event.is_set():
+                return
+
+            _LOGGER.info(
+                "Got %d bytes of media — converting to camera talk codec and streaming",
+                len(audio_data),
             )
-            
-            if not ulaw_data:
-                _LOGGER.error("File is not in G.711ulaw format. Only pre-encoded G.711ulaw WAV files or raw ulaw files are supported.")
-                await self.async_media_stop()
-                return
-            
-            _LOGGER.debug("Successfully extracted %d bytes of ulaw data, sending to camera", len(ulaw_data))
-            
-            # Stream to camera (128-byte chunks paced on persistent TCP socket)
             success = await self.hass.async_add_executor_job(
-                self.api.stream_two_way_audio, ulaw_data
+                self.api.play_audio_bytes, audio_data, stop_event
             )
-            if not success:
+            if not success and not stop_event.is_set():
                 _LOGGER.error("Failed to stream audio to camera")
-            
-            # Close session after streaming
-            await self.async_media_stop()
-            
+        except asyncio.CancelledError:
+            stop_event.set()
+            raise
         except Exception as e:
             _LOGGER.error("Error streaming audio: %s", e, exc_info=True)
-            await self.async_media_stop()
-    
+        finally:
+            self._playing = False
+            self._stream_task = None
+            self.async_write_ha_state()
+
     async def _get_audio_data(self, media_id: str, media_type: str) -> bytes | None:
         """Get audio data from media_id (URL, TTS, or media-source)."""
         from homeassistant.components.media_source import (
             async_resolve_media,
             is_media_source_id,
         )
-        
+
         try:
             # Handle media-source IDs first (includes TTS and local media)
             if is_media_source_id(media_id):
@@ -186,32 +177,50 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                     # Pattern from Home Assistant Cast and Sonos integrations:
                     # 1. Resolve media with entity_id (for proper URL generation)
                     # 2. Process URL with async_process_play_media_url
-                    resolved_media = await async_resolve_media(self.hass, media_id, self.entity_id)
+                    resolved_media = await async_resolve_media(
+                        self.hass, media_id, self.entity_id
+                    )
                     if resolved_media and resolved_media.url:
-                        # Use Home Assistant's async_process_play_media_url to process the URL
-                        # This is what Cast and Sonos integrations use (see cast/media_player.py and sonos/media_player.py)
-                        # It handles authentication and URL conversion properly
-                        # Default allow_relative_url=False converts relative URLs to absolute (needed for downloading)
-                        media_url = async_process_play_media_url(self.hass, resolved_media.url)
-                        _LOGGER.info("Resolved media source: %s -> %s (processed: %s, mime: %s)", 
-                                   media_id, resolved_media.url, media_url, getattr(resolved_media, 'mime_type', 'unknown'))
-                        
-                        if not media_url.startswith("http://") and not media_url.startswith("https://"):
-                            _LOGGER.error("Invalid URL format after processing: %s", media_url)
+                        media_url = async_process_play_media_url(
+                            self.hass, resolved_media.url
+                        )
+                        _LOGGER.info(
+                            "Resolved media source: %s -> %s (processed: %s, mime: %s)",
+                            media_id,
+                            resolved_media.url,
+                            media_url,
+                            getattr(resolved_media, "mime_type", "unknown"),
+                        )
+
+                        if not media_url.startswith("http://") and not media_url.startswith(
+                            "https://"
+                        ):
+                            _LOGGER.error(
+                                "Invalid URL format after processing: %s", media_url
+                            )
                             return None
-                        
-                        # Download via HTTP with Home Assistant authentication
-                        # async_process_play_media_url handles authentication properly
+
                         session = async_get_clientsession(self.hass)
                         try:
                             _LOGGER.info("Downloading media via HTTP: %s", media_url)
-                            async with session.get(media_url, timeout=30, allow_redirects=True) as response:
+                            async with session.get(
+                                media_url, timeout=30, allow_redirects=True
+                            ) as response:
                                 response.raise_for_status()
                                 data = await response.read()
-                                _LOGGER.info("Successfully downloaded %d bytes from %s", len(data), media_url)
+                                _LOGGER.info(
+                                    "Successfully downloaded %d bytes from %s",
+                                    len(data),
+                                    media_url,
+                                )
                                 return data
                         except Exception as e:
-                            _LOGGER.error("Failed to download media from %s: %s", media_url, e, exc_info=True)
+                            _LOGGER.error(
+                                "Failed to download media from %s: %s",
+                                media_url,
+                                e,
+                                exc_info=True,
+                            )
                             return None
                     else:
                         _LOGGER.error("Failed to resolve media source URL")
@@ -219,7 +228,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 except Exception as e:
                     _LOGGER.error("Failed to resolve media source: %s", e)
                     return None
-            
+
             # Handle direct URLs
             if media_id.startswith("http://") or media_id.startswith("https://"):
                 response = await self.hass.async_add_executor_job(
@@ -227,53 +236,60 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 )
                 response.raise_for_status()
                 return response.content
-            
+
             # Handle TTS (legacy format)
             if media_id.startswith("tts:"):
-                # Try to resolve as media source
                 try:
                     resolved_media = await async_resolve_media(self.hass, media_id)
                     if resolved_media and resolved_media.url:
-                        # Convert relative URL to full URL if needed
                         media_url = resolved_media.url
                         if media_url.startswith("/"):
-                            base_url = self.hass.config.internal_url or self.hass.config.external_url
+                            base_url = (
+                                self.hass.config.internal_url
+                                or self.hass.config.external_url
+                            )
                             if not base_url:
                                 base_url = "http://localhost:8123"
                             base_url = base_url.rstrip("/")
                             media_url = f"{base_url}{resolved_media.url}"
                             _LOGGER.info("Converted TTS URL to: %s", media_url)
-                        
-                        # Validate URL
-                        if not media_url.startswith("http://") and not media_url.startswith("https://"):
+
+                        if not media_url.startswith("http://") and not media_url.startswith(
+                            "https://"
+                        ):
                             _LOGGER.error("Invalid TTS URL format: %s", media_url)
                             return None
-                        
-                        # Use Home Assistant's authenticated HTTP client for local URLs
+
                         is_local = (
-                            "localhost" in media_url or 
-                            "127.0.0.1" in media_url or
-                            (self.hass.config.internal_url and self.hass.config.internal_url in media_url) or 
-                            (self.hass.config.external_url and self.hass.config.external_url in media_url)
+                            "localhost" in media_url
+                            or "127.0.0.1" in media_url
+                            or (
+                                self.hass.config.internal_url
+                                and self.hass.config.internal_url in media_url
+                            )
+                            or (
+                                self.hass.config.external_url
+                                and self.hass.config.external_url in media_url
+                            )
                         )
-                        
+
                         if is_local:
                             session = async_get_clientsession(self.hass)
                             async with session.get(media_url, timeout=30) as response:
                                 response.raise_for_status()
                                 return await response.read()
-                        else:
-                            response = await self.hass.async_add_executor_job(
-                                requests.get, media_url, {"timeout": 30}
-                            )
-                            response.raise_for_status()
-                            return response.content
+
+                        response = await self.hass.async_add_executor_job(
+                            requests.get, media_url, {"timeout": 30}
+                        )
+                        response.raise_for_status()
+                        return response.content
                 except Exception as e:
                     _LOGGER.error("Failed to get TTS audio: %s", e)
                 _LOGGER.warning("TTS format not supported: %s", media_id)
                 return None
-            
-            # Try as direct file path or URL (fallback)
+
+            # Try as direct URL (fallback)
             try:
                 response = await self.hass.async_add_executor_job(
                     requests.get, media_id, {"timeout": 30}
@@ -283,170 +299,31 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             except Exception:
                 _LOGGER.error("Unsupported media_id format: %s", media_id)
                 return None
-            
+
         except Exception as e:
             _LOGGER.error("Failed to get audio data: %s", e)
             return None
-    
-    def _extract_ulaw_data(self, audio_data: bytes, media_id: str = "") -> bytes | None:
-        """Extract G.711ulaw audio data from file.
-        
-        Supports:
-        - WAV files with G.711ulaw codec (codec ID 0x0007)
-        - Raw G.711ulaw files (no header)
-        
-        Returns raw ulaw audio data (no WAV header) or None if format is not supported.
-        """
-        if len(audio_data) < 12:
-            _LOGGER.error("File too small to be valid audio")
-            return None
-        
-        # Check if it's a WAV file (starts with "RIFF" and "WAVE")
-        if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
-            return self._extract_ulaw_from_wav(audio_data)
-        
-        # Check file extension for raw ulaw files
-        if media_id:
-            media_lower = media_id.lower()
-            if media_lower.endswith('.ulaw') or media_lower.endswith('.pcm'):
-                _LOGGER.info("Treating as raw G.711ulaw file")
-                return audio_data
-        
-        # If it's not a WAV and not a known raw format, try to detect if it's raw ulaw
-        # (no header, just raw data - this is a guess)
-        if len(audio_data) > 1000:  # Reasonable size for audio
-            # TODO: Improve audio format detection and conversion
-            # Issues to address:
-            # - Better detection of audio formats (MP3, AAC, etc.) and conversion to G.711ulaw
-            # - Currently falls back to treating unknown formats as raw ulaw, which often fails
-            # - Should integrate audio conversion library (e.g., ffmpeg-python) to convert
-            #   common formats (MP3, WAV with other codecs, etc.) to G.711ulaw
-            _LOGGER.warning("File doesn't appear to be WAV or raw ulaw. Attempting as raw ulaw...")
-            return audio_data
-        
-        _LOGGER.error("Unsupported audio format. Only G.711ulaw WAV files or raw ulaw files are supported.")
-        return None
-    
-    def _extract_ulaw_from_wav(self, wav_data: bytes) -> bytes | None:
-        """Extract raw G.711ulaw audio data from WAV file.
-        
-        WAV format:
-        - Offset 0-3: "RIFF"
-        - Offset 8-11: "WAVE"
-        - Offset 20-21: Audio format code (0x0007 = G.711ulaw, 0x0006 = G.711alaw)
-        - Offset 22-23: Number of channels (should be 1 for mono)
-        - Offset 24-27: Sample rate (should be 8000 for G.711)
-        - After "data" chunk: Raw audio data
-        """
-        try:
-            # Check WAV header
-            if wav_data[:4] != b'RIFF' or wav_data[8:12] != b'WAVE':
-                _LOGGER.error("Not a valid WAV file")
-                return None
-            
-            # Find audio format code (offset 20-21)
-            if len(wav_data) < 22:
-                _LOGGER.error("WAV file too small")
-                return None
-            
-            audio_format = int.from_bytes(wav_data[20:22], byteorder='little')
-            
-            # Check if it's G.711ulaw (0x0007) or G.711alaw (0x0006)
-            if audio_format == 0x0007:  # G.711ulaw
-                codec_name = "G.711ulaw"
-            elif audio_format == 0x0006:  # G.711alaw
-                codec_name = "G.711alaw"
-            else:
-                _LOGGER.error("WAV file is not G.711ulaw format (codec: 0x%04x). Only G.711ulaw (0x0007) is supported.", audio_format)
-                return None
-            
-            # Check channels (offset 22-23) - should be 1 (mono)
-            channels = int.from_bytes(wav_data[22:24], byteorder='little')
-            if channels != 1:
-                _LOGGER.warning("WAV file has %d channels, expected 1 (mono). Proceeding anyway...", channels)
-            
-            # Check sample rate (offset 24-27) - should be 8000 for G.711
-            sample_rate = int.from_bytes(wav_data[24:28], byteorder='little')
-            if sample_rate != 8000:
-                _LOGGER.warning("WAV file sample rate is %d Hz, expected 8000 Hz. Proceeding anyway...", sample_rate)
-            
-            _LOGGER.info("Detected %s WAV file (%d channels, %d Hz)", codec_name, channels, sample_rate)
-            
-            # Find "data" chunk and extract raw audio
-            # WAV format: chunks start at offset 12
-            offset = 12
-            while offset < len(wav_data) - 8:
-                chunk_id = wav_data[offset:offset+4]
-                chunk_size = int.from_bytes(wav_data[offset+4:offset+8], byteorder='little')
-                
-                # Validate chunk size - catch obviously invalid sizes (e.g., > 100MB for a small file)
-                # Also check if it extends beyond file
-                max_reasonable_size = len(wav_data) * 2  # Allow up to 2x file size (for padding)
-                if chunk_size > max_reasonable_size or chunk_size < 0 or (offset + 8 + chunk_size) > len(wav_data):
-                    # Invalid chunk size
-                    if chunk_id == b'data':
-                        # This is the data chunk - extract what's available
-                        data_start = offset + 8
-                        available_bytes = len(wav_data) - data_start
-                        _LOGGER.debug(
-                            "WAV file data chunk header claims %d bytes, but only %d bytes available in file. "
-                            "Using available data (file may be truncated or header incorrect).",
-                            chunk_size, available_bytes
-                        )
-                        raw_audio = wav_data[data_start:]
-                        _LOGGER.info("Extracted %d bytes of raw G.711ulaw audio from WAV file (header was invalid)", len(raw_audio))
-                        return raw_audio
-                    else:
-                        # Not the data chunk - invalid size means we can't calculate next offset
-                        # Search for next chunk by looking for common chunk IDs
-                        found_next = False
-                        for search_offset in range(offset + 8, min(offset + 200, len(wav_data) - 8)):
-                            if wav_data[search_offset:search_offset+4] in [b'data', b'fmt ', b'LIST', b'fact']:
-                                offset = search_offset
-                                found_next = True
-                                break
-                        if not found_next:
-                            # Can't find next chunk - try to find 'data' anywhere in remaining file
-                            data_pos = wav_data.find(b'data', offset + 8)
-                            if data_pos != -1 and data_pos < len(wav_data) - 8:
-                                offset = data_pos
-                                continue
-                            else:
-                                # Give up - can't find data chunk
-                                break
-                        continue
-                
-                if chunk_id == b'data':
-                    # Found data chunk - extract raw audio
-                    data_start = offset + 8
-                    data_end = data_start + chunk_size
-                    raw_audio = wav_data[data_start:data_end]
-                    _LOGGER.info("Extracted %d bytes of raw G.711ulaw audio from WAV file", len(raw_audio))
-                    return raw_audio
-                
-                # Move to next chunk
-                offset += 8 + chunk_size
-                # Align to even boundary
-                if offset % 2:
-                    offset += 1
-            
-            # TODO: Fix WAV file parsing issues
-            # Issues to address:
-            # - Some WAV files have malformed headers or non-standard chunk ordering
-            # - "Could not find 'data' chunk" error occurs with some valid WAV files
-            # - Should use a proper WAV parsing library (e.g., wave module or scipy.io.wavfile)
-            #   instead of manual byte parsing to handle edge cases
-            _LOGGER.error("Could not find 'data' chunk in WAV file")
-            return None
-            
-        except Exception as e:
-            _LOGGER.error("Failed to extract ulaw from WAV: %s", e)
-            return None
-    
+
     async def async_media_stop(self) -> None:
-        """Stop media playback."""
-        if self._audio_session_id:
-            self._audio_session_id = None
+        """Stop media playback and close any open TwoWayAudio session."""
+        if self._stop_event is not None:
+            self._stop_event.set()
+
+        task = self._stream_task
+        self._stream_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        await self.hass.async_add_executor_job(self.api.close_audio_session)
+
+        was_playing = self._playing
+        self._playing = False
+        self._stop_event = None
+        if was_playing:
             self.async_write_ha_state()
 
     async def async_set_volume_level(self, volume: float) -> None:
@@ -475,13 +352,16 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     ) -> BrowseMedia:
         """Browse media - shows audio files from media source."""
         from homeassistant.components.media_source import async_browse_media
-        
-        # Home Assistant's async_browse_media only accepts hass and media_content_id
-        # It will automatically filter and show available media sources
+
         return await async_browse_media(
             self.hass,
             media_content_id,
         )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop playback when entity is removed."""
+        await self.async_media_stop()
+        await super().async_will_remove_from_hass()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

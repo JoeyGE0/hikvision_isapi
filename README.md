@@ -23,7 +23,7 @@
 ### Known Issues
 
 - **Binary sensors**: Motion is working. Other event types (intrusion, line crossing, etc.) usually need correct linkage and notification host on the camera. Event binary sensors are **disabled by default** when the camera reports the trigger as disabled in `Event/triggers`.
-- **Media player (Speaker)**: Only created when two-way audio is detected. Playback is limited / unreliable for typical HA use (TTS and arbitrary MP3 are not really supported; see code notes on G.711 formats). The entity is also **disabled by default** in the entity registry for new setups.
+- **Media player (Speaker)**: Only created when two-way audio is detected. Browse HA media (mp3/wav/m4a/TTS/etc.), ffmpeg converts to the camera talk codec (AAC or G.711), then streams over ISAPI (same framing as go2rtc AAC talk). Requires `ffmpeg` on the HA host. Entity is **disabled by default** in the entity registry for new setups.
 
 ---
 
@@ -91,7 +91,7 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 | **Speaker Volume**    | 0-100%                                                            |
 | **Microphone Volume** | 0-100%                                                            |
 | **Noise Reduction**   | Enable/disable                                                    |
-| **Speaker**           | Media player entity (experimental; **disabled by default**; not suitable for normal TTS/MP3) |
+| **Speaker**           | Media player (**disabled by default**); plays media after ffmpeg → AAC/G.711 ISAPI stream |
 
 ### System Monitoring (Diagnostic)
 
@@ -390,7 +390,7 @@ Common responses:
 
 | Entity ID (typical)                  | Description    | Default / status |
 | ------------------------------------ | -------------- | ---------------- |
-| `media_player.{device_name}_speaker` | Speaker entity | Only when two-way audio is detected; **disabled by default**; ❌ not suitable for normal TTS/MP3 playback |
+| `media_player.{device_name}_speaker` | Speaker entity | Only when two-way audio is detected; **disabled by default**; convert+play via ffmpeg (needs ffmpeg on host) |
 
 ---
 
@@ -440,7 +440,7 @@ automation:
 | Hikvision Camera | ISAPI enabled                  |
 | `requests`       | Installed with the integration (`manifest.json`) |
 | `aiohttp`        | Installed with the integration (`manifest.json`) |
-| `pydub`          | >=0.25.1 (installed with the integration; used for audio conversion in the media player) |
+| `ffmpeg`         | On the HA host PATH (not a pip dep) — used to convert media to AAC / G.711 for speaker play |
 
 ---
 
@@ -515,9 +515,9 @@ automation:
 
 ### Audio / media player
 
-**Status:** The speaker **media player** is only added when two-way audio is detected and is not reliable for normal playback; prefer **Speaker volume** (number entity) for level control.
+**Status:** The speaker **media player** is only added when two-way audio is detected. Enable it in the entity registry, then browse media / call `media_player.play_media`. Audio is converted with **ffmpeg** to match the camera TwoWayAudio codec (AAC → length-prefixed ADTS; G.711 → raw µ/A-law), matching the backyard lab / go2rtc ISAPI talk path.
 
-**Tip:** Enable the media player in the entity registry if you removed it or started from a template that hides it.
+**Tip:** Install/ensure `ffmpeg` is available inside Home Assistant (Core/Supervised images usually include it). Prefer **Speaker volume** (number entity) for level control while idle.
 
 ### Camera Streams Not Showing
 
