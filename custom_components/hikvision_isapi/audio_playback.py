@@ -22,6 +22,8 @@ _LOGGER = logging.getLogger(__name__)
 AAC_SAMPLES_PER_FRAME = 1024
 DEFAULT_AAC_SAMPLE_RATE = 16000
 DEFAULT_AAC_BITRATE_K = 64
+LEAD_SILENCE_MS = 250
+TAIL_SILENCE_S = 0.8
 
 _FFMPEG_CANDIDATES = (
     "ffmpeg",
@@ -68,6 +70,33 @@ def split_adts(data: bytes) -> list[bytes]:
     return frames
 
 
+def pull_adts_frames(buffer: bytearray) -> list[bytes]:
+    """Consume complete ADTS frames from a streaming buffer."""
+    frames: list[bytes] = []
+    offset = 0
+    while offset + 7 <= len(buffer):
+        if buffer[offset] != 0xFF or (buffer[offset + 1] & 0xF0) != 0xF0:
+            offset += 1
+            continue
+        protection_absent = buffer[offset + 1] & 0x01
+        header_length = 7 if protection_absent else 9
+        frame_length = (
+            ((buffer[offset + 3] & 0x03) << 11)
+            | (buffer[offset + 4] << 3)
+            | ((buffer[offset + 5] & 0xE0) >> 5)
+        )
+        if frame_length < header_length:
+            offset += 1
+            continue
+        if offset + frame_length > len(buffer):
+            break
+        frames.append(bytes(buffer[offset : offset + frame_length]))
+        offset += frame_length
+    if offset:
+        del buffer[:offset]
+    return frames
+
+
 def normalize_sample_rate(raw: object | None, default: int = DEFAULT_AAC_SAMPLE_RATE) -> int:
     """Hikvision often reports ``16`` meaning 16 kHz."""
     if raw is None:
@@ -89,6 +118,62 @@ def compression_is_aac(compression: str | None) -> bool:
 
 def compression_is_alaw(compression: str | None) -> bool:
     return bool(compression) and "alaw" in compression.lower()
+
+
+def build_ffmpeg_stream_command(
+    media_url: str,
+    compression: str,
+    *,
+    sample_rate: int = DEFAULT_AAC_SAMPLE_RATE,
+    bitrate_k: int = DEFAULT_AAC_BITRATE_K,
+    start_seconds: float = 0.0,
+) -> list[str]:
+    """Build the streaming conversion command used by the HA media player."""
+    command = [find_ffmpeg(), "-hide_banner", "-loglevel", "error"]
+    if start_seconds > 0.05:
+        command.extend(["-ss", f"{start_seconds:.3f}"])
+    command.extend(
+        [
+            "-i",
+            media_url,
+            "-vn",
+            "-af",
+            (
+                f"adelay={LEAD_SILENCE_MS}:all=1,"
+                f"apad=pad_dur={TAIL_SILENCE_S}"
+            ),
+        ]
+    )
+    if compression_is_aac(compression):
+        command.extend(
+            [
+                "-c:a",
+                "aac",
+                "-profile:a",
+                "aac_low",
+                "-ar",
+                str(sample_rate),
+                "-ac",
+                "1",
+                "-b:a",
+                f"{bitrate_k}k",
+                "-f",
+                "adts",
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "-ar",
+                "8000",
+                "-ac",
+                "1",
+                "-f",
+                "alaw" if compression_is_alaw(compression) else "mulaw",
+            ]
+        )
+    command.append("pipe:1")
+    return command
 
 
 def ffmpeg_convert_to_adts(

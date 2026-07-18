@@ -5,8 +5,11 @@ import contextlib
 import logging
 import os
 import re
+import select
 import shutil
 import socket
+import struct
+import subprocess
 import tempfile
 import threading
 import time
@@ -20,12 +23,14 @@ from typing import Callable, Optional
 
 from .audio_playback import (
     aac_frame_duration_s,
+    build_ffmpeg_stream_command,
     compression_is_aac,
     compression_is_alaw,
     ffmpeg_convert_to_adts,
     ffmpeg_convert_to_g711,
     iter_aac_isapi_packets,
     normalize_sample_rate,
+    pull_adts_frames,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -2166,6 +2171,235 @@ class HikvisionISAPI:
         except Exception as e:
             _LOGGER.error("Failed to convert/play audio for speaker: %s", e, exc_info=True)
             return False
+
+    def play_audio_url(
+        self,
+        media_url: str,
+        stop_event: Optional[threading.Event] = None,
+        start_seconds: float = 0.0,
+        progress_callback: Optional[Callable[[float], None]] = None,
+    ) -> bool:
+        """Transcode a URL incrementally and stream it to TwoWayAudio.
+
+        ffmpeg reads the Home Assistant media-source URL as it plays, so long
+        files do not need to be downloaded or converted in full before audio
+        starts. The output framing and pacing match the proven local media lab.
+        """
+        if not media_url or _stop_requested(stop_event):
+            return False
+
+        audio_config = self.get_two_way_audio()
+        compression = (
+            audio_config.get("audioCompressionType", "G.711ulaw")
+            or "G.711ulaw"
+        )
+        sample_rate = normalize_sample_rate(
+            audio_config.get("audioSamplingRate")
+        )
+        bitrate_raw = audio_config.get("audioBitRate")
+        try:
+            bitrate_k = int(bitrate_raw) if bitrate_raw is not None else 64
+        except (TypeError, ValueError):
+            bitrate_k = 64
+        if bitrate_k > 256:
+            bitrate_k = max(16, bitrate_k // 1000)
+
+        command = build_ffmpeg_stream_command(
+            media_url,
+            compression,
+            sample_rate=sample_rate,
+            bitrate_k=bitrate_k,
+            start_seconds=start_seconds,
+        )
+        process: subprocess.Popen[bytes] | None = None
+        output_sock: socket.socket | None = None
+        session_id: str | None = None
+        stderr_lines: list[str] = []
+
+        try:
+            if not self.ensure_two_way_audio_enabled():
+                return False
+            session_id = self.open_audio_session()
+            if not session_id:
+                return False
+            output_sock = self._open_audio_data_socket(session_id)
+            if output_sock is None:
+                _LOGGER.error("Failed to open TwoWayAudio data socket")
+                return False
+
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+
+            def _drain_stderr() -> None:
+                if process is None or process.stderr is None:
+                    return
+                for raw_line in iter(process.stderr.readline, b""):
+                    text = raw_line.decode(
+                        "utf-8", errors="replace"
+                    ).strip()
+                    if text:
+                        stderr_lines.append(text)
+
+            stderr_thread = threading.Thread(
+                target=_drain_stderr, daemon=True
+            )
+            stderr_thread.start()
+
+            if compression_is_aac(compression):
+                sent = self._stream_ffmpeg_aac(
+                    process,
+                    output_sock,
+                    sample_rate,
+                    start_seconds,
+                    stop_event,
+                    progress_callback,
+                )
+            else:
+                sent = self._stream_ffmpeg_g711(
+                    process,
+                    output_sock,
+                    compression,
+                    start_seconds,
+                    stop_event,
+                    progress_callback,
+                )
+
+            return_code = process.wait(timeout=5)
+            stderr_thread.join(timeout=1)
+            if return_code != 0 and not _stop_requested(stop_event):
+                detail = " | ".join(stderr_lines[-3:])[:500]
+                _LOGGER.error(
+                    "ffmpeg speaker conversion failed (%d): %s",
+                    return_code,
+                    detail or "no error output",
+                )
+                return False
+            return sent > 0 and not _stop_requested(stop_event)
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to stream media URL to camera: %s",
+                e,
+                exc_info=True,
+            )
+            return False
+        finally:
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            if output_sock is not None:
+                try:
+                    output_sock.close()
+                except OSError:
+                    pass
+            if session_id:
+                self.close_audio_session()
+
+    def _stream_ffmpeg_aac(
+        self,
+        process: subprocess.Popen[bytes],
+        output_sock: socket.socket,
+        sample_rate: int,
+        start_seconds: float,
+        stop_event: Optional[threading.Event],
+        progress_callback: Optional[Callable[[float], None]],
+    ) -> int:
+        """Send incremental ffmpeg ADTS output with Hikvision framing."""
+        if process.stdout is None:
+            return 0
+        buffer = bytearray()
+        pace = aac_frame_duration_s(sample_rate)
+        send_epoch: float | None = None
+        frames_out = 0
+
+        while not _stop_requested(stop_event):
+            ready, _, _ = select.select([process.stdout], [], [], 0.1)
+            if not ready:
+                continue
+            chunk = process.stdout.read(2048)
+            if not chunk:
+                if process.poll() is not None:
+                    break
+                time.sleep(0.01)
+                continue
+            buffer.extend(chunk)
+            for frame in pull_adts_frames(buffer):
+                if _stop_requested(stop_event):
+                    break
+                now = time.monotonic()
+                if send_epoch is None:
+                    send_epoch = now
+                due = send_epoch + frames_out * pace
+                while due > time.monotonic():
+                    if _stop_requested(stop_event):
+                        break
+                    time.sleep(min(0.02, due - time.monotonic()))
+                if _stop_requested(stop_event):
+                    break
+                output_sock.sendall(struct.pack(">I", len(frame)) + frame)
+                frames_out += 1
+                if progress_callback is not None:
+                    media_position = max(
+                        0.0, frames_out * pace - 0.25
+                    )
+                    progress_callback(start_seconds + media_position)
+        return frames_out
+
+    def _stream_ffmpeg_g711(
+        self,
+        process: subprocess.Popen[bytes],
+        output_sock: socket.socket,
+        compression: str,
+        start_seconds: float,
+        stop_event: Optional[threading.Event],
+        progress_callback: Optional[Callable[[float], None]],
+    ) -> int:
+        """Send incremental raw G.711 output in real-time 128-byte chunks."""
+        if process.stdout is None:
+            return 0
+        chunks_out = 0
+        pace = G711_CHUNK_SIZE / G711_SAMPLE_RATE
+        send_epoch: float | None = None
+
+        while not _stop_requested(stop_event):
+            ready, _, _ = select.select([process.stdout], [], [], 0.1)
+            if not ready:
+                continue
+            chunk = process.stdout.read(G711_CHUNK_SIZE)
+            if not chunk:
+                if process.poll() is not None:
+                    break
+                time.sleep(0.01)
+                continue
+            if len(chunk) < G711_CHUNK_SIZE:
+                chunk += _g711_pad_byte(compression) * (
+                    G711_CHUNK_SIZE - len(chunk)
+                )
+            now = time.monotonic()
+            if send_epoch is None:
+                send_epoch = now
+            due = send_epoch + chunks_out * pace
+            while due > time.monotonic():
+                if _stop_requested(stop_event):
+                    break
+                time.sleep(min(0.02, due - time.monotonic()))
+            if _stop_requested(stop_event):
+                break
+            output_sock.sendall(chunk)
+            chunks_out += 1
+            if progress_callback is not None:
+                media_position = max(
+                    0.0, chunks_out * pace - 0.25
+                )
+                progress_callback(start_seconds + media_position)
+        return chunks_out
 
     def stream_aac_two_way_audio(
         self,
