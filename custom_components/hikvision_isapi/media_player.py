@@ -435,10 +435,10 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             return
         position = self._media_position
         self._attr_state = MediaPlayerState.PAUSED
-        await self._stop_stream(close_session=False)
         self._media_position = position
         self._position_updated_at = None
         self.async_write_ha_state()
+        await self._stop_stream(close_session=False)
         await self._start_linger(PAUSE_LINGER_SECONDS)
 
     async def async_media_play(self) -> None:
@@ -451,12 +451,12 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
 
     async def async_media_stop(self) -> None:
         """Stop playback and close TwoWayAudio promptly."""
-        await self._stop_stream(close_session=True)
-        await self._cancel_mute_close()
         self._attr_state = MediaPlayerState.IDLE
         self._media_position = 0.0
         self._position_updated_at = None
         self.async_write_ha_state()
+        await self._stop_stream(close_session=True)
+        await self._cancel_mute_close()
 
     async def _stop_stream(self, *, close_session: bool) -> None:
         """Stop ffmpeg, optionally retaining the camera output session."""

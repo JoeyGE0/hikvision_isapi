@@ -2334,6 +2334,23 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to convert/play audio for speaker: %s", e, exc_info=True)
             return False
 
+    @staticmethod
+    def _terminate_process(
+        process: subprocess.Popen[bytes] | None,
+    ) -> None:
+        """Terminate a streaming ffmpeg process, killing it if it lingers."""
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+
     def play_audio_url(
         self,
         media_url: str,
@@ -2424,7 +2441,20 @@ class HikvisionISAPI:
                     lead_silence_ms / 1000,
                 )
 
-            return_code = process.wait(timeout=5)
+            if _stop_requested(stop_event):
+                # Interrupted (next/seek/stop): kill ffmpeg now instead of
+                # blocking on a process still writing to a full pipe.
+                self._terminate_process(process)
+                return False
+
+            try:
+                return_code = process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._terminate_process(process)
+                if _stop_requested(stop_event):
+                    return False
+                _LOGGER.error("ffmpeg speaker conversion did not exit in time")
+                return False
             stderr_thread.join(timeout=1)
             if return_code != 0 and not _stop_requested(stop_event):
                 detail = " | ".join(stderr_lines[-3:])[:500]
@@ -2443,12 +2473,7 @@ class HikvisionISAPI:
             )
             return False
         finally:
-            if process is not None and process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
+            self._terminate_process(process)
             if owns_stream:
                 self.close_audio_stream_session(stream)
 
