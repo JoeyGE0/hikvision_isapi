@@ -9,6 +9,7 @@ camera's TwoWayAudio compression type before streaming.
 """
 from __future__ import annotations
 
+from functools import lru_cache
 import logging
 import os
 import shutil
@@ -127,23 +128,21 @@ def build_ffmpeg_stream_command(
     sample_rate: int = DEFAULT_AAC_SAMPLE_RATE,
     bitrate_k: int = DEFAULT_AAC_BITRATE_K,
     start_seconds: float = 0.0,
+    lead_silence_ms: int = LEAD_SILENCE_MS,
+    tail_silence_s: float = TAIL_SILENCE_S,
 ) -> list[str]:
     """Build the streaming conversion command used by the HA media player."""
     command = [find_ffmpeg(), "-hide_banner", "-loglevel", "error"]
     if start_seconds > 0.05:
         command.extend(["-ss", f"{start_seconds:.3f}"])
-    command.extend(
-        [
-            "-i",
-            media_url,
-            "-vn",
-            "-af",
-            (
-                f"adelay={LEAD_SILENCE_MS}:all=1,"
-                f"apad=pad_dur={TAIL_SILENCE_S}"
-            ),
-        ]
-    )
+    command.extend(["-i", media_url, "-vn"])
+    filters = []
+    if lead_silence_ms > 0:
+        filters.append(f"adelay={lead_silence_ms}:all=1")
+    if tail_silence_s > 0:
+        filters.append(f"apad=pad_dur={tail_silence_s}")
+    if filters:
+        command.extend(["-af", ",".join(filters)])
     if compression_is_aac(compression):
         command.extend(
             [
@@ -174,6 +173,48 @@ def build_ffmpeg_stream_command(
         )
     command.append("pipe:1")
     return command
+
+
+@lru_cache(maxsize=8)
+def aac_silence_frame(
+    sample_rate: int = DEFAULT_AAC_SAMPLE_RATE,
+    bitrate_k: int = DEFAULT_AAC_BITRATE_K,
+) -> bytes:
+    """Generate one cached AAC-LC ADTS silence frame."""
+    command = [
+        find_ffmpeg(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        f"anullsrc=r={sample_rate}:cl=mono",
+        "-frames:a",
+        "1",
+        "-c:a",
+        "aac",
+        "-profile:a",
+        "aac_low",
+        "-b:a",
+        f"{bitrate_k}k",
+        "-f",
+        "adts",
+        "pipe:1",
+    ]
+    process = subprocess.run(
+        command,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    if process.returncode != 0:
+        detail = process.stderr.decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"ffmpeg silence generation failed: {detail}")
+    frames = split_adts(process.stdout)
+    if not frames:
+        raise RuntimeError("ffmpeg produced no AAC silence frame")
+    return frames[0]
 
 
 def ffmpeg_convert_to_adts(

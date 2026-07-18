@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import partial
 import logging
 import threading
 import time
@@ -26,6 +27,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .api import AudioStreamSession
 from .const import DOMAIN, ENTITY_GROUP_TWO_WAY_AUDIO
 from .device_helpers import get_primary_device_info
 from .entity_profiles import entity_enabled
@@ -33,6 +35,10 @@ from .entity_profiles import entity_enabled
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
+QUEUE_LINGER_SECONDS = 3.0
+PAUSE_LINGER_SECONDS = 10.0
+MUTE_LINGER_SECONDS = 10.0
+UNMUTE_PREROLL_SECONDS = 0.25
 
 
 @dataclass(slots=True)
@@ -114,11 +120,15 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         self._queue_index = 0
         self._stream_task: asyncio.Task | None = None
         self._stop_event: threading.Event | None = None
+        self._stream_session: AudioStreamSession | None = None
+        self._linger_task: asyncio.Task | None = None
+        self._linger_stop: threading.Event | None = None
+        self._mute_close_task: asyncio.Task | None = None
+        self._mute_event = threading.Event()
         self._media_position = 0.0
         self._position_updated_at: datetime | None = None
         self._last_state_write = 0.0
         self._is_muted = False
-        self._volume_before_mute = 0.5
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -235,10 +245,11 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
 
     async def _start_index(self, index: int) -> None:
         """Stop the current item and play another queue index."""
-        await self._stop_stream()
+        await self._stop_stream(close_session=False)
         if not 0 <= index < len(self._queue):
             self._attr_state = MediaPlayerState.IDLE
             self.async_write_ha_state()
+            await self._start_linger(QUEUE_LINGER_SECONDS)
             return
         self._queue_index = index
         await self._start_current(0.0)
@@ -248,7 +259,12 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         item = self._current_item
         if item is None:
             return
-        await self._stop_stream()
+        await self._stop_stream(close_session=False)
+        await self._cancel_linger()
+        if not await self._ensure_stream_session(connect=not self._is_muted):
+            self._attr_state = MediaPlayerState.IDLE
+            self.async_write_ha_state()
+            return
 
         stop_event = threading.Event()
         self._stop_event = stop_event
@@ -283,6 +299,8 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 stop_event,
                 start_seconds,
                 progress,
+                self._stream_session,
+                self._mute_event,
             )
         except asyncio.CancelledError:
             stop_event.set()
@@ -298,6 +316,7 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 elif self._attr_state == MediaPlayerState.PLAYING:
                     self._attr_state = MediaPlayerState.IDLE
                     self.async_write_ha_state()
+                    await self._close_stream_session()
 
     def _handle_progress(
         self, position: float, stop_event: threading.Event
@@ -323,17 +342,104 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
         self._media_position = 0.0
         self._position_updated_at = None
         self.async_write_ha_state()
+        if self._is_muted:
+            await self._close_stream_session()
+        else:
+            await self._start_linger(QUEUE_LINGER_SECONDS)
+
+    async def _ensure_stream_session(self, *, connect: bool) -> bool:
+        """Create or reconnect the reusable camera output session."""
+        stream = self._stream_session
+        if stream is None:
+            stream = await self.hass.async_add_executor_job(
+                partial(
+                    self.api.create_audio_stream_session,
+                    connect=connect,
+                )
+            )
+            if stream is None:
+                return False
+            self._stream_session = stream
+            return True
+        if connect and not stream.connected:
+            return await self.hass.async_add_executor_job(
+                self.api.reconnect_audio_stream_session,
+                stream,
+            )
+        return True
+
+    async def _close_stream_session(self) -> None:
+        """Close the camera output while retaining queue state."""
+        stream = self._stream_session
+        if stream is not None:
+            await self.hass.async_add_executor_job(
+                self.api.close_audio_stream_session,
+                stream,
+            )
+
+    async def _cancel_linger(self) -> None:
+        """Stop a pending silence grace period without closing its session."""
+        stop_event = self._linger_stop
+        task = self._linger_task
+        self._linger_stop = None
+        self._linger_task = None
+        if stop_event is not None:
+            stop_event.set()
+        if task is not None and task is not asyncio.current_task():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                pass
+
+    async def _start_linger(self, duration: float) -> None:
+        """Keep the camera warm briefly, then release its talk channel."""
+        await self._cancel_linger()
+        stream = self._stream_session
+        if stream is None or not stream.connected:
+            return
+        stop_event = threading.Event()
+        self._linger_stop = stop_event
+        self._linger_task = self.hass.async_create_task(
+            self._linger(stream, duration, stop_event)
+        )
+
+    async def _linger(
+        self,
+        stream: AudioStreamSession,
+        duration: float,
+        stop_event: threading.Event,
+    ) -> None:
+        """Send codec silence during a bounded idle grace period."""
+        try:
+            await self.hass.async_add_executor_job(
+                self.api.keep_audio_stream_alive,
+                stream,
+                duration,
+                stop_event,
+            )
+        except asyncio.CancelledError:
+            stop_event.set()
+            raise
+        except Exception:
+            _LOGGER.exception("Error while keeping camera audio session warm")
+        finally:
+            if self._linger_stop is stop_event:
+                self._linger_stop = None
+                self._linger_task = None
+                if not stop_event.is_set():
+                    await self._close_stream_session()
 
     async def async_media_pause(self) -> None:
-        """Pause by closing talk and retaining the current position."""
+        """Pause playback while briefly keeping the talk session warm."""
         if self._attr_state != MediaPlayerState.PLAYING:
             return
         position = self._media_position
         self._attr_state = MediaPlayerState.PAUSED
-        await self._stop_stream()
+        await self._stop_stream(close_session=False)
         self._media_position = position
         self._position_updated_at = None
         self.async_write_ha_state()
+        await self._start_linger(PAUSE_LINGER_SECONDS)
 
     async def async_media_play(self) -> None:
         """Resume paused media."""
@@ -345,14 +451,17 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
 
     async def async_media_stop(self) -> None:
         """Stop playback and close TwoWayAudio promptly."""
-        await self._stop_stream()
+        await self._stop_stream(close_session=True)
+        await self._cancel_mute_close()
         self._attr_state = MediaPlayerState.IDLE
         self._media_position = 0.0
         self._position_updated_at = None
         self.async_write_ha_state()
 
-    async def _stop_stream(self) -> None:
-        """Signal the worker and wait briefly for clean camera teardown."""
+    async def _stop_stream(self, *, close_session: bool) -> None:
+        """Stop ffmpeg, optionally retaining the camera output session."""
+        if close_session:
+            await self._cancel_linger()
         stop_event = self._stop_event
         task = self._stream_task
         self._stop_event = None
@@ -364,9 +473,8 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
                 await asyncio.wait_for(asyncio.shield(task), timeout=5)
             except (TimeoutError, asyncio.CancelledError):
                 task.cancel()
-        await self.hass.async_add_executor_job(
-            self.api.close_audio_session
-        )
+        if close_session:
+            await self._close_stream_session()
 
     async def async_media_next_track(self) -> None:
         """Skip to the next queued item."""
@@ -396,22 +504,53 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
             self.api.set_speaker_volume, volume_int
         )
         if success:
-            self._is_muted = volume_int == 0
-            if volume_int > 0:
-                self._volume_before_mute = volume_int / 100
             await self.coordinator.async_request_refresh()
 
     async def async_mute_volume(self, mute: bool) -> None:
-        """Mute or restore the camera loudspeaker."""
-        if mute:
-            current = self.volume_level
-            if current is not None and current > 0:
-                self._volume_before_mute = current
-            await self.async_set_volume_level(0.0)
+        """Soft-mute stream audio without changing camera volume."""
+        if mute == self._is_muted:
             return
-        await self.async_set_volume_level(
-            max(0.01, self._volume_before_mute)
-        )
+        if mute:
+            self._is_muted = True
+            self._mute_event.set()
+            await self._cancel_mute_close()
+            self._mute_close_task = self.hass.async_create_task(
+                self._close_after_muted_grace()
+            )
+            self.async_write_ha_state()
+            return
+        await self._cancel_mute_close()
+        if self._attr_state == MediaPlayerState.PLAYING:
+            if not await self._ensure_stream_session(connect=True):
+                _LOGGER.error("Unable to reopen camera audio while unmuting")
+                return
+            await asyncio.sleep(UNMUTE_PREROLL_SECONDS)
+        self._mute_event.clear()
+        self._is_muted = False
+        self.async_write_ha_state()
+
+    async def _cancel_mute_close(self) -> None:
+        """Cancel a pending delayed close for soft mute."""
+        task = self._mute_close_task
+        self._mute_close_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def _close_after_muted_grace(self) -> None:
+        """Release the camera channel after an extended soft mute."""
+        try:
+            await asyncio.sleep(MUTE_LINGER_SECONDS)
+            if self._is_muted:
+                await self._close_stream_session()
+        except asyncio.CancelledError:
+            raise
+        finally:
+            if self._mute_close_task is asyncio.current_task():
+                self._mute_close_task = None
 
     async def async_volume_up(self) -> None:
         """Increase volume by ten percent."""

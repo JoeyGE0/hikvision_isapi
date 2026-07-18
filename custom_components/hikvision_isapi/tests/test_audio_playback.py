@@ -1,9 +1,11 @@
 """Tests for Hikvision speaker audio conversion helpers."""
 from __future__ import annotations
 
+from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from custom_components.hikvision_isapi.audio_playback import (
+    aac_silence_frame,
     build_ffmpeg_stream_command,
     pull_adts_frames,
 )
@@ -74,4 +76,45 @@ def test_build_g711_alaw_stream_command(mock_find_ffmpeg) -> None:
     assert command[command.index("-f") + 1] == "alaw"
     assert command[command.index("-ar") + 1] == "8000"
     assert "adts" not in command
+    mock_find_ffmpeg.assert_called_once()
+
+
+@patch(
+    "custom_components.hikvision_isapi.audio_playback.find_ffmpeg",
+    return_value="/usr/bin/ffmpeg",
+)
+def test_build_persistent_stream_command_without_padding(
+    mock_find_ffmpeg,
+) -> None:
+    """Queue transitions can omit per-file lead and tail padding."""
+    command = build_ffmpeg_stream_command(
+        "https://example.test/audio.wav",
+        "AAC",
+        lead_silence_ms=0,
+        tail_silence_s=0,
+    )
+
+    assert "-af" not in command
+    mock_find_ffmpeg.assert_called_once()
+
+
+@patch(
+    "custom_components.hikvision_isapi.audio_playback.subprocess.run"
+)
+@patch(
+    "custom_components.hikvision_isapi.audio_playback.find_ffmpeg",
+    return_value="/usr/bin/ffmpeg",
+)
+def test_aac_silence_frame_is_generated_and_cached(
+    mock_find_ffmpeg,
+    mock_run,
+) -> None:
+    """The session keepalive reuses one valid encoded silence frame."""
+    frame = _adts_frame(80)
+    mock_run.return_value = CompletedProcess([], 0, frame, b"")
+    aac_silence_frame.cache_clear()
+
+    assert aac_silence_frame(16000, 64) == frame
+    assert aac_silence_frame(16000, 64) == frame
+    mock_run.assert_called_once()
     mock_find_ffmpeg.assert_called_once()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+from dataclasses import dataclass, field
 import logging
 import os
 import re
@@ -22,6 +23,7 @@ import xml.etree.ElementTree as ET
 from typing import Callable, Optional
 
 from .audio_playback import (
+    aac_silence_frame,
     aac_frame_duration_s,
     build_ffmpeg_stream_command,
     compression_is_aac,
@@ -52,6 +54,28 @@ def _g711_pad_byte(compression_type: str) -> bytes:
 
 def _stop_requested(stop_event: Optional[threading.Event]) -> bool:
     return stop_event is not None and stop_event.is_set()
+
+
+@dataclass(slots=True)
+class AudioStreamSession:
+    """Reusable TwoWayAudio output held across media queue items."""
+
+    compression: str
+    sample_rate: int
+    bitrate_k: int
+    session_id: str | None = None
+    output_sock: socket.socket | None = None
+    has_streamed: bool = False
+    lock: threading.RLock = field(
+        default_factory=threading.RLock,
+        repr=False,
+    )
+
+    @property
+    def connected(self) -> bool:
+        """Return whether the camera output socket is currently open."""
+        with self.lock:
+            return self.output_sock is not None
 
 
 class _SocketGrabber:
@@ -2075,22 +2099,44 @@ class HikvisionISAPI:
                 return True
 
             compression = audio_data.get("audioCompressionType", "G.711ulaw")
+            speaker_volume = audio_data.get("speakerVolume", 50)
+            microphone_volume = audio_data.get("microphoneVolume", 100)
+            noise_reduce = (
+                "true" if audio_data.get("noisereduce", True) else "false"
+            )
             xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
 <enabled>true</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
+<speakerVolume>{microphone_volume}</speakerVolume>
+<microphoneVolume>{speaker_volume}</microphoneVolume>
+<noisereduce>{noise_reduce}</noisereduce>
+<audioInputType>MicIn</audioInputType>
+<audioOutputType>Speaker</audioOutputType>
 </TwoWayAudioChannel>"""
             url = f"http://{self.host}/ISAPI/System/TwoWayAudio/channels/1"
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_data,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5,
+            for attempt in range(2):
+                response = requests.put(
+                    url,
+                    auth=self._auth,
+                    data=xml_data,
+                    headers={"Content-Type": "application/xml"},
+                    verify=self.verify_ssl,
+                    timeout=5,
+                )
+                if response.status_code != 400 or attempt:
+                    response.raise_for_status()
+                    break
+                _LOGGER.debug(
+                    "TwoWayAudio enable returned 400; closing a stale "
+                    "session before one retry"
+                )
+                self._close_audio_session_silent()
+                time.sleep(0.3)
+            _LOGGER.info(
+                "Two-way audio enabled for streaming (compression=%s)",
+                compression,
             )
-            response.raise_for_status()
-            _LOGGER.info("Two-way audio enabled for streaming (compression=%s)", compression)
             return True
         except Exception as e:
             _LOGGER.error("Failed to enable two-way audio: %s", e)
@@ -2112,6 +2158,122 @@ class HikvisionISAPI:
             req = urllib.request.Request(audio_path, method="PUT")
             opener.open(req)
             return sockgrab.sock
+
+    def create_audio_stream_session(
+        self,
+        *,
+        connect: bool = True,
+    ) -> AudioStreamSession | None:
+        """Create a reusable queue playback session."""
+        audio_config = self.get_two_way_audio()
+        compression = (
+            audio_config.get("audioCompressionType", "G.711ulaw")
+            or "G.711ulaw"
+        )
+        sample_rate = normalize_sample_rate(
+            audio_config.get("audioSamplingRate")
+        )
+        bitrate_raw = audio_config.get("audioBitRate")
+        try:
+            bitrate_k = int(bitrate_raw) if bitrate_raw is not None else 64
+        except (TypeError, ValueError):
+            bitrate_k = 64
+        if bitrate_k > 256:
+            bitrate_k = max(16, bitrate_k // 1000)
+        stream = AudioStreamSession(compression, sample_rate, bitrate_k)
+        if connect and not self.reconnect_audio_stream_session(stream):
+            return None
+        return stream
+
+    def reconnect_audio_stream_session(
+        self,
+        stream: AudioStreamSession,
+    ) -> bool:
+        """Connect or reconnect a reusable queue playback session."""
+        with stream.lock:
+            if stream.output_sock is not None:
+                return True
+        if not self.ensure_two_way_audio_enabled():
+            return False
+        session_id = self.open_audio_session()
+        if not session_id:
+            return False
+        output_sock = self._open_audio_data_socket(session_id)
+        if output_sock is None:
+            self.close_audio_session()
+            _LOGGER.error("Failed to open TwoWayAudio data socket")
+            return False
+        with stream.lock:
+            stream.session_id = session_id
+            stream.output_sock = output_sock
+        return True
+
+    def close_audio_stream_session(
+        self,
+        stream: AudioStreamSession,
+    ) -> bool:
+        """Close a reusable queue playback session."""
+        with stream.lock:
+            output_sock = stream.output_sock
+            had_session = stream.session_id is not None
+            stream.output_sock = None
+            stream.session_id = None
+            stream.has_streamed = False
+        if output_sock is not None:
+            try:
+                output_sock.close()
+            except OSError:
+                pass
+        if had_session:
+            return self.close_audio_session()
+        return True
+
+    def _send_stream_payload(
+        self,
+        stream: AudioStreamSession,
+        payload: bytes,
+    ) -> bool:
+        """Send bytes when connected, or drop them while disconnected."""
+        with stream.lock:
+            output_sock = stream.output_sock
+            if output_sock is None:
+                return False
+            try:
+                output_sock.sendall(payload)
+                return True
+            except OSError:
+                stream.output_sock = None
+                try:
+                    output_sock.close()
+                except OSError:
+                    pass
+                return False
+
+    def keep_audio_stream_alive(
+        self,
+        stream: AudioStreamSession,
+        duration: float,
+        stop_event: Optional[threading.Event] = None,
+    ) -> bool:
+        """Send codec silence while a connected session is lingering."""
+        if duration <= 0:
+            return True
+        if compression_is_aac(stream.compression):
+            frame = aac_silence_frame(stream.sample_rate, stream.bitrate_k)
+            payload = struct.pack(">I", len(frame)) + frame
+            pace = aac_frame_duration_s(stream.sample_rate)
+        else:
+            payload = _g711_pad_byte(stream.compression) * G711_CHUNK_SIZE
+            pace = G711_CHUNK_SIZE / G711_SAMPLE_RATE
+        deadline = time.monotonic() + duration
+        due = time.monotonic()
+        while time.monotonic() < deadline and not _stop_requested(stop_event):
+            if not self._send_stream_payload(stream, payload):
+                return False
+            due += pace
+            while due > time.monotonic() and not _stop_requested(stop_event):
+                time.sleep(min(0.02, due - time.monotonic()))
+        return not _stop_requested(stop_event)
 
     def play_audio_bytes(
         self,
@@ -2178,6 +2340,8 @@ class HikvisionISAPI:
         stop_event: Optional[threading.Event] = None,
         start_seconds: float = 0.0,
         progress_callback: Optional[Callable[[float], None]] = None,
+        stream: AudioStreamSession | None = None,
+        mute_event: Optional[threading.Event] = None,
     ) -> bool:
         """Transcode a URL incrementally and stream it to TwoWayAudio.
 
@@ -2188,21 +2352,18 @@ class HikvisionISAPI:
         if not media_url or _stop_requested(stop_event):
             return False
 
-        audio_config = self.get_two_way_audio()
-        compression = (
-            audio_config.get("audioCompressionType", "G.711ulaw")
-            or "G.711ulaw"
-        )
-        sample_rate = normalize_sample_rate(
-            audio_config.get("audioSamplingRate")
-        )
-        bitrate_raw = audio_config.get("audioBitRate")
-        try:
-            bitrate_k = int(bitrate_raw) if bitrate_raw is not None else 64
-        except (TypeError, ValueError):
-            bitrate_k = 64
-        if bitrate_k > 256:
-            bitrate_k = max(16, bitrate_k // 1000)
+        owns_stream = stream is None
+        if stream is None:
+            stream = self.create_audio_stream_session()
+            if stream is None:
+                return False
+        compression = stream.compression
+        sample_rate = stream.sample_rate
+        bitrate_k = stream.bitrate_k
+        with stream.lock:
+            first_item = not stream.has_streamed
+            stream.has_streamed = True
+        lead_silence_ms = 250 if first_item and stream.connected else 0
 
         command = build_ffmpeg_stream_command(
             media_url,
@@ -2210,23 +2371,13 @@ class HikvisionISAPI:
             sample_rate=sample_rate,
             bitrate_k=bitrate_k,
             start_seconds=start_seconds,
+            lead_silence_ms=lead_silence_ms,
+            tail_silence_s=0 if not owns_stream else 0.8,
         )
         process: subprocess.Popen[bytes] | None = None
-        output_sock: socket.socket | None = None
-        session_id: str | None = None
         stderr_lines: list[str] = []
 
         try:
-            if not self.ensure_two_way_audio_enabled():
-                return False
-            session_id = self.open_audio_session()
-            if not session_id:
-                return False
-            output_sock = self._open_audio_data_socket(session_id)
-            if output_sock is None:
-                _LOGGER.error("Failed to open TwoWayAudio data socket")
-                return False
-
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.DEVNULL,
@@ -2253,20 +2404,24 @@ class HikvisionISAPI:
             if compression_is_aac(compression):
                 sent = self._stream_ffmpeg_aac(
                     process,
-                    output_sock,
+                    stream,
                     sample_rate,
                     start_seconds,
                     stop_event,
                     progress_callback,
+                    mute_event,
+                    lead_silence_ms / 1000,
                 )
             else:
                 sent = self._stream_ffmpeg_g711(
                     process,
-                    output_sock,
+                    stream,
                     compression,
                     start_seconds,
                     stop_event,
                     progress_callback,
+                    mute_event,
+                    lead_silence_ms / 1000,
                 )
 
             return_code = process.wait(timeout=5)
@@ -2294,22 +2449,19 @@ class HikvisionISAPI:
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     process.kill()
-            if output_sock is not None:
-                try:
-                    output_sock.close()
-                except OSError:
-                    pass
-            if session_id:
-                self.close_audio_session()
+            if owns_stream:
+                self.close_audio_stream_session(stream)
 
     def _stream_ffmpeg_aac(
         self,
         process: subprocess.Popen[bytes],
-        output_sock: socket.socket,
+        stream: AudioStreamSession,
         sample_rate: int,
         start_seconds: float,
         stop_event: Optional[threading.Event],
         progress_callback: Optional[Callable[[float], None]],
+        mute_event: Optional[threading.Event],
+        progress_offset: float,
     ) -> int:
         """Send incremental ffmpeg ADTS output with Hikvision framing."""
         if process.stdout is None:
@@ -2318,6 +2470,7 @@ class HikvisionISAPI:
         pace = aac_frame_duration_s(sample_rate)
         send_epoch: float | None = None
         frames_out = 0
+        silence_packet: bytes | None = None
 
         while not _stop_requested(stop_event):
             ready, _, _ = select.select([process.stdout], [], [], 0.1)
@@ -2343,11 +2496,25 @@ class HikvisionISAPI:
                     time.sleep(min(0.02, due - time.monotonic()))
                 if _stop_requested(stop_event):
                     break
-                output_sock.sendall(struct.pack(">I", len(frame)) + frame)
+                if _stop_requested(mute_event):
+                    if silence_packet is None:
+                        silence = aac_silence_frame(
+                            stream.sample_rate,
+                            stream.bitrate_k,
+                        )
+                        silence_packet = (
+                            struct.pack(">I", len(silence)) + silence
+                        )
+                    self._send_stream_payload(stream, silence_packet)
+                else:
+                    self._send_stream_payload(
+                        stream,
+                        struct.pack(">I", len(frame)) + frame,
+                    )
                 frames_out += 1
                 if progress_callback is not None:
                     media_position = max(
-                        0.0, frames_out * pace - 0.25
+                        0.0, frames_out * pace - progress_offset
                     )
                     progress_callback(start_seconds + media_position)
         return frames_out
@@ -2355,11 +2522,13 @@ class HikvisionISAPI:
     def _stream_ffmpeg_g711(
         self,
         process: subprocess.Popen[bytes],
-        output_sock: socket.socket,
+        stream: AudioStreamSession,
         compression: str,
         start_seconds: float,
         stop_event: Optional[threading.Event],
         progress_callback: Optional[Callable[[float], None]],
+        mute_event: Optional[threading.Event],
+        progress_offset: float,
     ) -> int:
         """Send incremental raw G.711 output in real-time 128-byte chunks."""
         if process.stdout is None:
@@ -2392,11 +2561,13 @@ class HikvisionISAPI:
                 time.sleep(min(0.02, due - time.monotonic()))
             if _stop_requested(stop_event):
                 break
-            output_sock.sendall(chunk)
+            if _stop_requested(mute_event):
+                chunk = _g711_pad_byte(compression) * G711_CHUNK_SIZE
+            self._send_stream_payload(stream, chunk)
             chunks_out += 1
             if progress_callback is not None:
                 media_position = max(
-                    0.0, chunks_out * pace - 0.25
+                    0.0, chunks_out * pace - progress_offset
                 )
                 progress_callback(start_seconds + media_position)
         return chunks_out
