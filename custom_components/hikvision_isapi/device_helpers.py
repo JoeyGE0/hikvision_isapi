@@ -55,6 +55,43 @@ def supplement_mode_supports_ir_light(mode: str | None) -> bool:
     return mode in SUPPLEMENT_MODES_IR_ACTIVE
 
 
+def patch_coordinator_section(coordinator, section: str, updates: dict) -> None:
+    """Optimistically merge updates into a coordinator data section (no full refresh)."""
+    data = coordinator.data
+    if not isinstance(data, dict):
+        return
+    current = data.get(section)
+    if isinstance(current, dict):
+        merged = {**current, **updates}
+    elif updates:
+        merged = dict(updates)
+    else:
+        merged = {}
+    coordinator.async_set_updated_data({**data, section: merged})
+
+
+def get_brightness_control_mode(coordinator_data: dict | None) -> str | None:
+    """Return auto/manual brightness regulation mode for the active supplement mode.
+
+    Cameras often keep both ``mixedLightBrightnessRegulatMode`` (IR/white) and
+    ``EventIntelligenceModeCfg/brightnessRegulatMode`` (Smart). Prefer the field
+    that matches the current supplement mode so a stale nested ``auto`` cannot
+    hide a top-level ``manual`` (or vice versa).
+    """
+    if not coordinator_data:
+        return None
+    supplement = coordinator_data.get("supplement_light")
+    if not isinstance(supplement, dict):
+        return None
+    mixed = supplement.get("mixedLightBrightnessRegulatMode")
+    bright = supplement.get("brightnessRegulatMode")
+    mixed_s = mixed if isinstance(mixed, str) and mixed else None
+    bright_s = bright if isinstance(bright, str) and bright else None
+    if get_supplement_light_mode(coordinator_data) == "eventIntelligence":
+        return bright_s or mixed_s
+    return mixed_s or bright_s
+
+
 def get_ircut_mode(coordinator_data: dict | None) -> str | None:
     """Return raw IrcutFilterType from coordinator data, if known."""
     if not coordinator_data:

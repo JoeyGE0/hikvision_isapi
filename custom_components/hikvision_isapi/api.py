@@ -618,50 +618,86 @@ class HikvisionISAPI:
                 _LOGGER.error("Failed to get supplement light: %s", e)
             return {}
 
-    def set_supplement_light(self, mode: str) -> bool:
-        """Set supplement light mode (eventIntelligence/irLight/close)."""
+    @staticmethod
+    def _supplement_light_xml(inner: str) -> str:
+        """Build a minimal SupplementLight PUT body (avoids GET-modify-PUT side effects)."""
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<SupplementLight version="2.0" '
+            'xmlns="http://www.hikvision.com/ver20/XMLSchema">'
+            f"{inner}"
+            "</SupplementLight>"
+        )
+
+    def _put_supplement_light(self, inner: str) -> bool:
+        """PUT a minimal SupplementLight document. Returns False on soft failure."""
         try:
-            # Get current settings first to preserve other values
-            current = self.get_supplement_light()
-            if not current:
-                return False
-            
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace mode value
-            xml_str = re.sub(
-                r'<supplementLightMode>.*?</supplementLightMode>',
-                f'<supplementLightMode>{mode}</supplementLightMode>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            self._put("/supplementLight", self._supplement_light_xml(inner))
             return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to PUT supplementLight: %s", e)
+            return False
+
+    @staticmethod
+    def _replace_first_xml_tag(xml_str: str, tag: str, value: str) -> str:
+        """Replace only the first <tag>…</tag> (root field), not nested copies."""
+        new_xml, count = re.subn(
+            rf"<{tag}>.*?</{tag}>",
+            f"<{tag}>{value}</{tag}>",
+            xml_str,
+            count=1,
+            flags=re.DOTALL,
+        )
+        if count == 0:
+            raise ValueError(f"<{tag}> not found in XML")
+        return new_xml
+
+    def _get_modify_put_url(self, url: str, tag: str, value: str) -> None:
+        """GET URL, replace first matching tag, PUT back (preserves siblings)."""
+        response = requests.get(
+            url,
+            auth=self._auth,
+            verify=self.verify_ssl,
+            timeout=5,
+        )
+        if response.status_code == 401:
+            raise AuthenticationError("Authentication failed - check username and password (401)")
+        if response.status_code == 403:
+            raise AuthenticationError(
+                f"Access forbidden - user '{self.username}' may not have required permissions (403)"
+            )
+        response.raise_for_status()
+        xml_str = self._replace_first_xml_tag(response.text, tag, str(value))
+        response = requests.put(
+            url,
+            auth=self._auth,
+            data=xml_str,
+            headers={"Content-Type": "application/xml"},
+            verify=self.verify_ssl,
+            timeout=5,
+        )
+        if response.status_code == 401:
+            raise AuthenticationError("Authentication failed - check username and password (401)")
+        if response.status_code == 403:
+            raise AuthenticationError(
+                f"Access forbidden - user '{self.username}' may not have required permissions (403)"
+            )
+        response.raise_for_status()
+
+    def set_supplement_light(self, mode: str) -> bool:
+        """Set supplement light mode (eventIntelligence/irLight/colorVuWhiteLight/close).
+
+        Uses a minimal PUT so sibling fields (esp. brightness auto/manual) are not
+        rewritten. Full-document GET-modify-PUT can force manual→auto when the
+        camera has mixedLightBrightnessRegulatMode=manual but nested
+        EventIntelligenceModeCfg/brightnessRegulatMode=auto.
+        """
+        try:
+            return self._put_supplement_light(
+                f"<supplementLightMode>{mode}</supplementLightMode>"
+            )
         except AuthenticationError:
             raise
         except Exception as e:
@@ -671,42 +707,13 @@ class HikvisionISAPI:
     def set_white_light_brightness(self, brightness: int) -> bool:
         """Set white light brightness (0-100)."""
         try:
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
+            # Update top-level and Smart-mode copies without touching mode/regulation.
+            return self._put_supplement_light(
+                f"<whiteLightBrightness>{brightness}</whiteLightBrightness>"
+                "<EventIntelligenceModeCfg>"
+                f"<whiteLightBrightness>{brightness}</whiteLightBrightness>"
+                "</EventIntelligenceModeCfg>"
             )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace whiteLightBrightness value
-            xml_str = re.sub(
-                r'<whiteLightBrightness>.*?</whiteLightBrightness>',
-                f'<whiteLightBrightness>{brightness}</whiteLightBrightness>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
         except AuthenticationError:
             raise
         except Exception as e:
@@ -716,42 +723,12 @@ class HikvisionISAPI:
     def set_ir_light_brightness(self, brightness: int) -> bool:
         """Set IR light brightness (0-100)."""
         try:
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
+            return self._put_supplement_light(
+                f"<irLightBrightness>{brightness}</irLightBrightness>"
+                "<EventIntelligenceModeCfg>"
+                f"<irLightBrightness>{brightness}</irLightBrightness>"
+                "</EventIntelligenceModeCfg>"
             )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace irLightBrightness value
-            xml_str = re.sub(
-                r'<irLightBrightness>.*?</irLightBrightness>',
-                f'<irLightBrightness>{brightness}</irLightBrightness>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
         except AuthenticationError:
             raise
         except Exception as e:
@@ -761,50 +738,13 @@ class HikvisionISAPI:
     def set_brightness_control_mode(self, mode: str) -> bool:
         """Set light brightness control mode (auto/manual)."""
         try:
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5,
+            # Keep mixed + Smart regulation fields in sync with one minimal PUT.
+            return self._put_supplement_light(
+                f"<mixedLightBrightnessRegulatMode>{mode}</mixedLightBrightnessRegulatMode>"
+                "<EventIntelligenceModeCfg>"
+                f"<brightnessRegulatMode>{mode}</brightnessRegulatMode>"
+                "</EventIntelligenceModeCfg>"
             )
-            if response.status_code == 401:
-                raise AuthenticationError("Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-
-            # Update both mixed and event-intelligence brightness control modes if present
-            xml_str, count1 = re.subn(
-                r"<brightnessRegulatMode>.*?</brightnessRegulatMode>",
-                f"<brightnessRegulatMode>{mode}</brightnessRegulatMode>",
-                xml_str,
-            )
-            xml_str, count2 = re.subn(
-                r"<mixedLightBrightnessRegulatMode>.*?</mixedLightBrightnessRegulatMode>",
-                f"<mixedLightBrightnessRegulatMode>{mode}</mixedLightBrightnessRegulatMode>",
-                xml_str,
-            )
-
-            if count1 == 0 and count2 == 0:
-                _LOGGER.error("Brightness control fields not found in supplementLight XML")
-                return False
-
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5,
-            )
-            if response.status_code == 401:
-                raise AuthenticationError("Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
         except AuthenticationError:
             raise
         except Exception as e:
@@ -814,43 +754,9 @@ class HikvisionISAPI:
     def set_white_light_brightness_limit(self, limit: int) -> bool:
         """Set white light brightness limit (0-100)."""
         try:
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5,
+            return self._put_supplement_light(
+                f"<whiteLightbrightLimit>{limit}</whiteLightbrightLimit>"
             )
-            if response.status_code == 401:
-                raise AuthenticationError("Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-
-            xml_str, count = re.subn(
-                r"<whiteLightbrightLimit>.*?</whiteLightbrightLimit>",
-                f"<whiteLightbrightLimit>{limit}</whiteLightbrightLimit>",
-                xml_str,
-            )
-            if count == 0:
-                _LOGGER.error("whiteLightbrightLimit field not found in supplementLight XML")
-                return False
-
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5,
-            )
-            if response.status_code == 401:
-                raise AuthenticationError("Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
         except AuthenticationError:
             raise
         except Exception as e:
@@ -860,43 +766,9 @@ class HikvisionISAPI:
     def set_ir_light_brightness_limit(self, limit: int) -> bool:
         """Set IR light brightness limit (0-100)."""
         try:
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5,
+            return self._put_supplement_light(
+                f"<irLightbrightLimit>{limit}</irLightbrightLimit>"
             )
-            if response.status_code == 401:
-                raise AuthenticationError("Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-
-            xml_str, count = re.subn(
-                r"<irLightbrightLimit>.*?</irLightbrightLimit>",
-                f"<irLightbrightLimit>{limit}</irLightbrightLimit>",
-                xml_str,
-            )
-            if count == 0:
-                _LOGGER.error("irLightbrightLimit field not found in supplementLight XML")
-                return False
-
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5,
-            )
-            if response.status_code == 401:
-                raise AuthenticationError("Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
         except AuthenticationError:
             raise
         except Exception as e:
@@ -922,43 +794,9 @@ class HikvisionISAPI:
     def set_white_light_time(self, duration: int) -> bool:
         """Set white light duration (10-300 seconds)."""
         try:
-            # Get current settings first
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/supplementLight"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
+            return self._put_supplement_light(
+                f"<whiteLightTime>{duration}</whiteLightTime>"
             )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace whiteLightTime value
-            xml_str = re.sub(
-                r'<whiteLightTime>.*?</whiteLightTime>',
-                f'<whiteLightTime>{duration}</whiteLightTime>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
         except AuthenticationError:
             raise
         except Exception as e:
@@ -1041,43 +879,7 @@ class HikvisionISAPI:
     def set_brightness(self, brightness: int) -> bool:
         """Set brightness level (0-100)."""
         try:
-            # Get current settings first
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace brightnessLevel value
-            xml_str = re.sub(
-                r'<brightnessLevel>.*?</brightnessLevel>',
-                f'<brightnessLevel>{brightness}</brightnessLevel>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
+            return self._put_color_field("brightnessLevel", brightness)
         except AuthenticationError:
             raise
         except Exception as e:
@@ -1087,43 +889,7 @@ class HikvisionISAPI:
     def set_contrast(self, contrast: int) -> bool:
         """Set contrast level (0-100)."""
         try:
-            # Get current settings first
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace contrastLevel value
-            xml_str = re.sub(
-                r'<contrastLevel>.*?</contrastLevel>',
-                f'<contrastLevel>{contrast}</contrastLevel>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
+            return self._put_color_field("contrastLevel", contrast)
         except AuthenticationError:
             raise
         except Exception as e:
@@ -1133,48 +899,23 @@ class HikvisionISAPI:
     def set_saturation(self, saturation: int) -> bool:
         """Set saturation level (0-100)."""
         try:
-            # Get current settings first
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}/color"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace saturationLevel value
-            xml_str = re.sub(
-                r'<saturationLevel>.*?</saturationLevel>',
-                f'<saturationLevel>{saturation}</saturationLevel>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
+            return self._put_color_field("saturationLevel", saturation)
         except AuthenticationError:
             raise
         except Exception as e:
             _LOGGER.error("Failed to set saturation: %s", e)
             return False
+
+    def _put_color_field(self, tag: str, value: int) -> bool:
+        """Minimal /color PUT for a single field (no sibling image settings)."""
+        xml_data = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Color version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">'
+            f"<{tag}>{value}</{tag}>"
+            "</Color>"
+        )
+        self._put("/color", xml_data)
+        return True
 
     def get_sharpness(self) -> Optional[int]:
         """Get sharpness level (0-100)."""
@@ -1194,44 +935,23 @@ class HikvisionISAPI:
             return None
 
     def set_sharpness(self, sharpness: int) -> bool:
-        """Set sharpness level (0-100)."""
+        """Set sharpness level (0-100).
+
+        Uses a minimal ImageChannel PUT. A full-channel GET-modify-PUT rewrites
+        nested SupplementLight/IrcutFilter/Exposure/WDR and can force brightness
+        regulation Manual→Auto.
+        """
         try:
-            # Get current settings first
-            url = f"http://{self.host}/ISAPI/Image/channels/{self.channel}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
+            xml_data = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<ImageChannel version="2.0" '
+                'xmlns="http://www.hikvision.com/ver20/XMLSchema">'
+                "<Sharpness>"
+                f"<SharpnessLevel>{sharpness}</SharpnessLevel>"
+                "</Sharpness>"
+                "</ImageChannel>"
             )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace SharpnessLevel value
-            xml_str = re.sub(
-                r'<SharpnessLevel>.*?</SharpnessLevel>',
-                f'<SharpnessLevel>{sharpness}</SharpnessLevel>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            self._put("", xml_data)
             return True
         except AuthenticationError:
             raise
@@ -2972,9 +2692,7 @@ class HikvisionISAPI:
     def set_motion_detection(self, enabled: bool) -> bool:
         """Enable/disable motion detection."""
         try:
-            # Check for mutex conflicts before enabling
             if enabled:
-                # Check if mutex checking is supported and event has mutex flag
                 if (hasattr(self, 'capabilities') and isinstance(self.capabilities, dict) and 
                     self.capabilities.get("support_event_mutex_checking", False)):
                     from .const import EVENTS
@@ -2982,49 +2700,15 @@ class HikvisionISAPI:
                         mutex_issues = self.get_event_switch_mutex("motiondetection", self.channel)
                         if mutex_issues:
                             raise EventMutexError("motiondetection", mutex_issues)
-            
-            # Get current settings first
-            current = self.get_motion_detection()
-            if not current:
-                return False
-            
+
+            # Full GET-modify-PUT required (minimal enabled-only PUT returns 400).
+            # Only replace the first <enabled> so nested copies are left alone.
             url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
-            
-            # Get full XML to preserve other settings
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace enabled value
-            import re
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            self._get_modify_put_url(url, "enabled", "true" if enabled else "false")
             return True
         except AuthenticationError:
+            raise
+        except EventMutexError:
             raise
         except Exception as e:
             _LOGGER.error("Failed to set motion detection: %s", e)
@@ -3034,42 +2718,7 @@ class HikvisionISAPI:
         """Set motion detection sensitivity (0-100)."""
         try:
             url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
-            
-            # Get current settings
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace sensitivityLevel value
-            xml_str = re.sub(
-                r'<sensitivityLevel>.*?</sensitivityLevel>',
-                f'<sensitivityLevel>{sensitivity}</sensitivityLevel>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            self._get_modify_put_url(url, "sensitivityLevel", sensitivity)
             return True
         except AuthenticationError:
             raise
@@ -3081,42 +2730,7 @@ class HikvisionISAPI:
         """Set motion detection target type (human, vehicle, human,vehicle)."""
         try:
             url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
-            
-            # Get current settings
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace targetType value
-            xml_str = re.sub(
-                r'<targetType>.*?</targetType>',
-                f'<targetType>{target_type}</targetType>',
-                xml_str
-            )
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            self._get_modify_put_url(url, "targetType", target_type)
             return True
         except AuthenticationError:
             raise
@@ -3128,46 +2742,35 @@ class HikvisionISAPI:
         """Set motion detection trigger times (milliseconds)."""
         try:
             url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/motionDetection"
-            
-            # Get current settings
             response = requests.get(
                 url,
                 auth=self._auth,
                 verify=self.verify_ssl,
-                timeout=5
+                timeout=5,
             )
             if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+                raise AuthenticationError("Authentication failed - check username and password (401)")
+            if response.status_code == 403:
+                raise AuthenticationError(
+                    f"Access forbidden - user '{self.username}' may not have required permissions (403)"
+                )
             response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace trigger time values
-            xml_str = re.sub(
-                r'<startTriggerTime>.*?</startTriggerTime>',
-                f'<startTriggerTime>{start_time}</startTriggerTime>',
-                xml_str
-            )
-            xml_str = re.sub(
-                r'<endTriggerTime>.*?</endTriggerTime>',
-                f'<endTriggerTime>{end_time}</endTriggerTime>',
-                xml_str
-            )
-            
-            # PUT updated XML
+            xml_str = self._replace_first_xml_tag(response.text, "startTriggerTime", str(start_time))
+            xml_str = self._replace_first_xml_tag(xml_str, "endTriggerTime", str(end_time))
             response = requests.put(
                 url,
                 auth=self._auth,
                 data=xml_str,
                 headers={"Content-Type": "application/xml"},
                 verify=self.verify_ssl,
-                timeout=5
+                timeout=5,
             )
             if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
+                raise AuthenticationError("Authentication failed - check username and password (401)")
+            if response.status_code == 403:
+                raise AuthenticationError(
+                    f"Access forbidden - user '{self.username}' may not have required permissions (403)"
+                )
             response.raise_for_status()
             return True
         except AuthenticationError:
@@ -3210,43 +2813,10 @@ class HikvisionISAPI:
             return {}
 
     def set_tamper_detection(self, enabled: bool) -> bool:
-        """Enable/disable tamper detection."""
+        """Enable/disable tamper detection (root <enabled> only; regions keep theirs)."""
         try:
             url = f"http://{self.host}/ISAPI/System/Video/inputs/channels/{self.channel}/tamperDetection"
-            
-            # Get current settings
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            
-            # Replace enabled value
-            import re
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            
-            # PUT updated XML
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            self._get_modify_put_url(url, "enabled", "true" if enabled else "false")
             return True
         except AuthenticationError:
             raise
@@ -3542,54 +3112,83 @@ class HikvisionISAPI:
                 _LOGGER.error("Failed to get field detection: %s", e)
             return {}
 
-    def set_field_detection(self, enabled: bool) -> bool:
-        """Enable/disable field detection (intrusion)."""
+    def _check_event_mutex(self, event_key: str) -> None:
+        """Raise EventMutexError when enabling a mutex-conflicting event."""
+        if not (
+            hasattr(self, "capabilities")
+            and isinstance(self.capabilities, dict)
+            and self.capabilities.get("support_event_mutex_checking", False)
+        ):
+            return
+        from .const import EVENTS
+
+        if EVENTS.get(event_key, {}).get("mutex"):
+            mutex_issues = self.get_event_switch_mutex(event_key, self.channel)
+            if mutex_issues:
+                raise EventMutexError(event_key, mutex_issues)
+
+    def _set_smart_enabled(
+        self,
+        *,
+        event_key: str | None,
+        url: str,
+        root_tag: str,
+        enabled: bool,
+        prefer_minimal: bool = False,
+    ) -> bool:
+        """Enable/disable a smart/event XML resource.
+
+        prefer_minimal: PUT only root enabled (faster; works for Scene/Defocus).
+        Otherwise GET-modify-PUT replacing the first <enabled> only.
+        """
         try:
-            # Check for mutex conflicts before enabling
-            if enabled:
-                # Check if mutex checking is supported and event has mutex flag
-                if (hasattr(self, 'capabilities') and isinstance(self.capabilities, dict) and 
-                    self.capabilities.get("support_event_mutex_checking", False)):
-                    from .const import EVENTS
-                    if EVENTS.get("fielddetection", {}).get("mutex"):
-                        mutex_issues = self.get_event_switch_mutex("fielddetection", self.channel)
-                        if mutex_issues:
-                            raise EventMutexError("fielddetection", mutex_issues)
-            
-            url = f"http://{self.host}/ISAPI/Smart/FieldDetection/{self.channel}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
+            if enabled and event_key:
+                self._check_event_mutex(event_key)
             enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
+            if prefer_minimal:
+                xml_data = (
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    f'<{root_tag} version="2.0" '
+                    'xmlns="http://www.hikvision.com/ver20/XMLSchema">'
+                    f"<enabled>{enabled_str}</enabled>"
+                    f"</{root_tag}>"
+                )
+                response = requests.put(
+                    url,
+                    auth=self._auth,
+                    data=xml_data,
+                    headers={"Content-Type": "application/xml"},
+                    verify=self.verify_ssl,
+                    timeout=5,
+                )
+                if response.status_code == 401:
+                    raise AuthenticationError(
+                        "Authentication failed - check username and password (401)"
+                    )
+                if response.status_code == 403:
+                    raise AuthenticationError(
+                        f"Access forbidden - user '{self.username}' may not have required permissions (403)"
+                    )
+                response.raise_for_status()
+            else:
+                self._get_modify_put_url(url, "enabled", enabled_str)
             return True
         except AuthenticationError:
             raise
+        except EventMutexError:
+            raise
         except Exception as e:
-            _LOGGER.error("Failed to set field detection: %s", e)
+            _LOGGER.error("Failed to set %s enabled=%s: %s", root_tag, enabled, e)
             return False
+
+    def set_field_detection(self, enabled: bool) -> bool:
+        """Enable/disable field detection (intrusion)."""
+        return self._set_smart_enabled(
+            event_key="fielddetection",
+            url=f"http://{self.host}/ISAPI/Smart/FieldDetection/{self.channel}",
+            root_tag="FieldDetection",
+            enabled=enabled,
+        )
 
     def get_line_detection(self) -> dict:
         """Get line detection settings."""
@@ -3622,52 +3221,12 @@ class HikvisionISAPI:
 
     def set_line_detection(self, enabled: bool) -> bool:
         """Enable/disable line detection."""
-        try:
-            # Check for mutex conflicts before enabling
-            if enabled:
-                # Check if mutex checking is supported and event has mutex flag
-                if (hasattr(self, 'capabilities') and isinstance(self.capabilities, dict) and 
-                    self.capabilities.get("support_event_mutex_checking", False)):
-                    from .const import EVENTS
-                    if EVENTS.get("linedetection", {}).get("mutex"):
-                        mutex_issues = self.get_event_switch_mutex("linedetection", self.channel)
-                        if mutex_issues:
-                            raise EventMutexError("linedetection", mutex_issues)
-            
-            url = f"http://{self.host}/ISAPI/Smart/LineDetection/{self.channel}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
-        except AuthenticationError:
-            raise
-        except Exception as e:
-            _LOGGER.error("Failed to set line detection: %s", e)
-            return False
+        return self._set_smart_enabled(
+            event_key="linedetection",
+            url=f"http://{self.host}/ISAPI/Smart/LineDetection/{self.channel}",
+            root_tag="LineDetection",
+            enabled=enabled,
+        )
 
     def get_scene_change_detection(self) -> dict:
         """Get scene change detection settings."""
@@ -3692,52 +3251,13 @@ class HikvisionISAPI:
 
     def set_scene_change_detection(self, enabled: bool) -> bool:
         """Enable/disable scene change detection."""
-        try:
-            # Check for mutex conflicts before enabling
-            if enabled:
-                # Check if mutex checking is supported and event has mutex flag
-                if (hasattr(self, 'capabilities') and isinstance(self.capabilities, dict) and 
-                    self.capabilities.get("support_event_mutex_checking", False)):
-                    from .const import EVENTS
-                    if EVENTS.get("scenechangedetection", {}).get("mutex"):
-                        mutex_issues = self.get_event_switch_mutex("scenechangedetection", self.channel)
-                        if mutex_issues:
-                            raise EventMutexError("scenechangedetection", mutex_issues)
-            
-            url = f"http://{self.host}/ISAPI/Smart/SceneChangeDetection/{self.channel}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
-        except AuthenticationError:
-            raise
-        except Exception as e:
-            _LOGGER.error("Failed to set scene change detection: %s", e)
-            return False
+        return self._set_smart_enabled(
+            event_key="scenechangedetection",
+            url=f"http://{self.host}/ISAPI/Smart/SceneChangeDetection/{self.channel}",
+            root_tag="SceneChangeDetection",
+            enabled=enabled,
+            prefer_minimal=True,
+        )
 
     def get_defocus_detection(self) -> dict:
         """Get defocus detection settings."""
@@ -3759,41 +3279,13 @@ class HikvisionISAPI:
 
     def set_defocus_detection(self, enabled: bool) -> bool:
         """Enable/disable defocus detection."""
-        try:
-            url = f"http://{self.host}/ISAPI/Smart/DefocusDetection/{self.channel}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5,
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r"<enabled>.*?</enabled>", f"<enabled>{enabled_str}</enabled>", xml_str)
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5,
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
-        except AuthenticationError:
-            raise
-        except Exception as e:
-            _LOGGER.error("Failed to set defocus detection: %s", e)
-            return False
+        return self._set_smart_enabled(
+            event_key=None,
+            url=f"http://{self.host}/ISAPI/Smart/DefocusDetection/{self.channel}",
+            root_tag="DefocusDetection",
+            enabled=enabled,
+            prefer_minimal=True,
+        )
 
     def get_region_entrance(self) -> dict:
         """Get region entrance detection settings."""
@@ -3817,41 +3309,12 @@ class HikvisionISAPI:
 
     def set_region_entrance(self, enabled: bool) -> bool:
         """Enable/disable region entrance detection."""
-        try:
-            url = f"http://{self.host}/ISAPI/Smart/regionEntrance/{self.channel}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
-        except AuthenticationError:
-            raise
-        except Exception as e:
-            _LOGGER.error("Failed to set region entrance: %s", e)
-            return False
+        return self._set_smart_enabled(
+            event_key=None,
+            url=f"http://{self.host}/ISAPI/Smart/regionEntrance/{self.channel}",
+            root_tag="RegionEntrance",
+            enabled=enabled,
+        )
 
     def get_region_exiting(self) -> dict:
         """Get region exiting detection settings."""
@@ -3875,41 +3338,12 @@ class HikvisionISAPI:
 
     def set_region_exiting(self, enabled: bool) -> bool:
         """Enable/disable region exiting detection."""
-        try:
-            url = f"http://{self.host}/ISAPI/Smart/regionExiting/{self.channel}"
-            response = requests.get(
-                url,
-                auth=self._auth,
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            xml_str = response.text
-            enabled_str = "true" if enabled else "false"
-            xml_str = re.sub(r'<enabled>.*?</enabled>', f'<enabled>{enabled_str}</enabled>', xml_str)
-            response = requests.put(
-                url,
-                auth=self._auth,
-                data=xml_str,
-                headers={"Content-Type": "application/xml"},
-                verify=self.verify_ssl,
-                timeout=5
-            )
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed - check username and password (401)")
-            elif response.status_code == 403:
-                raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
-            response.raise_for_status()
-            return True
-        except AuthenticationError:
-            raise
-        except Exception as e:
-            _LOGGER.error("Failed to set region exiting: %s", e)
-            return False
+        return self._set_smart_enabled(
+            event_key=None,
+            url=f"http://{self.host}/ISAPI/Smart/regionExiting/{self.channel}",
+            root_tag="RegionExiting",
+            enabled=enabled,
+        )
 
     @staticmethod
     def _xml_local_name(tag: str) -> str:
