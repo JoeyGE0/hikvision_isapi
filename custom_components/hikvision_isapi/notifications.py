@@ -87,6 +87,9 @@ class EventNotificationsView(HomeAssistantView):
                 _LOGGER.debug("Ignoring unsupported event notification: %s", ex)
             elif "Entity not found" in str(ex):
                 _LOGGER.warning("=== EVENT PROCESSING FAILED === %s", ex)
+            elif "Cannot find ISAPI instance" in str(ex):
+                # Common during reload / failed setup — don't spam ERROR + traceback
+                _LOGGER.warning("=== EVENT PROCESSING SKIPPED === %s", ex)
             else:
                 _LOGGER.error("=== EVENT PROCESSING ERROR === %s", ex, exc_info=True)
 
@@ -96,22 +99,29 @@ class EventNotificationsView(HomeAssistantView):
     def get_isapi_device(self, device_ip, alert: AlertInfo):
         """Get integration instance for device sending alert."""
         integration_entries = self.hass.config_entries.async_entries(DOMAIN)
+        domain_data = self.hass.data.get(DOMAIN, {})
         instance_identifiers = []
         entry = None
         
         if len(integration_entries) == 1:
-            entry = integration_entries[0]
+            only = integration_entries[0]
+            if only.entry_id in domain_data:
+                entry = only
         else:
             # Search device by mac_address
             for item in integration_entries:
                 if item.disabled_by:
                     continue
+                item_data = domain_data.get(item.entry_id)
+                if not item_data:
+                    # Setup failed / mid-reload / unload race — skip stale entry
+                    continue
 
-                device_info = self.hass.data[DOMAIN][item.entry_id].get("device_info", {})
+                device_info = item_data.get("device_info", {})
                 item_mac_address = device_info.get("macAddress", "").lower()
                 instance_identifiers.append(item_mac_address)
 
-                if item_mac_address and item_mac_address == alert.mac.lower():
+                if item_mac_address and alert.mac and item_mac_address == alert.mac.lower():
                     entry = item
                     break
 
@@ -120,8 +130,11 @@ class EventNotificationsView(HomeAssistantView):
                 for item in integration_entries:
                     if item.disabled_by:
                         continue
+                    item_data = domain_data.get(item.entry_id)
+                    if not item_data:
+                        continue
 
-                    host = self.hass.data[DOMAIN][item.entry_id].get("host", "")
+                    host = item_data.get("host", "")
                     instance_identifiers.append(host)
 
                     if self.get_ip(urlparse(f"http://{host}").hostname or host) == device_ip:

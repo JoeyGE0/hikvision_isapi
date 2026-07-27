@@ -420,7 +420,10 @@ def _check_isapi_http_response(
         )
     if response.status_code == 403:
         error_msg = _extract_error_message(response)
-        _LOGGER.warning(
+        # G2 often returns 403 invalidOperation for unknown Event/triggers IDs while probing.
+        is_event_trigger_probe = "/ISAPI/Event/triggers/" in endpoint
+        log = _LOGGER.debug if is_event_trigger_probe else _LOGGER.warning
+        log(
             "HTTP 403 %s %s: %s",
             method,
             endpoint,
@@ -512,11 +515,22 @@ class HikvisionISAPI:
                 and status_code is not None
                 and status_code >= 500
             )
+            is_event_trigger_probe_miss = (
+                "/ISAPI/Event/triggers/" in endpoint
+                and status_code in (403, 404)
+            )
             if is_bulk_event_triggers_5xx:
                 _LOGGER.debug(
                     "Bulk Event/triggers HTTP %s on %s (normal on G2; using per-trigger fallback)",
                     status_code,
                     self.host,
+                )
+            elif is_event_trigger_probe_miss:
+                _LOGGER.debug(
+                    "Event/triggers probe miss GET %s: %s - %s",
+                    endpoint,
+                    status_code,
+                    error_msg or e,
                 )
             elif error_msg:
                 _LOGGER.error("HTTP error GET %s: %s - %s", endpoint, status_code, error_msg)
@@ -3803,23 +3817,30 @@ class HikvisionISAPI:
         self, event_id: str, channel_id: int, io_port_id: int = 0
     ) -> list[str]:
         """Candidate GET paths for a single event trigger (G2 often 500s on the bulk list)."""
-        from .const import EVENTS, EVENT_IO
+        from .const import EVENT_IO, EVENT_TRIGGER_IDS, EVENTS
 
         cfg = EVENTS.get(event_id, {})
         slug = cfg.get("slug", event_id)
         if event_id == EVENT_IO and io_port_id > 0:
-            paths = [
-                f"/ISAPI/Event/triggers/IO-{io_port_id}",
-                f"/ISAPI/Event/triggers/io-{io_port_id}",
-                f"/ISAPI/Event/triggers/{slug}-{io_port_id}",
+            trigger_ids = [
+                f"IO-{io_port_id}",
+                f"io-{io_port_id}",
+                f"{slug}-{io_port_id}",
             ]
+            paths = [f"/ISAPI/Event/triggers/{tid}" for tid in trigger_ids]
         else:
-            paths = [
-                f"/ISAPI/Event/triggers/{event_id}-{channel_id}",
-                f"/ISAPI/Event/triggers/{slug}-{channel_id}",
-                f"/ISAPI/Event/triggers/{event_id}",
-                f"/ISAPI/Event/triggers/{slug}",
-            ]
+            # Prefer device-native IDs (e.g. VMDHumanVehicle) before HA-facing slug.
+            trigger_ids: list[str] = []
+            for tid in EVENT_TRIGGER_IDS.get(event_id, ()):
+                if tid not in trigger_ids:
+                    trigger_ids.append(tid)
+            for tid in (slug, event_id):
+                if tid and tid not in trigger_ids:
+                    trigger_ids.append(tid)
+            paths = []
+            for tid in trigger_ids:
+                paths.append(f"/ISAPI/Event/triggers/{tid}-{channel_id}")
+                paths.append(f"/ISAPI/Event/triggers/{tid}")
         # De-duplicate while preserving order
         seen: set[str] = set()
         ordered: list[str] = []
@@ -4075,6 +4096,10 @@ class HikvisionISAPI:
                 for path in self._event_trigger_probe_paths(
                     event_id, probe_channel, io_port_id=io_port_id
                 ):
+                    # Quiet existence check first — avoids ERROR/WARNING spam on
+                    # G2 cams that reject slug IDs (motionDetection) but accept VMD*.
+                    if not self._test_endpoint_exists(path):
+                        continue
                     try:
                         xml = self._get(path)
                     except AuthenticationError:
@@ -4095,9 +4120,10 @@ class HikvisionISAPI:
 
                     if not self._ensure_center_on_trigger(event_trigger):
                         _LOGGER.debug(
-                            "Surveillance Center already enabled for %s on %s",
+                            "Surveillance Center already enabled for %s on %s via %s",
                             event_id,
                             self.host,
+                            path,
                         )
                         break
 
@@ -4106,9 +4132,10 @@ class HikvisionISAPI:
                         payload = ET.tostring(xml, encoding="unicode", xml_declaration=True)
                         self._put(path, payload)
                         _LOGGER.info(
-                            "Enabled Surveillance Center notification for %s on %s",
+                            "Enabled Surveillance Center notification for %s on %s (%s)",
                             event_id,
                             self.host,
+                            path,
                         )
                     except Exception as err:
                         _LOGGER.warning(
@@ -4304,7 +4331,19 @@ class HikvisionISAPI:
                                 
                                 # Fetch event trigger for this specific channel
                                 try:
-                                    trigger_xml = self._get(f"/ISAPI/Event/triggers/{event_id}-{channel_id}")
+                                    trigger_xml = None
+                                    for path in self._event_trigger_probe_paths(
+                                        event_id, channel_id
+                                    ):
+                                        if not self._test_endpoint_exists(path):
+                                            continue
+                                        try:
+                                            trigger_xml = self._get(path)
+                                            break
+                                        except Exception:
+                                            continue
+                                    if trigger_xml is None:
+                                        continue
                                     
                                     # Find EventTrigger
                                     event_trigger = trigger_xml.find(f".//{XML_NS}EventTrigger")

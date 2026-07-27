@@ -164,6 +164,19 @@ MUTEX_ALTERNATE_ID: Final = {
     "motiondetection": "VMDHumanVehicle",
 }
 
+# Device-native /ISAPI/Event/triggers/<id> path IDs (G2 often rejects slug-only names).
+# Tried in order; first HTTP 200 wins. Canonical slug/id are always appended as fallback.
+EVENT_TRIGGER_IDS: Final = {
+    "motiondetection": ("VMDHumanVehicle", "VMD"),
+    "tamperdetection": ("shelteralarm",),
+    "defocus": ("DefocusDetection", "defocusdetection"),
+    "fielddetection": ("FieldDetection", "intrusion"),
+    "linedetection": ("LineDetection", "linecrossing"),
+    "scenechangedetection": ("SceneChangeDetection",),
+    "regionentrance": ("regionEntrance",),
+    "regionexiting": ("regionExiting",),
+}
+
 # Delays (seconds) before retrying ISAPI discovery when the camera returns transient
 # errors during boot (HTTP 500, timeouts). First attempt is immediate.
 ISAPI_BOOT_RETRY_DELAYS: Final = (20, 40)
