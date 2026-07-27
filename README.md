@@ -23,7 +23,7 @@
 ### Known Issues
 
 - **Binary sensors**: Motion is working. Other event types (intrusion, line crossing, etc.) usually need correct linkage and notification host on the camera. Event binary sensors are **disabled by default** when the camera reports the trigger as disabled in `Event/triggers`.
-- **Media player (Speaker)**: Only created when two-way audio is detected. Browse HA media (mp3/wav/m4a/TTS/etc.), ffmpeg converts to the camera talk codec (AAC or G.711), then streams over ISAPI (same framing as go2rtc AAC talk). Requires `ffmpeg` on the HA host. Entity is **disabled by default** in the entity registry for new setups.
+- **Media player (Speaker)**: Only created when two-way audio is detected. Browse HA media (mp3/wav/m4a/TTS/etc.), ffmpeg converts to the camera talk codec (AAC or G.711), then streams over ISAPI (same framing as go2rtc AAC talk). Requires `ffmpeg` on the HA host. Use the media player’s built-in volume (no separate `number.*_speaker_volume`).
 
 ---
 
@@ -88,10 +88,9 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 
 | Control               | Range/Options                                                     |
 | --------------------- | ----------------------------------------------------------------- |
-| **Speaker Volume**    | 0-100%                                                            |
+| **Speaker**           | Media player with volume; plays media after ffmpeg → AAC/G.711 ISAPI stream |
 | **Microphone Volume** | 0-100%                                                            |
 | **Noise Reduction**   | Enable/disable                                                    |
-| **Speaker**           | Media player (**disabled by default**); plays media after ffmpeg → AAC/G.711 ISAPI stream |
 
 ### System Monitoring (Diagnostic)
 
@@ -248,7 +247,6 @@ Friendly names start with your device name (e.g. `Garage Motion`). **Entity IDs*
 | --------------------------------------------------- | ---------------------------- | --------- | -------------- |
 | `number.{device_name}_day_night_switch_sensitivity` | Day/Night IR sensitivity     | 0–7       | Enabled        |
 | `number.{device_name}_day_night_switch_delay`       | Day/Night IR filter delay    | 5–120 s   | Enabled        |
-| `number.{device_name}_speaker_volume`               | Two-way / speaker volume     | 0–100%    | Enabled        |
 | `number.{device_name}_microphone_volume`            | Microphone volume            | 0–100%    | Enabled        |
 | `number.{device_name}_led_on_duration`              | White-light LED on duration  | 10–300 s  | Enabled        |
 | `number.{device_name}_white_light_brightness`       | White light brightness       | 0–100%    | Disabled       |
@@ -390,7 +388,7 @@ Common responses:
 
 | Entity ID (typical)                  | Description    | Default / status |
 | ------------------------------------ | -------------- | ---------------- |
-| `media_player.{device_name}_speaker` | Speaker entity | Only when two-way audio is detected; **disabled by default**; convert+play via ffmpeg (needs ffmpeg on host) |
+| `media_player.{device_name}_speaker` | Speaker entity | Only when two-way audio is detected; volume on the media player; convert+play via ffmpeg (needs ffmpeg on host) |
 
 ---
 
@@ -515,9 +513,9 @@ automation:
 
 ### Audio / media player
 
-**Status:** The speaker **media player** is only added when two-way audio is detected. Enable it in the entity registry, then browse media / call `media_player.play_media`. Audio is converted with **ffmpeg** to match the camera TwoWayAudio codec (AAC → length-prefixed ADTS; G.711 → raw µ/A-law), matching the backyard lab / go2rtc ISAPI talk path.
+**Status:** The speaker **media player** is only added when two-way audio is detected. Use its volume control (there is no separate `number.*_speaker_volume`). Browse media / call `media_player.play_media`. Audio is converted with **ffmpeg** to match the camera TwoWayAudio codec (AAC → length-prefixed ADTS; G.711 → raw µ/A-law), matching the backyard lab / go2rtc ISAPI talk path.
 
-**Tip:** Install/ensure `ffmpeg` is available inside Home Assistant (Core/Supervised images usually include it). Prefer **Speaker volume** (number entity) for level control while idle.
+**Tip:** Install/ensure `ffmpeg` is available inside Home Assistant (Core/Supervised images usually include it).
 
 ### Camera Streams Not Showing
 

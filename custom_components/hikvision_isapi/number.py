@@ -56,8 +56,7 @@ async def async_setup_entry(
         entities.append(HikvisionIRSensitivityNumber(coordinator, api, entry, host, device_name))
     if entity_enabled(entry, ENTITY_GROUP_DAY_NIGHT, "ir_filter_time") and detected_features.get("ir_filter_time", False):
         entities.append(HikvisionIRFilterTimeNumber(coordinator, api, entry, host, device_name))
-    if entity_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO, "speaker_volume") and detected_features.get("speaker_volume", False):
-        entities.append(HikvisionSpeakerVolumeNumber(coordinator, api, entry, host, device_name))
+    # Speaker volume is on media_player.*_speaker when two-way audio is supported — no number entity.
     if entity_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO, "microphone_volume") and detected_features.get("microphone_volume", False):
         entities.append(HikvisionMicrophoneVolumeNumber(coordinator, api, entry, host, device_name))
     if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "white_light_time") and detected_features.get("white_light_time", False):
@@ -244,80 +243,6 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
         else:
             self._optimistic_value = None
             raise HomeAssistantError("Failed to set Day/Night Switch Delay on camera")
-
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
-
-
-class HikvisionSpeakerVolumeNumber(NumberEntity):
-    """Number entity for speaker volume (two-way audio / media player volume)."""
-
-    _attr_unique_id = "hikvision_speaker_volume"
-    _attr_native_min_value = 0
-    _attr_native_max_value = 100
-    _attr_native_step = 1
-    _attr_icon = "mdi:volume-high"
-
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
-        """Initialize the number entity."""
-        self.coordinator = coordinator
-        self.api = api
-        self._host = host
-        self._entry = entry
-        self._attr_name = f"{device_name} Speaker Volume"
-        self._attr_unique_id = f"{host}_speaker_volume"
-        self._optimistic_value = None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return get_primary_device_info(self.coordinator.hass, self._entry)
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the current value."""
-        # Use optimistic value if set (immediate feedback)
-        if self._optimistic_value is not None:
-            return self._optimistic_value
-        
-        # Otherwise use coordinator data
-        if not self.available:
-            return None
-        if self.coordinator.data and "audio" in self.coordinator.data:
-            volume = self.coordinator.data["audio"].get("speakerVolume")
-            if volume is not None:
-                return float(volume)
-        return None
-
-    async def async_set_native_value(self, value: float):
-        """Set the value."""
-        # Optimistic update - show immediately
-        self._optimistic_value = float(value)
-        self.async_write_ha_state()
-        
-        # Send to device
-        success = await self.hass.async_add_executor_job(
-            self.api.set_speaker_volume, int(value)
-        )
-        
-        if success:
-            patch_coordinator_section(
-                self.coordinator, "audio", {"speakerVolume": int(value)}
-            )
-            self._optimistic_value = None
-        else:
-            # Write failed, clear optimistic and let coordinator show actual state
-            self._optimistic_value = None
-            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

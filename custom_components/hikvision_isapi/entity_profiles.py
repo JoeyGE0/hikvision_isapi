@@ -254,7 +254,6 @@ ENTITY_ITEM_REGISTRY: dict[str, tuple[EntityItemSpec, ...]] = {
     ),
     ENTITY_GROUP_TWO_WAY_AUDIO: (
         EntityItemSpec("media_player", "Two-way audio media player", "media_player"),
-        EntityItemSpec("speaker_volume", "Speaker volume", "speaker_volume"),
         EntityItemSpec("microphone_volume", "Microphone volume", "microphone_volume"),
         EntityItemSpec("noise_reduce", "Noise reduction switch", "noise_reduce"),
     ),

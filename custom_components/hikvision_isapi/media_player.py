@@ -97,7 +97,8 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     )
     _attr_media_content_type = MediaType.MUSIC
     _attr_icon = "mdi:speaker"
-    _attr_entity_registry_enabled_default = False
+    # Volume control lives here (no separate number.*_speaker_volume).
+    _attr_entity_registry_enabled_default = True
 
     def __init__(
         self,

@@ -314,7 +314,7 @@ class TestEntityCustomizeCoverage:
             "ir_filter_time", "white_light_time", "white_light_brightness", "ir_light_brightness",
             "white_light_brightness_limit", "ir_light_brightness_limit", "supplement_light_mode",
             "test_audio_alarm", "audio_alarm_type", "audio_alarm_sound", "alarm_times",
-            "loudspeaker_volume", "media_player", "speaker_volume", "microphone_volume",
+            "loudspeaker_volume", "media_player", "microphone_volume",
             "noise_reduce", "brightness", "contrast", "saturation", "sharpness",
             "motion_sensitivity", "motion_start_trigger_time", "motion_end_trigger_time",
             "restart", "alarm_input", "alarm_output",
