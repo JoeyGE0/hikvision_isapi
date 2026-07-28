@@ -143,7 +143,8 @@
       "password_required": "Password is required",
       "alarm_server_required": "Home Assistant address is required when event notifications are enabled",
       "invalid_rtsp_port": "RTSP port must be between 1 and 65535",
-      "entity_groups_required": "Select at least one entity group"
+      "entity_groups_required": "Select at least one entity group",
+      "cannot_downgrade_to_basic": "Cannot switch to Basic while Advanced entities are enabled. Reconfigure as Advanced or remove unused entities first."
     },
     "abort": {
       "already_configured": "Device is already configured",

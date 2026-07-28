@@ -500,7 +500,27 @@ def entity_item_options_for_flow(
 
 def is_legacy_full_install(entry: ConfigEntry) -> bool:
     """Upgrade from pre-profile integration: expose everything until user customizes."""
-    return bool(entry.data.get(CONF_LEGACY_FULL_INSTALL))
+    if entry.data.get(CONF_LEGACY_FULL_INSTALL):
+        return True
+    if entry.data.get(CONF_INTEGRATION_PROFILE) == PROFILE_ADVANCED:
+        if not isinstance(entry.data.get(CONF_ENTITY_ITEMS), dict):
+            return True
+    return False
+
+
+def entry_has_advanced_entity_setup(entry: ConfigEntry) -> bool:
+    """True when switching to Basic would remove entities the user already had."""
+    if is_legacy_full_install(entry):
+        return True
+    if entry.data.get(CONF_INTEGRATION_PROFILE) != PROFILE_ADVANCED:
+        return False
+    extras = stored_extra_entity_groups(entry.data.get(CONF_ENTITY_GROUPS))
+    if extras:
+        return True
+    items = entry.data.get(CONF_ENTITY_ITEMS)
+    if not isinstance(items, dict):
+        return True
+    return any(isinstance(picked, list) and picked for picked in items.values())
 
 
 def _legacy_full_advanced_customize(

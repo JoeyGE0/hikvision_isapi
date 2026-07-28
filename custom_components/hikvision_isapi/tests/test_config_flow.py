@@ -21,14 +21,18 @@ from custom_components.hikvision_isapi.config_flow import (
 import voluptuous as vol
 from custom_components.hikvision_isapi.const import (
     CONF_ALARM_SERVER_HOST,
+    CONF_ENTITY_GROUPS,
+    CONF_ENTITY_ITEMS,
     CONF_ENTITY_KNOWN_SUPPORTED,
     CONF_HOST,
     CONF_INTEGRATION_PROFILE,
+    CONF_LEGACY_FULL_INSTALL,
     CONF_PASSWORD,
     CONF_SET_ALARM_SERVER,
     CONF_UPDATE_INTERVAL,
     CONF_USERNAME,
     CONF_VERIFY_SSL,
+    ENTITY_GROUP_SIREN,
     PROFILE_BASIC,
     PROFILE_ADVANCED,
 )
@@ -262,6 +266,80 @@ class TestConfigFlow:
         call_kwargs = flow.async_update_reload_and_abort.call_args.kwargs
         assert call_kwargs["data_updates"][CONF_PASSWORD] == "old_password"
 
+    def test_build_entry_data_reauth_preserves_advanced_profile(self, flow, mock_entry):
+        """Reauth must not downgrade Advanced installs to Basic."""
+        mock_entry.data = {
+            **mock_entry.data,
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_LEGACY_FULL_INSTALL: True,
+            CONF_ENTITY_GROUPS: [ENTITY_GROUP_SIREN],
+        }
+        flow._reconfigure_entry = mock_entry
+
+        data = flow._build_entry_data({
+            CONF_HOST: "192.168.1.15",
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "new_password",
+            CONF_VERIFY_SSL: True,
+        })
+
+        assert data[CONF_INTEGRATION_PROFILE] == PROFILE_ADVANCED
+        assert data[CONF_LEGACY_FULL_INSTALL] is True
+        assert data[CONF_UPDATE_INTERVAL] == 30
+        assert ENTITY_GROUP_SIREN in data[CONF_ENTITY_GROUPS]
+
+    def test_build_entry_data_customize_clears_legacy_flag(self, flow, mock_entry):
+        """Saving entity customize must clear legacy_full_install."""
+        mock_entry.data = {
+            **mock_entry.data,
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_LEGACY_FULL_INSTALL: True,
+        }
+        flow._reconfigure_entry = mock_entry
+
+        data = flow._build_entry_data({
+            CONF_HOST: "192.168.1.15",
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "secret",
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_ENTITY_ITEMS: {"detections": ["motiondetection"]},
+        })
+
+        assert data[CONF_LEGACY_FULL_INSTALL] is False
+
+    @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
+    @patch("custom_components.hikvision_isapi.config_flow.requests.get")
+    async def test_reconfigure_blocks_basic_downgrade_for_legacy(
+        self, mock_get, mock_source_ip, flow, mock_entry
+    ):
+        """Legacy/advanced installs cannot silently switch to Basic via reconfigure."""
+        mock_entry.data = {
+            **mock_entry.data,
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_LEGACY_FULL_INSTALL: True,
+        }
+        response = Mock()
+        response.status_code = 200
+        response.ok = True
+        response.text = ""
+        mock_get.return_value = response
+
+        flow._get_reconfigure_entry = Mock(return_value=mock_entry)
+
+        result = await flow.async_step_reconfigure({
+            CONF_HOST: "192.168.1.15",
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "secret",
+            CONF_VERIFY_SSL: True,
+            CONF_INTEGRATION_PROFILE: PROFILE_BASIC,
+            CONF_UPDATE_INTERVAL: 30,
+            CONF_SET_ALARM_SERVER: True,
+            CONF_ALARM_SERVER_HOST: "http://192.168.1.1:8123",
+        })
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"][CONF_INTEGRATION_PROFILE] == "cannot_downgrade_to_basic"
+
 
 class TestEntityCustomizeCoverage:
     """Registry + flow probe must list every integration entity."""
@@ -421,3 +499,14 @@ class TestEntityCustomizeCoverage:
         )
         assert not changed
         assert "motiondetection" not in items[ENTITY_GROUP_DETECTIONS]
+
+    def test_legacy_without_flag_when_advanced_has_no_item_map(self):
+        from custom_components.hikvision_isapi.entity_profiles import (
+            entry_has_advanced_entity_setup,
+            is_legacy_full_install,
+        )
+
+        entry = Mock(spec=config_entries.ConfigEntry)
+        entry.data = {CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED}
+        assert is_legacy_full_install(entry)
+        assert entry_has_advanced_entity_setup(entry)

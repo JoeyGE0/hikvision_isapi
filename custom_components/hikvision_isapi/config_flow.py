@@ -52,6 +52,7 @@ from .entity_profiles import (
     default_customize_form_values,
     enrich_flow_probe,
     entity_item_options_for_flow,
+    entry_has_advanced_entity_setup,
     parse_customize_submission,
     stored_extra_entity_groups,
 )
@@ -258,7 +259,7 @@ def _reconfigure_schema() -> vol.Schema:
 class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hikvision ISAPI."""
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize flow handler."""
@@ -386,6 +387,20 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._device_capabilities,
         )
 
+    async def _async_finish_reconfigure_preserve_entities(self) -> ConfigFlowResult:
+        """Apply reconfigure credentials/options without changing entity preferences."""
+        reconfigure_input = self.context.get("reconfigure_input")
+        if not reconfigure_input:
+            return self.async_abort(reason="no_basic_data")
+        entry = self._reconfigure_entry or self._get_reconfigure_entry()
+        entry_data = self._build_entry_data(reconfigure_input)
+        title = self.context.get("reconfigure_device_name", entry.title)
+        return self.async_update_reload_and_abort(
+            entry,
+            data_updates=entry_data,
+            title=title,
+        )
+
     async def _async_finish_advanced_setup(
         self,
         groups: list[str],
@@ -417,12 +432,15 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         advanced = self.context.get("advanced_options", {})
         if not basic_data:
             return self.async_abort(reason="no_basic_data")
+        finalized = self._finalize_advanced_entry_data(
+            {}, groups, entity_items, known_supported
+        )
+        if not groups and not entity_items:
+            finalized[CONF_LEGACY_FULL_INSTALL] = True
         entry_data = {
             **basic_data,
             **advanced,
-            **self._finalize_advanced_entry_data(
-                {}, groups, entity_items, known_supported
-            ),
+            **finalized,
         }
         device_name = basic_data.get("device_name", basic_data.get(CONF_HOST, "Hikvision"))
         return await self._async_create_entry_from_context(
@@ -446,7 +464,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data[CONF_ENTITY_KNOWN_SUPPORTED] = (
             known_supported if known_supported is not None else self._flow_supported_snapshot()
         )
-        data.pop(CONF_LEGACY_FULL_INSTALL, None)
+        data[CONF_LEGACY_FULL_INSTALL] = False
         return data
 
     async def _async_create_entry_from_context(
@@ -545,64 +563,88 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _build_entry_data(self, user_input: dict[str, Any]) -> dict[str, Any]:
         """Normalize reconfigure/reauth form into config entry data."""
+        entry = self._reconfigure_entry
+        stored = dict(entry.data) if entry else {}
+
         host = user_input[CONF_HOST].strip()
         password = user_input.get(CONF_PASSWORD, "")
-        if not password and self._reconfigure_entry:
-            password = self._reconfigure_entry.data[CONF_PASSWORD]
+        if not password and entry:
+            password = stored.get(CONF_PASSWORD, "")
+
         data: dict[str, Any] = {
             CONF_HOST: host,
             CONF_USERNAME: user_input[CONF_USERNAME].strip(),
             CONF_PASSWORD: password,
-            CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, True),
-            CONF_UPDATE_INTERVAL: user_input.get(
-                CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+            CONF_VERIFY_SSL: user_input.get(
+                CONF_VERIFY_SSL, stored.get(CONF_VERIFY_SSL, True)
             ),
-            CONF_SET_ALARM_SERVER: user_input.get(CONF_SET_ALARM_SERVER, True),
+            CONF_UPDATE_INTERVAL: user_input.get(
+                CONF_UPDATE_INTERVAL,
+                stored.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+            ),
+            CONF_SET_ALARM_SERVER: user_input.get(
+                CONF_SET_ALARM_SERVER, stored.get(CONF_SET_ALARM_SERVER, True)
+            ),
         }
         if data[CONF_SET_ALARM_SERVER]:
-            data[CONF_ALARM_SERVER_HOST] = user_input.get(CONF_ALARM_SERVER_HOST, "").strip()
-        elif self._reconfigure_entry:
-            data[CONF_ALARM_SERVER_HOST] = self._reconfigure_entry.data.get(
-                CONF_ALARM_SERVER_HOST, ""
-            )
+            alarm_host = user_input.get(CONF_ALARM_SERVER_HOST)
+            if alarm_host is None:
+                alarm_host = stored.get(CONF_ALARM_SERVER_HOST, "")
+            data[CONF_ALARM_SERVER_HOST] = str(alarm_host).strip()
+        elif entry:
+            data[CONF_ALARM_SERVER_HOST] = stored.get(CONF_ALARM_SERVER_HOST, "")
+
         if RTSP_PORT_FORCED in user_input:
             port = _parse_rtsp_port(user_input.get(RTSP_PORT_FORCED))
             if port is not None:
                 data[RTSP_PORT_FORCED] = port
-        elif self._reconfigure_entry and RTSP_PORT_FORCED in self._reconfigure_entry.data:
-            data[RTSP_PORT_FORCED] = self._reconfigure_entry.data[RTSP_PORT_FORCED]
-        profile = user_input.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
+        elif RTSP_PORT_FORCED in stored:
+            data[RTSP_PORT_FORCED] = stored[RTSP_PORT_FORCED]
+
+        if CONF_INTEGRATION_PROFILE in user_input:
+            profile = user_input[CONF_INTEGRATION_PROFILE]
+        elif entry:
+            profile = stored.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
+        else:
+            profile = PROFILE_BASIC
         data[CONF_INTEGRATION_PROFILE] = profile
+
         if profile == PROFILE_ADVANCED:
             groups = user_input.get(CONF_ENTITY_GROUPS)
             if isinstance(groups, list):
                 data[CONF_ENTITY_GROUPS] = sorted(stored_extra_entity_groups(groups))
-            elif self._reconfigure_entry:
+            elif entry:
                 data[CONF_ENTITY_GROUPS] = sorted(
-                    stored_extra_entity_groups(
-                        self._reconfigure_entry.data.get(CONF_ENTITY_GROUPS)
-                    )
+                    stored_extra_entity_groups(stored.get(CONF_ENTITY_GROUPS))
                 )
             else:
                 data[CONF_ENTITY_GROUPS] = []
+
             entity_items = user_input.get(CONF_ENTITY_ITEMS)
             if isinstance(entity_items, dict):
                 data[CONF_ENTITY_ITEMS] = entity_items
-            elif self._reconfigure_entry:
-                saved_items = self._reconfigure_entry.data.get(CONF_ENTITY_ITEMS)
+            elif entry:
+                saved_items = stored.get(CONF_ENTITY_ITEMS)
                 if isinstance(saved_items, dict):
                     data[CONF_ENTITY_ITEMS] = saved_items
+
             known = user_input.get(CONF_ENTITY_KNOWN_SUPPORTED)
             if isinstance(known, dict):
                 data[CONF_ENTITY_KNOWN_SUPPORTED] = known
-            elif self._reconfigure_entry:
-                saved_known = self._reconfigure_entry.data.get(CONF_ENTITY_KNOWN_SUPPORTED)
+            elif entry:
+                saved_known = stored.get(CONF_ENTITY_KNOWN_SUPPORTED)
                 if isinstance(saved_known, dict):
                     data[CONF_ENTITY_KNOWN_SUPPORTED] = saved_known
-            if self._reconfigure_entry and self._reconfigure_entry.data.get(
-                CONF_LEGACY_FULL_INSTALL
-            ):
+
+            if CONF_ENTITY_ITEMS in user_input:
+                data[CONF_LEGACY_FULL_INSTALL] = False
+            elif CONF_LEGACY_FULL_INSTALL in user_input:
+                data[CONF_LEGACY_FULL_INSTALL] = bool(user_input[CONF_LEGACY_FULL_INSTALL])
+            elif entry and stored.get(CONF_LEGACY_FULL_INSTALL):
                 data[CONF_LEGACY_FULL_INSTALL] = True
+        elif entry and stored.get(CONF_LEGACY_FULL_INSTALL):
+            data[CONF_LEGACY_FULL_INSTALL] = False
+
         return data
 
     async def async_step_reconfigure(
@@ -638,10 +680,19 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     host, username, password, verify_ssl
                 )
                 if not errors:
-                    self.context["reconfigure_input"] = user_input
-                    self.context["reconfigure_device_name"] = device_name
-                    profile = user_input.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC)
-                    if profile == PROFILE_ADVANCED:
+                    profile = user_input.get(
+                        CONF_INTEGRATION_PROFILE,
+                        entry.data.get(CONF_INTEGRATION_PROFILE, PROFILE_BASIC),
+                    )
+                    if (
+                        profile == PROFILE_BASIC
+                        and entry_has_advanced_entity_setup(entry)
+                    ):
+                        errors[CONF_INTEGRATION_PROFILE] = "cannot_downgrade_to_basic"
+                    else:
+                        self.context["reconfigure_input"] = user_input
+                        self.context["reconfigure_device_name"] = device_name
+                    if not errors and profile == PROFILE_ADVANCED:
                         self._detected_features = await self._async_probe_detected_features(
                             host, username, password, verify_ssl
                         )
@@ -658,12 +709,13 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             entry.data.get(CONF_LEGACY_FULL_INSTALL)
                         )
                         return await self.async_step_entity_customize()
-                    entry_data = self._build_entry_data(user_input)
-                    return self.async_update_reload_and_abort(
-                        entry,
-                        data_updates=entry_data,
-                        title=device_name,
-                    )
+                    if not errors:
+                        entry_data = self._build_entry_data(user_input)
+                        return self.async_update_reload_and_abort(
+                            entry,
+                            data_updates=entry_data,
+                            title=device_name,
+                        )
 
         try:
             base_schema = _reconfigure_schema()
@@ -937,6 +989,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = self._entity_customize_schema(detected)
         if not schema.schema:
+            if self.context.get("reconfigure_input"):
+                return await self._async_finish_reconfigure_preserve_entities()
             return await self._async_finish_advanced_setup([], {})
 
         return self.async_show_form(
