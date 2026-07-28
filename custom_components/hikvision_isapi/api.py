@@ -765,11 +765,69 @@ class HikvisionISAPI:
             _LOGGER.error("Failed to set brightness control mode: %s", e)
             return False
 
+    def _put_supplement_light_field(self, tag: str, value: str) -> bool:
+        """GET full supplementLight, replace every <tag>, PUT back.
+
+        *Limit fields (and some regulation fields) are often ignored on a
+        minimal SupplementLight PUT even when the camera returns success.
+        """
+        url = f"{self.base_url}/supplementLight"
+        try:
+            response = requests.get(
+                url,
+                auth=self._auth,
+                verify=self.verify_ssl,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(
+                    "Authentication failed - check username and password (401)"
+                )
+            if response.status_code == 403:
+                raise AuthenticationError(
+                    f"Access forbidden - user '{self.username}' may not have "
+                    "required permissions (403)"
+                )
+            response.raise_for_status()
+            xml_str, count = re.subn(
+                rf"<{tag}>.*?</{tag}>",
+                f"<{tag}>{value}</{tag}>",
+                response.text,
+                flags=re.DOTALL,
+            )
+            if count == 0:
+                _LOGGER.error("<%s> not found in supplementLight XML", tag)
+                return False
+            response = requests.put(
+                url,
+                auth=self._auth,
+                data=xml_str,
+                headers={"Content-Type": "application/xml"},
+                verify=self.verify_ssl,
+                timeout=5,
+            )
+            if response.status_code == 401:
+                raise AuthenticationError(
+                    "Authentication failed - check username and password (401)"
+                )
+            if response.status_code == 403:
+                raise AuthenticationError(
+                    f"Access forbidden - user '{self.username}' may not have "
+                    "required permissions (403)"
+                )
+            response.raise_for_status()
+            return True
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            _LOGGER.error("Failed to PUT supplementLight field %s: %s", tag, e)
+            return False
+
     def set_white_light_brightness_limit(self, limit: int) -> bool:
         """Set white light brightness limit (0-100)."""
         try:
-            return self._put_supplement_light(
-                f"<whiteLightbrightLimit>{limit}</whiteLightbrightLimit>"
+            return self._put_supplement_light_field(
+                "whiteLightbrightLimit", str(limit)
             )
         except AuthenticationError:
             raise
@@ -780,9 +838,7 @@ class HikvisionISAPI:
     def set_ir_light_brightness_limit(self, limit: int) -> bool:
         """Set IR light brightness limit (0-100)."""
         try:
-            return self._put_supplement_light(
-                f"<irLightbrightLimit>{limit}</irLightbrightLimit>"
-            )
+            return self._put_supplement_light_field("irLightbrightLimit", str(limit))
         except AuthenticationError:
             raise
         except Exception as e:
