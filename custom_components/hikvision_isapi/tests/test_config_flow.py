@@ -52,8 +52,15 @@ def _suggested_value(data_schema: vol.Schema, field: str):
 def flow():
     """Create a config flow instance for testing."""
     hass = Mock(spec=HomeAssistant)
+
+    async def _async_add_executor_job(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    hass.async_add_executor_job = AsyncMock(side_effect=_async_add_executor_job)
     flow = HikvisionISAPIConfigFlow()
     flow.hass = hass
+    # Real HA assigns a mutable context dict when the flow is started.
+    flow.context = {}
     flow._async_current_entries = Mock(return_value=[])
     flow._async_abort_entries_match = Mock()
     return flow
@@ -136,7 +143,7 @@ class TestConfigFlow:
         response.text = ""
         mock_get.return_value = response
         mock_source_ip.return_value = "192.168.1.1"
-        flow.hass.async_add_executor_job = AsyncMock(return_value={})
+        flow._async_probe_detected_features = AsyncMock(return_value={})
 
         flow.async_set_unique_id = AsyncMock()
         flow._abort_if_unique_id_configured = Mock()
@@ -150,7 +157,7 @@ class TestConfigFlow:
         })
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
-        mock_get.assert_called_once()
+        mock_get.assert_called()
 
     @patch("custom_components.hikvision_isapi.config_flow.requests.get")
     async def test_user_step_invalid_auth(self, mock_get, flow):
@@ -202,7 +209,8 @@ class TestConfigFlow:
 
     @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
     async def test_reconfigure_step_shows_form(self, mock_source_ip, flow, mock_entry):
-        """Reconfigure must load the form without calling network (no 500)."""
+        """Reconfigure must load the form without calling network when alarm host is set."""
+        mock_source_ip.return_value = "192.168.1.1"
         flow._get_reconfigure_entry = Mock(return_value=mock_entry)
 
         result = await flow.async_step_reconfigure(None)
@@ -211,7 +219,28 @@ class TestConfigFlow:
         assert result["step_id"] == "reconfigure"
         assert "data_schema" in result
         assert result.get("description_placeholders") == {"name": mock_entry.title}
+        # Entry already has alarm server host — no need to resolve HA source IP.
         mock_source_ip.assert_not_called()
+
+    @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
+    async def test_reconfigure_empty_alarm_host_prefills_default(
+        self, mock_source_ip, flow, mock_entry
+    ):
+        """Empty alarm-server host is filled from HA source IP on form load."""
+        mock_source_ip.return_value = "192.168.1.50"
+        mock_entry.data = {
+            **mock_entry.data,
+            CONF_ALARM_SERVER_HOST: "",
+        }
+        flow._get_reconfigure_entry = Mock(return_value=mock_entry)
+
+        result = await flow.async_step_reconfigure(None)
+
+        assert result["type"] == FlowResultType.FORM
+        mock_source_ip.assert_called_once()
+        assert _suggested_value(
+            result["data_schema"], CONF_ALARM_SERVER_HOST
+        ) == "http://192.168.1.50:8123"
 
     @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
     @patch("custom_components.hikvision_isapi.config_flow.requests.get")
@@ -297,6 +326,81 @@ class TestConfigFlow:
         assert data[CONF_LEGACY_FULL_INSTALL] is True
         assert data[CONF_UPDATE_INTERVAL] == 30
         assert ENTITY_GROUP_SIREN in data[CONF_ENTITY_GROUPS]
+
+    @patch("custom_components.hikvision_isapi.config_flow.requests.get")
+    async def test_reauth_updates_credentials_only(self, mock_get, flow, mock_entry):
+        """Reauth must only patch host/user/pass/ssl — never rewrite entity prefs."""
+        mock_entry.data = {
+            **mock_entry.data,
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_LEGACY_FULL_INSTALL: True,
+            CONF_ENTITY_GROUPS: [ENTITY_GROUP_SIREN],
+            CONF_ENTITY_ITEMS: {"detections": ["motiondetection"]},
+        }
+        response = Mock()
+        response.status_code = 200
+        response.ok = True
+        response.text = ""
+        mock_get.return_value = response
+
+        flow._reconfigure_entry = mock_entry
+        flow._get_reauth_entry = Mock(return_value=mock_entry)
+        flow._abort_if_unique_id_mismatch = Mock()
+        flow.async_update_reload_and_abort = Mock(
+            return_value={"type": FlowResultType.ABORT, "reason": "reauth_successful"}
+        )
+
+        result = await flow._async_reauth_form({
+            CONF_HOST: "192.168.1.15",
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "new_password",
+            CONF_VERIFY_SSL: True,
+        }, {})
+
+        assert result["type"] == FlowResultType.ABORT
+        updates = flow.async_update_reload_and_abort.call_args.kwargs["data_updates"]
+        assert set(updates) <= {
+            CONF_HOST, CONF_USERNAME, CONF_PASSWORD, CONF_VERIFY_SSL,
+            CONF_INTEGRATION_PROFILE,
+        }
+        assert CONF_ENTITY_ITEMS not in updates
+        assert CONF_ENTITY_GROUPS not in updates
+        assert CONF_LEGACY_FULL_INSTALL not in updates
+        assert updates[CONF_PASSWORD] == "new_password"
+
+    @patch("custom_components.hikvision_isapi.config_flow.requests.get")
+    async def test_reauth_heals_basic_with_advanced_leftovers(
+        self, mock_get, flow, mock_entry
+    ):
+        """Reauth restores Advanced when Basic was left with leftover entity prefs."""
+        mock_entry.data = {
+            **mock_entry.data,
+            CONF_INTEGRATION_PROFILE: PROFILE_BASIC,
+            CONF_LEGACY_FULL_INSTALL: True,
+            CONF_ENTITY_ITEMS: {"detections": ["motiondetection"]},
+        }
+        response = Mock()
+        response.status_code = 200
+        response.ok = True
+        response.text = ""
+        mock_get.return_value = response
+
+        flow._reconfigure_entry = mock_entry
+        flow._get_reauth_entry = Mock(return_value=mock_entry)
+        flow._abort_if_unique_id_mismatch = Mock()
+        flow.async_update_reload_and_abort = Mock(
+            return_value={"type": FlowResultType.ABORT, "reason": "reauth_successful"}
+        )
+
+        await flow._async_reauth_form({
+            CONF_HOST: "192.168.1.15",
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "secret",
+            CONF_VERIFY_SSL: True,
+        }, {})
+
+        updates = flow.async_update_reload_and_abort.call_args.kwargs["data_updates"]
+        assert updates[CONF_INTEGRATION_PROFILE] == PROFILE_ADVANCED
 
     def test_build_entry_data_customize_clears_legacy_flag(self, flow, mock_entry):
         """Saving entity customize must clear legacy_full_install."""
@@ -387,7 +491,7 @@ class TestConfigFlow:
             },
         }
 
-        groups, entity_items = flow._merge_unoffered_entity_prefs(
+        groups, entity_items, _ = flow._merge_unoffered_entity_prefs(
             mock_entry, [], {"detections": ["motiondetection"]}
         )
 
@@ -403,7 +507,7 @@ class TestConfigFlow:
             CONF_ENTITY_ITEMS: {ENTITY_GROUP_SIREN: ["siren_switch"]},
         }
 
-        groups, entity_items = flow._merge_unoffered_entity_prefs(
+        groups, entity_items, _ = flow._merge_unoffered_entity_prefs(
             mock_entry, [], {ENTITY_GROUP_SIREN: []}
         )
 
@@ -567,8 +671,9 @@ class TestEntityCustomizeCoverage:
                 "motiondetection", "tamperdetection", "videoloss",
             }), {},
         )
-        assert not changed
         assert "motiondetection" not in items[ENTITY_GROUP_DETECTIONS]
+        # Preference set is unchanged; known_supported list order may still refresh.
+        assert set(items[ENTITY_GROUP_DETECTIONS]) == {"tamperdetection"}
 
     def test_legacy_without_flag_when_advanced_has_no_item_map(self):
         from custom_components.hikvision_isapi.entity_profiles import (

@@ -29,6 +29,7 @@ from .const import (
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
 from .device_helpers import build_configuration_url, build_primary_device_info
+from .entity_profiles import entry_needs_advanced_profile_heal
 from .notifications import EventNotificationsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -169,6 +170,17 @@ async def _discover_isapi_capabilities(
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     _LOGGER.info("=== HIKVISION ISAPI: Setting up integration for %s ===", entry.data.get("host", "unknown"))
     hass.data.setdefault(DOMAIN, {})
+
+    # Repair Basic profile left with Advanced leftovers (bad reauth/reconfigure).
+    # Updating data here does not recurse setup; entities load with the healed profile.
+    if entry_needs_advanced_profile_heal(entry):
+        healed = {**entry.data, CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED}
+        hass.config_entries.async_update_entry(entry, data=healed)
+        _LOGGER.warning(
+            "Healed %s back to Advanced profile (Basic was set while Advanced "
+            "entity preferences were still stored)",
+            entry.data.get("host"),
+        )
     
     # Get device info and create device
     host = entry.data["host"]

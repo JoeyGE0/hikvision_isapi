@@ -523,6 +523,24 @@ def entry_has_advanced_entity_setup(entry: ConfigEntry) -> bool:
     return any(isinstance(picked, list) and picked for picked in items.values())
 
 
+def entry_needs_advanced_profile_heal(entry: ConfigEntry) -> bool:
+    """True when profile is Basic but Advanced leftovers remain (bad reauth/reconfigure).
+
+    That inconsistent state shows only Basic entities while stored extras/legacy
+    prefs are ignored. Healing restores Advanced so those prefs apply again.
+    """
+    if entry.data.get(CONF_INTEGRATION_PROFILE) == PROFILE_ADVANCED:
+        return False
+    if entry.data.get(CONF_LEGACY_FULL_INSTALL):
+        return True
+    if stored_extra_entity_groups(entry.data.get(CONF_ENTITY_GROUPS)):
+        return True
+    items = entry.data.get(CONF_ENTITY_ITEMS)
+    if isinstance(items, dict):
+        return any(isinstance(picked, list) and picked for picked in items.values())
+    return False
+
+
 def _legacy_full_advanced_customize(
     saved_extra_groups: frozenset[str],
     saved_items: dict[str, list[str]],

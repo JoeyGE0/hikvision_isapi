@@ -53,6 +53,7 @@ from .entity_profiles import (
     enrich_flow_probe,
     entity_item_options_for_flow,
     entry_has_advanced_entity_setup,
+    entry_needs_advanced_profile_heal,
     parse_customize_submission,
     stored_extra_entity_groups,
 )
@@ -163,13 +164,23 @@ def _form_values_with_submission(
     back to the stored value on every failed attempt.
     """
     values = _coerce_config_entry_for_form(entry_data)
-    if default_alarm_server and not values.get(CONF_ALARM_SERVER_HOST):
-        values[CONF_ALARM_SERVER_HOST] = default_alarm_server
     for key, value in (user_input or {}).items():
         if key in _SENSITIVE_SUGGEST_KEYS:
             continue
         values[key] = value
+    # Apply after overlay so an empty submitted alarm host still gets a usable default.
+    if default_alarm_server and not str(values.get(CONF_ALARM_SERVER_HOST) or "").strip():
+        values[CONF_ALARM_SERVER_HOST] = default_alarm_server
     return values
+
+
+def _alarm_host_needs_default(
+    entry_data: dict[str, Any], user_input: dict[str, Any] | None
+) -> bool:
+    """True when the reconfigure form would show an empty alarm-server host."""
+    if user_input is not None and CONF_ALARM_SERVER_HOST in user_input:
+        return not str(user_input.get(CONF_ALARM_SERVER_HOST) or "").strip()
+    return not str(entry_data.get(CONF_ALARM_SERVER_HOST) or "").strip()
 
 
 def _filter_suggested_values(
@@ -427,7 +438,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry: config_entries.ConfigEntry,
         groups: list[str],
         entity_items: dict[str, list[str]],
-    ) -> tuple[list[str], dict[str, list[str]]]:
+        known_supported: dict[str, list[str]] | None = None,
+    ) -> tuple[list[str], dict[str, list[str]], dict[str, list[str]] | None]:
         """Keep saved picks for categories the customize screen could not offer.
 
         A failed or partial capability probe (camera rebooting, 401/403 while
@@ -435,8 +447,9 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         must keep their stored selections instead of being silently cleared.
         """
         stored_items = entry.data.get(CONF_ENTITY_ITEMS)
+        merged_known = dict(known_supported) if isinstance(known_supported, dict) else known_supported
         if not isinstance(stored_items, dict):
-            return groups, entity_items
+            return groups, entity_items, merged_known
 
         merged_items = dict(entity_items)
         for group, picked in stored_items.items():
@@ -448,6 +461,14 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if group not in entity_items and merged_items.get(group):
                 merged_groups.add(group)
 
+        stored_known = entry.data.get(CONF_ENTITY_KNOWN_SUPPORTED)
+        if isinstance(stored_known, dict):
+            if not isinstance(merged_known, dict):
+                merged_known = {}
+            for group, items in stored_known.items():
+                if group not in merged_known and isinstance(items, list):
+                    merged_known[group] = list(items)
+
         if merged_items != entity_items or merged_groups != set(groups):
             _LOGGER.warning(
                 "Customize form for %s did not offer every category; keeping stored "
@@ -455,7 +476,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 entry.data.get(CONF_HOST),
                 ", ".join(sorted(set(merged_items) - set(entity_items))) or "none",
             )
-        return sorted(merged_groups), merged_items
+        return sorted(merged_groups), merged_items, merged_known
 
     async def _async_finish_advanced_setup(
         self,
@@ -466,8 +487,8 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Create or update an Advanced entry (Basic core + optional extras)."""
         if reconfigure_input := self.context.get("reconfigure_input"):
             entry = self._reconfigure_entry or self._get_reconfigure_entry()
-            groups, entity_items = self._merge_unoffered_entity_prefs(
-                entry, groups, entity_items
+            groups, entity_items, known_supported = self._merge_unoffered_entity_prefs(
+                entry, groups, entity_items, known_supported
             )
             merged = {
                 **reconfigure_input,
@@ -479,7 +500,6 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     else self._flow_supported_snapshot()
                 ),
             }
-            entry = self._reconfigure_entry or self._get_reconfigure_entry()
             entry_data = self._build_entry_data(merged)
             title = self.context.get("reconfigure_device_name", entry.title)
             return self.async_update_reload_and_abort(
@@ -779,10 +799,14 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             base_schema = _reconfigure_schema()
+            entry_data = dict(entry.data)
+            default_alarm = None
+            if _alarm_host_needs_default(entry_data, user_input):
+                default_alarm = await self._async_default_alarm_server()
             suggested = _form_values_with_submission(
-                dict(entry.data),
+                entry_data,
                 user_input,
-                await self._async_default_alarm_server(),
+                default_alarm,
             )
             data_schema = _apply_suggested_values(self, base_schema, suggested)
         except Exception:
@@ -831,11 +855,25 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     host, username, password, verify_ssl
                 )
                 if not errors:
-                    entry_data = self._build_entry_data(user_input)
+                    # HA reauth must only update auth fields — never profile/entity prefs.
+                    # See: developers.home-assistant.io config flow reauthentication.
+                    data_updates: dict[str, Any] = {
+                        CONF_HOST: host,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_VERIFY_SSL: verify_ssl,
+                    }
+                    if entry_needs_advanced_profile_heal(entry):
+                        data_updates[CONF_INTEGRATION_PROFILE] = PROFILE_ADVANCED
+                        _LOGGER.warning(
+                            "Reauth healed %s back to Advanced (Basic profile with "
+                            "leftover Advanced entity prefs)",
+                            host,
+                        )
                     self._abort_if_unique_id_mismatch()
                     return self.async_update_reload_and_abort(
                         entry,
-                        data_updates=entry_data,
+                        data_updates=data_updates,
                     )
 
         # Reauth uses a smaller schema (credentials + host only)
