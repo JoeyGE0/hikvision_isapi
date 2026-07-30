@@ -151,6 +151,27 @@ def _coerce_config_entry_for_form(entry_data: dict[str, Any]) -> dict[str, Any]:
     return coerced
 
 
+def _form_values_with_submission(
+    entry_data: dict[str, Any],
+    user_input: dict[str, Any] | None,
+    default_alarm_server: str | None = None,
+) -> dict[str, Any]:
+    """Form values from stored config, overlaid with the last submitted input.
+
+    Redisplaying a form after a validation error must not discard what the user
+    just chose (e.g. switching Setup mode to Advanced), otherwise the field snaps
+    back to the stored value on every failed attempt.
+    """
+    values = _coerce_config_entry_for_form(entry_data)
+    if default_alarm_server and not values.get(CONF_ALARM_SERVER_HOST):
+        values[CONF_ALARM_SERVER_HOST] = default_alarm_server
+    for key, value in (user_input or {}).items():
+        if key in _SENSITIVE_SUGGEST_KEYS:
+            continue
+        values[key] = value
+    return values
+
+
 def _filter_suggested_values(
     data_schema: vol.Schema, suggested: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -401,6 +422,41 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             title=title,
         )
 
+    def _merge_unoffered_entity_prefs(
+        self,
+        entry: config_entries.ConfigEntry,
+        groups: list[str],
+        entity_items: dict[str, list[str]],
+    ) -> tuple[list[str], dict[str, list[str]]]:
+        """Keep saved picks for categories the customize screen could not offer.
+
+        A failed or partial capability probe (camera rebooting, 401/403 while
+        detecting) shrinks the customize form. Categories missing from the form
+        must keep their stored selections instead of being silently cleared.
+        """
+        stored_items = entry.data.get(CONF_ENTITY_ITEMS)
+        if not isinstance(stored_items, dict):
+            return groups, entity_items
+
+        merged_items = dict(entity_items)
+        for group, picked in stored_items.items():
+            if group not in merged_items and isinstance(picked, list):
+                merged_items[group] = list(picked)
+
+        merged_groups = set(groups)
+        for group in stored_extra_entity_groups(entry.data.get(CONF_ENTITY_GROUPS)):
+            if group not in entity_items and merged_items.get(group):
+                merged_groups.add(group)
+
+        if merged_items != entity_items or merged_groups != set(groups):
+            _LOGGER.warning(
+                "Customize form for %s did not offer every category; keeping stored "
+                "selections for %s",
+                entry.data.get(CONF_HOST),
+                ", ".join(sorted(set(merged_items) - set(entity_items))) or "none",
+            )
+        return sorted(merged_groups), merged_items
+
     async def _async_finish_advanced_setup(
         self,
         groups: list[str],
@@ -409,6 +465,10 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Create or update an Advanced entry (Basic core + optional extras)."""
         if reconfigure_input := self.context.get("reconfigure_input"):
+            entry = self._reconfigure_entry or self._get_reconfigure_entry()
+            groups, entity_items = self._merge_unoffered_entity_prefs(
+                entry, groups, entity_items
+            )
             merged = {
                 **reconfigure_input,
                 CONF_ENTITY_GROUPS: groups,
@@ -719,7 +779,11 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             base_schema = _reconfigure_schema()
-            suggested = _coerce_config_entry_for_form(dict(entry.data))
+            suggested = _form_values_with_submission(
+                dict(entry.data),
+                user_input,
+                await self._async_default_alarm_server(),
+            )
             data_schema = _apply_suggested_values(self, base_schema, suggested)
         except Exception:
             _LOGGER.exception("Failed to build reconfigure form schema")
@@ -782,7 +846,7 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_PASSWORD): str,
         })
         try:
-            suggested = _coerce_config_entry_for_form(dict(entry.data))
+            suggested = _form_values_with_submission(dict(entry.data), user_input)
             data_schema = _apply_suggested_values(self, base_schema, suggested)
         except Exception:
             _LOGGER.exception("Failed to build reauth form schema")

@@ -38,6 +38,16 @@ from custom_components.hikvision_isapi.const import (
 )
 
 
+def _suggested_value(data_schema: vol.Schema, field: str):
+    """Read the suggested value a form schema will prefill for one field."""
+    for key in data_schema.schema:
+        if getattr(key, "schema", None) != field:
+            continue
+        if isinstance(key.description, dict):
+            return key.description.get("suggested_value")
+    return None
+
+
 @pytest.fixture
 def flow():
     """Create a config flow instance for testing."""
@@ -339,6 +349,66 @@ class TestConfigFlow:
 
         assert result["type"] == FlowResultType.FORM
         assert result["errors"][CONF_INTEGRATION_PROFILE] == "cannot_downgrade_to_basic"
+
+    @patch("custom_components.hikvision_isapi.config_flow.async_get_source_ip", new_callable=AsyncMock)
+    async def test_reconfigure_error_keeps_submitted_profile(
+        self, mock_source_ip, flow, mock_entry
+    ):
+        """A validation error must not reset Setup mode back to the stored value."""
+        mock_source_ip.return_value = "192.168.1.1"
+        flow._get_reconfigure_entry = Mock(return_value=mock_entry)
+
+        result = await flow.async_step_reconfigure({
+            CONF_HOST: "192.168.1.15",
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "secret",
+            CONF_VERIFY_SSL: True,
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_UPDATE_INTERVAL: 30,
+            CONF_SET_ALARM_SERVER: True,
+            CONF_ALARM_SERVER_HOST: "",
+        })
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"][CONF_ALARM_SERVER_HOST] == "alarm_server_required"
+        assert _suggested_value(
+            result["data_schema"], CONF_INTEGRATION_PROFILE
+        ) == PROFILE_ADVANCED
+
+    def test_merge_unoffered_entity_prefs_keeps_hidden_groups(self, flow, mock_entry):
+        """Categories missing from the customize form keep their stored picks."""
+        mock_entry.data = {
+            **mock_entry.data,
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_ENTITY_GROUPS: [ENTITY_GROUP_SIREN],
+            CONF_ENTITY_ITEMS: {
+                "detections": ["motiondetection"],
+                ENTITY_GROUP_SIREN: ["siren_switch"],
+            },
+        }
+
+        groups, entity_items = flow._merge_unoffered_entity_prefs(
+            mock_entry, [], {"detections": ["motiondetection"]}
+        )
+
+        assert entity_items[ENTITY_GROUP_SIREN] == ["siren_switch"]
+        assert ENTITY_GROUP_SIREN in groups
+
+    def test_merge_unoffered_entity_prefs_respects_opt_out(self, flow, mock_entry):
+        """Clearing a category that was offered stays cleared."""
+        mock_entry.data = {
+            **mock_entry.data,
+            CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED,
+            CONF_ENTITY_GROUPS: [ENTITY_GROUP_SIREN],
+            CONF_ENTITY_ITEMS: {ENTITY_GROUP_SIREN: ["siren_switch"]},
+        }
+
+        groups, entity_items = flow._merge_unoffered_entity_prefs(
+            mock_entry, [], {ENTITY_GROUP_SIREN: []}
+        )
+
+        assert entity_items[ENTITY_GROUP_SIREN] == []
+        assert ENTITY_GROUP_SIREN not in groups
 
 
 class TestEntityCustomizeCoverage:
