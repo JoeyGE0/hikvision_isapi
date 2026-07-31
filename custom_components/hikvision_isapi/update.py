@@ -314,12 +314,52 @@ def _coordinator_data_from_firmware(
     }
 
 
+def _compatible_index_records(
+    model_entry: dict[str, Any], device_model: str
+) -> list[dict[str, Any]]:
+    """Rows under an index key whose applied_to actually lists this device."""
+    records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _add(record: Any) -> None:
+        if not isinstance(record, dict):
+            return
+        if not firmware_applies_to_device(device_model, record):
+            return
+        key = (
+            str(record.get("version") or ""),
+            str(record.get("filename") or ""),
+            str(record.get("download_url") or ""),
+        )
+        if key in seen:
+            return
+        seen.add(key)
+        records.append(record)
+
+    all_versions = model_entry.get("all_versions")
+    if isinstance(all_versions, list):
+        for record in all_versions:
+            _add(record)
+    else:
+        by_hw = model_entry.get("by_hardware_version")
+        if isinstance(by_hw, dict):
+            for record in by_hw.values():
+                _add(record)
+        _add(model_entry.get("latest"))
+    return records
+
+
 def _pick_index_record(
     index: dict[str, Any],
     device_model: str,
     hardware_version: str | None,
 ) -> dict[str, Any] | None:
-    """Select best firmware_index.json row for this device."""
+    """Select best firmware_index.json row for this device.
+
+    Archive ``latest`` can point at a sibling package that shares an index key
+    but fails ``applied_to`` for this SKU. Only return a row that passes the
+    applied_to check; prefer matching hardware version, then newest version.
+    """
     models = index.get("models")
     if not isinstance(models, dict):
         return None
@@ -329,13 +369,11 @@ def _pick_index_record(
     model_entry = models.get(normalized_model)
 
     if not model_entry:
-        best_key: str | None = None
         best_score = 0
         for key, entry in models.items():
             score = _model_match_score(normalized_model, key)
             if score > best_score:
                 best_score = score
-                best_key = key
                 model_entry = entry
         if best_score < 1_000:
             return None
@@ -343,14 +381,18 @@ def _pick_index_record(
     if not isinstance(model_entry, dict):
         return None
 
-    by_hw = model_entry.get("by_hardware_version")
-    if isinstance(by_hw, dict) and normalized_hw in by_hw:
-        record = by_hw.get(normalized_hw)
-        if isinstance(record, dict):
-            return record
+    compatible = _compatible_index_records(model_entry, device_model)
+    if not compatible:
+        return None
 
-    latest = model_entry.get("latest")
-    return latest if isinstance(latest, dict) else None
+    hw_matches = [
+        record
+        for record in compatible
+        if _normalize_hw_version(record.get("hardware_version")) == normalized_hw
+    ]
+    pool = hw_matches or compatible
+    pool.sort(key=lambda record: parse_version(record.get("version") or "0.0.0"), reverse=True)
+    return pool[0]
 
 
 async def _async_fetch_firmware_archive_json(
@@ -874,11 +916,10 @@ class HikvisionFirmwareUpdate(UpdateEntity):
             return str(summary)[:255]
         if self.coordinator.data.get("ahead_of_archive"):
             return "Installed firmware is newer than the community archive."
-        blocked = self.coordinator.data.get("install_blocked_reason")
-        if blocked:
-            return str(blocked)[:255]
         if not self.coordinator.data.get("latest_version"):
             return FIRMWARE_NO_ARCHIVE_MATCH_NOTE[:255]
+        # Prefer the soft web-UI guidance over an "Install blocked" shout —
+        # download/Install are already disabled when package_compatible is false.
         return FIRMWARE_DIRECT_UPDATE_NOTE[:255]
 
     @property
@@ -933,11 +974,6 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 "Note: Your camera firmware is newer than the highest version listed "
                 "in the community archive for this model."
             )
-        blocked = data.get("install_blocked_reason")
-        if blocked:
-            lines.append("")
-            lines.append("Install blocked:")
-            lines.append(str(blocked))
         if release_date:
             lines.append(f"Release date: {release_date}")
         if self._model:
