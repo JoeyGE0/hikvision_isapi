@@ -291,7 +291,11 @@ def _reconfigure_schema() -> vol.Schema:
 class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hikvision ISAPI."""
 
-    VERSION = 3
+    # Keep major VERSION=1 forever for this integration. Additive config keys
+    # (profiles / entity picker) bump MINOR_VERSION so HA still loads entries
+    # when rolling between 1.0.6, `dev`, and newer stables.
+    VERSION = 1
+    MINOR_VERSION = 3
 
     def __init__(self) -> None:
         """Initialize flow handler."""

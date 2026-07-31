@@ -68,26 +68,37 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Migrate config entries when config entry version changes."""
-    if config_entry.version > 3:
+    """Migrate config entries when the schema gains additive keys.
+
+    Major ``VERSION`` stays at 1. Profile / entity-picker fields are additive
+    and ignored by older releases, so they bump ``MINOR_VERSION`` only. HA
+    refuses to load entries whose major version is *higher* than the installed
+    integration — that is what broke downgrades from ``dev`` to v1.0.6.
+    """
+    if config_entry.version != 1:
+        # HA never calls us for entry.version > handler.VERSION. Return False
+        # for unexpected majors so a bad entry is not silently accepted.
         return False
 
     data = dict(config_entry.data)
-    target_version = config_entry.version
+    minor = config_entry.minor_version
+    changed = False
 
-    if config_entry.version < 2:
+    if minor < 2:
         data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
-        target_version = 2
+        minor = 2
+        changed = True
 
-    if config_entry.version < 3:
+    if minor < 3:
         if not isinstance(data.get(CONF_ENTITY_ITEMS), dict):
             data[CONF_LEGACY_FULL_INSTALL] = True
             data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
-        target_version = 3
+            changed = True
+        minor = 3
 
-    if target_version != config_entry.version:
+    if changed or minor != config_entry.minor_version:
         hass.config_entries.async_update_entry(
-            config_entry, data=data, version=target_version
+            config_entry, data=data, version=1, minor_version=minor
         )
     return True
 
