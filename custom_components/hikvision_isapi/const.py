@@ -6,6 +6,12 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 
 DOMAIN = "hikvision_isapi"
 
+# Config entry schema version. The major stays at 1: every change so far only
+# adds keys older releases ignore, and Home Assistant refuses to load an entry
+# whose major version is above the installed integration's.
+CONFIG_ENTRY_VERSION: Final = 1
+CONFIG_ENTRY_MINOR_VERSION: Final = 3
+
 # After this interval from the previous scan, re-run feature detection; if the
 # capability dict changes, the config entry reloads so entities match the device.
 FEATURE_CAPABILITY_RESCAN_INTERVAL: Final = timedelta(hours=6)

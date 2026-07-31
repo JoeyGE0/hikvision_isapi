@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 import requests
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry as dr
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -12,6 +12,8 @@ from pathlib import Path
 
 from .const import (
     DOMAIN,
+    CONFIG_ENTRY_MINOR_VERSION,
+    CONFIG_ENTRY_VERSION,
     CONF_ENTITY_ITEMS,
     CONF_ENTITY_KNOWN_SUPPORTED,
     CONF_INTEGRATION_PROFILE,
@@ -63,7 +65,44 @@ def _entry_platforms() -> list[str]:
     return platforms
 
 
+def legacy_major_version_minor(version: int) -> int:
+    """Map a pre-1.0.7 major entry version onto the current minor version.
+
+    Old dev builds used major versions 2 and 3 for what are additive config
+    keys. Major 2 added the integration profile, major 3 added the entity
+    picker fields, which line up with minor 2 and minor 3.
+    """
+    return min(version, CONFIG_ENTRY_MINOR_VERSION)
+
+
+@callback
+def async_heal_legacy_entry_versions(hass: HomeAssistant) -> None:
+    """Rewrite entries left on a major version above 1 by older dev builds.
+
+    Home Assistant refuses to load an entry whose major version exceeds the
+    config flow's, and it never calls ``async_migrate_entry`` in that case, so
+    this has to happen before entry setup. ``async_setup`` is awaited before
+    config entries are set up, which makes it the only safe place to do it.
+    """
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.version <= CONFIG_ENTRY_VERSION:
+            continue
+        minor = legacy_major_version_minor(entry.version)
+        _LOGGER.warning(
+            "Config entry %s was stored with version %s by an older build; "
+            "rewriting to %s.%s so it loads on this release",
+            entry.title,
+            entry.version,
+            CONFIG_ENTRY_VERSION,
+            minor,
+        )
+        hass.config_entries.async_update_entry(
+            entry, version=CONFIG_ENTRY_VERSION, minor_version=minor
+        )
+
+
 async def async_setup(hass: HomeAssistant, config: dict):
+    async_heal_legacy_entry_versions(hass)
     return True
 
 
@@ -75,7 +114,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     refuses to load entries whose major version is *higher* than the installed
     integration — that is what broke downgrades from ``dev`` to v1.0.6.
     """
-    if config_entry.version != 1:
+    if config_entry.version != CONFIG_ENTRY_VERSION:
         # HA never calls us for entry.version > handler.VERSION. Return False
         # for unexpected majors so a bad entry is not silently accepted.
         return False
@@ -98,7 +137,10 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
 
     if changed or minor != config_entry.minor_version:
         hass.config_entries.async_update_entry(
-            config_entry, data=data, version=1, minor_version=minor
+            config_entry,
+            data=data,
+            version=CONFIG_ENTRY_VERSION,
+            minor_version=minor,
         )
     return True
 

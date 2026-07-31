@@ -26,6 +26,8 @@ from homeassistant.helpers.selector import SelectSelectorMode
 _LOGGER = logging.getLogger(__name__)
 
 from .const import (
+    CONFIG_ENTRY_MINOR_VERSION,
+    CONFIG_ENTRY_VERSION,
     CONF_ENTITY_GROUPS,
     CONF_ENTITY_ITEMS,
     CONF_ENTITY_KNOWN_SUPPORTED,
@@ -291,11 +293,8 @@ def _reconfigure_schema() -> vol.Schema:
 class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hikvision ISAPI."""
 
-    # Keep major VERSION=1 forever for this integration. Additive config keys
-    # (profiles / entity picker) bump MINOR_VERSION so HA still loads entries
-    # when rolling between 1.0.6, `dev`, and newer stables.
-    VERSION = 1
-    MINOR_VERSION = 3
+    VERSION = CONFIG_ENTRY_VERSION
+    MINOR_VERSION = CONFIG_ENTRY_MINOR_VERSION
 
     def __init__(self) -> None:
         """Initialize flow handler."""
