@@ -6,11 +6,12 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 
 DOMAIN = "hikvision_isapi"
 
-# Config entry schema version. The major stays at 1: every change so far only
-# adds keys older releases ignore, and Home Assistant refuses to load an entry
-# whose major version is above the installed integration's.
-CONFIG_ENTRY_VERSION: Final = 1
-CONFIG_ENTRY_MINOR_VERSION: Final = 3
+# Config entry schema version. Dig builds briefly wrote major 2/3 for additive
+# keys. HA refuses entries whose major is higher than the installed handler, so
+# this must stay at 3 to load those installs. Prefer bumping MINOR_VERSION for
+# future additive-only changes when possible.
+CONFIG_ENTRY_VERSION: Final = 3
+CONFIG_ENTRY_MINOR_VERSION: Final = 1
 
 # After this interval from the previous scan, re-run feature detection; if the
 # capability dict changes, the config entry reloads so entities match the device.
@@ -18,7 +19,6 @@ FEATURE_CAPABILITY_RESCAN_INTERVAL: Final = timedelta(hours=6)
 # First scheduled scan relative to coordinator startup (so new firmware/options
 # show up without waiting a full 6h).
 FEATURE_CAPABILITY_FIRST_SCAN: Final = timedelta(minutes=15)
-
 CONF_HOST = "host"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"

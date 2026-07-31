@@ -66,38 +66,31 @@ def _entry_platforms() -> list[str]:
 
 
 def legacy_major_version_minor(version: int) -> int:
-    """Map a pre-1.0.7 major entry version onto the current minor version.
-
-    Old dev builds used major versions 2 and 3 for what are additive config
-    keys. Major 2 added the integration profile, major 3 added the entity
-    picker fields, which line up with minor 2 and minor 3.
-    """
-    return min(version, CONFIG_ENTRY_MINOR_VERSION)
+    """Unused helper kept for tests; majors now match CONFIG_ENTRY_VERSION."""
+    return CONFIG_ENTRY_MINOR_VERSION
 
 
 @callback
 def async_heal_legacy_entry_versions(hass: HomeAssistant) -> None:
-    """Rewrite entries left on a major version above 1 by older dev builds.
+    """Clamp any future-major entries down to the current handler version.
 
-    Home Assistant refuses to load an entry whose major version exceeds the
-    config flow's, and it never calls ``async_migrate_entry`` in that case, so
-    this has to happen before entry setup. ``async_setup`` is awaited before
-    config entries are set up, which makes it the only safe place to do it.
+    Dig builds stored majors 2/3; CONFIG_ENTRY_VERSION is 3 so those load
+    without rewriting. This only runs if an entry somehow exceeds that.
     """
     for entry in hass.config_entries.async_entries(DOMAIN):
         if entry.version <= CONFIG_ENTRY_VERSION:
             continue
-        minor = legacy_major_version_minor(entry.version)
         _LOGGER.warning(
-            "Config entry %s was stored with version %s by an older build; "
-            "rewriting to %s.%s so it loads on this release",
+            "Config entry %s was stored with version %s; rewriting to %s.%s",
             entry.title,
             entry.version,
             CONFIG_ENTRY_VERSION,
-            minor,
+            CONFIG_ENTRY_MINOR_VERSION,
         )
         hass.config_entries.async_update_entry(
-            entry, version=CONFIG_ENTRY_VERSION, minor_version=minor
+            entry,
+            version=CONFIG_ENTRY_VERSION,
+            minor_version=CONFIG_ENTRY_MINOR_VERSION,
         )
 
 
@@ -107,39 +100,42 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Migrate config entries when the schema gains additive keys.
+    """Migrate older majors/minors up to CONFIG_ENTRY_VERSION.
 
-    Major ``VERSION`` stays at 1. Profile / entity-picker fields are additive
-    and ignored by older releases, so they bump ``MINOR_VERSION`` only. HA
-    refuses to load entries whose major version is *higher* than the installed
-    integration — that is what broke downgrades from ``dev`` to v1.0.6.
+    Dig builds used major 2 (profile) and 3 (entity picker). Handler VERSION is
+    3 so those entries load. Entries still on major 1 (with minor 1-3) are
+    brought up here.
     """
-    if config_entry.version != CONFIG_ENTRY_VERSION:
-        # HA never calls us for entry.version > handler.VERSION. Return False
-        # for unexpected majors so a bad entry is not silently accepted.
+    if config_entry.version > CONFIG_ENTRY_VERSION:
         return False
 
     data = dict(config_entry.data)
+    version = config_entry.version
     minor = config_entry.minor_version
     changed = False
 
-    if minor < 2:
-        data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
-        minor = 2
-        changed = True
+    # Additive keys introduced across majors 1→3 / minors 1→3.
+    if version < 2 or (version == 1 and minor < 2):
+        if CONF_INTEGRATION_PROFILE not in data:
+            data[CONF_INTEGRATION_PROFILE] = PROFILE_ADVANCED
+            changed = True
 
-    if minor < 3:
+    if version < 3 or (version == 1 and minor < 3):
         if not isinstance(data.get(CONF_ENTITY_ITEMS), dict):
             data[CONF_LEGACY_FULL_INSTALL] = True
             data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
             changed = True
-        minor = 3
 
-    if changed or minor != config_entry.minor_version:
+    if version != CONFIG_ENTRY_VERSION or minor != CONFIG_ENTRY_MINOR_VERSION:
+        version = CONFIG_ENTRY_VERSION
+        minor = CONFIG_ENTRY_MINOR_VERSION
+        changed = True
+
+    if changed:
         hass.config_entries.async_update_entry(
             config_entry,
             data=data,
-            version=CONFIG_ENTRY_VERSION,
+            version=version,
             minor_version=minor,
         )
     return True
