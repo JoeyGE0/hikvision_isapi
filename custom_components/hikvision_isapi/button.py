@@ -22,16 +22,15 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     api = data["api"]
     host = data["host"]
-    device_name = data["device_info"].get("deviceName", host)
     detected_features = data.get("detected_features", {})
 
     entities = []
     
     # Only add entities if their features are detected
     if detected_features.get("restart", True):  # Restart is usually always available
-        entities.append(HikvisionRestartButton(api, entry, host, device_name))
+        entities.append(HikvisionRestartButton(api, entry, host))
     if detected_features.get("test_audio_alarm", False):
-        entities.append(HikvisionTestAudioAlarmButton(api, entry, host, device_name))
+        entities.append(HikvisionTestAudioAlarmButton(api, entry, host))
 
     async_add_entities(entities)
 
@@ -40,15 +39,16 @@ class HikvisionRestartButton(ButtonEntity):
     """Button entity for restarting the camera."""
 
     _attr_unique_id = "hikvision_restart_button"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:restart"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the button."""
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Restart"
+        self._attr_name = "Restart"
         self._attr_unique_id = f"{host}_restart_button"
 
     @property
@@ -70,16 +70,17 @@ class HikvisionTestAudioAlarmButton(ButtonEntity):
     """Button entity for triggering audio alarm playback."""
 
     _attr_unique_id = "hikvision_test_audio_alarm_button"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:alarm"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the button."""
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Trigger Alarm"
+        self._attr_name = "Trigger Alarm"
         self._attr_unique_id = f"{host}_test_audio_alarm_button"
 
     @property

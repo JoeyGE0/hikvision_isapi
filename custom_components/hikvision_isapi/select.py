@@ -23,23 +23,22 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
-    device_name = data["device_info"].get("deviceName", host)
     detected_features = data.get("detected_features", {})
 
     entities = []
     
     # Only add entities if their features are detected
     if detected_features.get("supplement_light_mode", False):
-        entities.append(HikvisionLightModeSelect(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionLightModeSelect(coordinator, api, entry, host))
     if detected_features.get("day_night_mode", False):
-        entities.append(HikvisionBrightnessControlSelect(coordinator, api, entry, host, device_name))
-        entities.append(HikvisionIRModeSelect(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionBrightnessControlSelect(coordinator, api, entry, host))
+        entities.append(HikvisionIRModeSelect(coordinator, api, entry, host))
     if detected_features.get("motion_detection", False):
-        entities.append(HikvisionMotionTargetTypeSelect(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionMotionTargetTypeSelect(coordinator, api, entry, host))
     if detected_features.get("audio_alarm_type", False):
-        entities.append(HikvisionAudioTypeSelect(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionAudioTypeSelect(coordinator, api, entry, host))
     if detected_features.get("audio_alarm_sound", False):
-        entities.append(HikvisionWarningSoundSelect(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionWarningSoundSelect(coordinator, api, entry, host))
 
     async_add_entities(entities)
 
@@ -48,6 +47,7 @@ class HikvisionLightModeSelect(SelectEntity):
     """Select entity for supplement light mode."""
 
     _attr_unique_id = "hikvision_light_mode"
+    _attr_has_entity_name = True
     _attr_options = ["Smart", "White Supplement Light", "IR Supplement Light", "Off"]
     _attr_icon = "mdi:lightbulb"
 
@@ -61,13 +61,13 @@ class HikvisionLightModeSelect(SelectEntity):
     # Reverse map for reading
     _display_value_map = {v: k for k, v in _api_value_map.items()}
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Supplement Light"
+        self._attr_name = "Supplement Light"
         self._attr_unique_id = f"{host}_light_mode"
         self._optimistic_value = None
 
@@ -137,6 +137,7 @@ class HikvisionBrightnessControlSelect(SelectEntity):
     """Select entity for light brightness control mode."""
 
     _attr_unique_id = "hikvision_brightness_control_mode"
+    _attr_has_entity_name = True
     _attr_options = ["Auto", "Manual"]
     _attr_icon = "mdi:brightness-auto"
     _attr_entity_registry_enabled_default = False
@@ -147,13 +148,13 @@ class HikvisionBrightnessControlSelect(SelectEntity):
     }
     _display_value_map = {v: k for k, v in _api_value_map.items()}
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Light Brightness Control"
+        self._attr_name = "Light Brightness Control"
         self._attr_unique_id = f"{host}_brightness_control_mode"
         self._optimistic_value = None
 
@@ -222,6 +223,7 @@ class HikvisionIRModeSelect(SelectEntity):
     """Select entity for IR cut mode."""
 
     _attr_unique_id = "hikvision_ir_mode"
+    _attr_has_entity_name = True
     _attr_options = ["Day", "Night", "Auto"]
     _attr_icon = "mdi:weather-night"
     
@@ -234,13 +236,13 @@ class HikvisionIRModeSelect(SelectEntity):
     # Reverse map for reading
     _display_value_map = {v: k for k, v in _api_value_map.items()}
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Day/Night Switch"
+        self._attr_name = "Day/Night Switch"
         self._attr_unique_id = f"{host}_ir_mode"
         self._optimistic_value = None
 
@@ -308,16 +310,17 @@ class HikvisionMotionTargetTypeSelect(SelectEntity):
     """Select entity for motion detection target type."""
 
     _attr_unique_id = "hikvision_motion_target_type"
+    _attr_has_entity_name = True
     _attr_options = ["human", "vehicle", "human,vehicle"]
     _attr_icon = "mdi:target"
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Motion Target Type"
+        self._attr_name = "Motion Target Type"
         self._attr_unique_id = f"{host}_motion_target_type"
         self._optimistic_value = None
 
@@ -376,16 +379,17 @@ class HikvisionAudioTypeSelect(SelectEntity):
     """Select entity for audio alarm type (options from device capabilities when available)."""
 
     _attr_unique_id = "hikvision_audio_type"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:waveform"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Audio Type"
+        self._attr_name = "Audio Type"
         self._attr_unique_id = f"{host}_audio_type"
         self._optimistic_value = None
         self._label_to_api: dict[str, str] = {}
@@ -493,16 +497,17 @@ class HikvisionWarningSoundSelect(SelectEntity):
     """Select entity for warning sound (options from AudioAlarm/capabilities + fallbacks)."""
 
     _attr_unique_id = "hikvision_warning_sound"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:alert"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the select entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Warning Sound"
+        self._attr_name = "Warning Sound"
         self._attr_unique_id = f"{host}_warning_sound"
         self._optimistic_value = None
         self._label_to_id: dict[str, int] = {}

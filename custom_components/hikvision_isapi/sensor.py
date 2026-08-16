@@ -24,21 +24,20 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     host = data["host"]
-    device_name = data["device_info"].get("deviceName", host)
 
     entities = [
         # System status sensors (no controls)
-        HikvisionCPUUtilizationSensor(coordinator, entry, host, device_name),
-        HikvisionMemoryUsageSensor(coordinator, entry, host, device_name),
-        HikvisionDeviceUptimeSensor(coordinator, entry, host, device_name),
-        HikvisionRebootCountSensor(coordinator, entry, host, device_name),
-        HikvisionStreamingSessionsSensor(coordinator, entry, host, device_name),
-        HikvisionStreamingClientsSensor(coordinator, entry, host, device_name),
+        HikvisionCPUUtilizationSensor(coordinator, entry, host),
+        HikvisionMemoryUsageSensor(coordinator, entry, host),
+        HikvisionDeviceUptimeSensor(coordinator, entry, host),
+        HikvisionRebootCountSensor(coordinator, entry, host),
+        HikvisionStreamingSessionsSensor(coordinator, entry, host),
+        HikvisionStreamingClientsSensor(coordinator, entry, host),
         # Notification host sensors
-        HikvisionNotificationHostSensor(coordinator, entry, host, device_name),
-        HikvisionNotificationHostPathSensor(coordinator, entry, host, device_name),
-        HikvisionNotificationHostPortSensor(coordinator, entry, host, device_name),
-        HikvisionNotificationHostProtocolSensor(coordinator, entry, host, device_name),
+        HikvisionNotificationHostSensor(coordinator, entry, host),
+        HikvisionNotificationHostPathSensor(coordinator, entry, host),
+        HikvisionNotificationHostPortSensor(coordinator, entry, host),
+        HikvisionNotificationHostProtocolSensor(coordinator, entry, host),
     ]
 
     async_add_entities(entities)
@@ -48,17 +47,18 @@ class HikvisionCPUUtilizationSensor(SensorEntity):
     """Sensor for CPU utilization."""
 
     _attr_unique_id = "hikvision_cpu_utilization"
+    _attr_has_entity_name = True
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:cpu-64-bit"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} CPU Utilization"
+        self._attr_name = "CPU Utilization"
         self._attr_unique_id = f"{host}_cpu_utilization"
 
     @property
@@ -93,15 +93,16 @@ class HikvisionNotificationHostSensor(SensorEntity):
     """Sensor for notification host address."""
 
     _attr_unique_id = "hikvision_notification_host"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_name = "Notifications Host"
         self._attr_unique_id = f"{host}_notification_host"
 
     @property
@@ -136,15 +137,16 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     """Sensor for notification host path."""
 
     _attr_unique_id = "hikvision_notification_host_path"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:link-variant"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_name = "Notifications Host Path"
         self._attr_unique_id = f"{host}_notification_host_path"
 
     @property
@@ -179,15 +181,16 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_name = "Notifications Host Port"
         self._attr_unique_id = f"{host}_notification_host_port"
 
     @property
@@ -222,15 +225,16 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     """Sensor for notification host protocol."""
 
     _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:protocol"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_name = "Notifications Host Protocol"
         self._attr_unique_id = f"{host}_notification_host_protocol"
 
     @property
@@ -265,17 +269,18 @@ class HikvisionMemoryUsageSensor(SensorEntity):
     """Sensor for memory usage."""
 
     _attr_unique_id = "hikvision_memory_usage"
+    _attr_has_entity_name = True
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:memory"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Memory Usage"
+        self._attr_name = "Memory Usage"
         self._attr_unique_id = f"{host}_memory_usage"
 
     @property
@@ -310,15 +315,16 @@ class HikvisionNotificationHostSensor(SensorEntity):
     """Sensor for notification host address."""
 
     _attr_unique_id = "hikvision_notification_host"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_name = "Notifications Host"
         self._attr_unique_id = f"{host}_notification_host"
 
     @property
@@ -353,15 +359,16 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     """Sensor for notification host path."""
 
     _attr_unique_id = "hikvision_notification_host_path"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:link-variant"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_name = "Notifications Host Path"
         self._attr_unique_id = f"{host}_notification_host_path"
 
     @property
@@ -396,15 +403,16 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_name = "Notifications Host Port"
         self._attr_unique_id = f"{host}_notification_host_port"
 
     @property
@@ -439,15 +447,16 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     """Sensor for notification host protocol."""
 
     _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:protocol"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_name = "Notifications Host Protocol"
         self._attr_unique_id = f"{host}_notification_host_protocol"
 
     @property
@@ -482,15 +491,16 @@ class HikvisionDeviceUptimeSensor(SensorEntity):
     """Sensor for device uptime."""
 
     _attr_unique_id = "hikvision_device_uptime"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:clock-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Device Uptime"
+        self._attr_name = "Device Uptime"
         self._attr_unique_id = f"{host}_device_uptime"
         self._start_time = None
         self._last_uptime = None
@@ -545,15 +555,16 @@ class HikvisionNotificationHostSensor(SensorEntity):
     """Sensor for notification host address."""
 
     _attr_unique_id = "hikvision_notification_host"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_name = "Notifications Host"
         self._attr_unique_id = f"{host}_notification_host"
 
     @property
@@ -588,15 +599,16 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     """Sensor for notification host path."""
 
     _attr_unique_id = "hikvision_notification_host_path"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:link-variant"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_name = "Notifications Host Path"
         self._attr_unique_id = f"{host}_notification_host_path"
 
     @property
@@ -631,15 +643,16 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_name = "Notifications Host Port"
         self._attr_unique_id = f"{host}_notification_host_port"
 
     @property
@@ -674,15 +687,16 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     """Sensor for notification host protocol."""
 
     _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:protocol"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_name = "Notifications Host Protocol"
         self._attr_unique_id = f"{host}_notification_host_protocol"
 
     @property
@@ -717,15 +731,16 @@ class HikvisionStreamingSessionsSensor(SensorEntity):
     """Sensor for total streaming sessions."""
 
     _attr_unique_id = "hikvision_streaming_sessions"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:play-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Active Streaming Sessions"
+        self._attr_name = "Active Streaming Sessions"
         self._attr_unique_id = f"{host}_streaming_sessions"
 
     @property
@@ -765,15 +780,16 @@ class HikvisionNotificationHostSensor(SensorEntity):
     """Sensor for notification host address."""
 
     _attr_unique_id = "hikvision_notification_host"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_name = "Notifications Host"
         self._attr_unique_id = f"{host}_notification_host"
 
     @property
@@ -808,15 +824,16 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     """Sensor for notification host path."""
 
     _attr_unique_id = "hikvision_notification_host_path"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:link-variant"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_name = "Notifications Host Path"
         self._attr_unique_id = f"{host}_notification_host_path"
 
     @property
@@ -851,15 +868,16 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_name = "Notifications Host Port"
         self._attr_unique_id = f"{host}_notification_host_port"
 
     @property
@@ -894,15 +912,16 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     """Sensor for notification host protocol."""
 
     _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:protocol"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_name = "Notifications Host Protocol"
         self._attr_unique_id = f"{host}_notification_host_protocol"
 
     @property
@@ -937,15 +956,16 @@ class HikvisionStreamingClientsSensor(SensorEntity):
     """Sensor for streaming client addresses."""
 
     _attr_unique_id = "hikvision_streaming_clients"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:account-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Streaming Clients"
+        self._attr_name = "Streaming Clients"
         self._attr_unique_id = f"{host}_streaming_clients"
 
     @property
@@ -985,15 +1005,16 @@ class HikvisionNotificationHostSensor(SensorEntity):
     """Sensor for notification host address."""
 
     _attr_unique_id = "hikvision_notification_host"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_name = "Notifications Host"
         self._attr_unique_id = f"{host}_notification_host"
 
     @property
@@ -1028,15 +1049,16 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     """Sensor for notification host path."""
 
     _attr_unique_id = "hikvision_notification_host_path"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:link-variant"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_name = "Notifications Host Path"
         self._attr_unique_id = f"{host}_notification_host_path"
 
     @property
@@ -1071,15 +1093,16 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_name = "Notifications Host Port"
         self._attr_unique_id = f"{host}_notification_host_port"
 
     @property
@@ -1114,15 +1137,16 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     """Sensor for notification host protocol."""
 
     _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:protocol"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_name = "Notifications Host Protocol"
         self._attr_unique_id = f"{host}_notification_host_protocol"
 
     @property
@@ -1157,16 +1181,17 @@ class HikvisionRebootCountSensor(SensorEntity):
     """Sensor for total reboot count."""
 
     _attr_unique_id = "hikvision_reboot_count"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:restart"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Total Reboots"
+        self._attr_name = "Total Reboots"
         self._attr_unique_id = f"{host}_reboot_count"
 
     @property
@@ -1206,15 +1231,16 @@ class HikvisionNotificationHostSensor(SensorEntity):
     """Sensor for notification host address."""
 
     _attr_unique_id = "hikvision_notification_host"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host"
+        self._attr_name = "Notifications Host"
         self._attr_unique_id = f"{host}_notification_host"
 
     @property
@@ -1249,15 +1275,16 @@ class HikvisionNotificationHostPathSensor(SensorEntity):
     """Sensor for notification host path."""
 
     _attr_unique_id = "hikvision_notification_host_path"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:link-variant"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Path"
+        self._attr_name = "Notifications Host Path"
         self._attr_unique_id = f"{host}_notification_host_path"
 
     @property
@@ -1292,15 +1319,16 @@ class HikvisionNotificationHostPortSensor(SensorEntity):
     """Sensor for notification host port."""
 
     _attr_unique_id = "hikvision_notification_host_port"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:server"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Port"
+        self._attr_name = "Notifications Host Port"
         self._attr_unique_id = f"{host}_notification_host_port"
 
     @property
@@ -1335,15 +1363,16 @@ class HikvisionNotificationHostProtocolSensor(SensorEntity):
     """Sensor for notification host protocol."""
 
     _attr_unique_id = "hikvision_notification_host_protocol"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:protocol"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, entry: ConfigEntry, host: str):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Notifications Host Protocol"
+        self._attr_name = "Notifications Host Protocol"
         self._attr_unique_id = f"{host}_notification_host_protocol"
 
     @property

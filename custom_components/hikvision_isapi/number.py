@@ -25,48 +25,47 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
-    device_name = data["device_info"].get("deviceName", host)
     detected_features = data.get("detected_features", {})
 
     entities = []
     
     # Only add entities if their features are detected
     if detected_features.get("ir_sensitivity", False):
-        entities.append(HikvisionIRSensitivityNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionIRSensitivityNumber(coordinator, api, entry, host))
     if detected_features.get("ir_filter_time", False):
-        entities.append(HikvisionIRFilterTimeNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionIRFilterTimeNumber(coordinator, api, entry, host))
     if detected_features.get("speaker_volume", False):
-        entities.append(HikvisionSpeakerVolumeNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionSpeakerVolumeNumber(coordinator, api, entry, host))
     if detected_features.get("microphone_volume", False):
-        entities.append(HikvisionMicrophoneVolumeNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionMicrophoneVolumeNumber(coordinator, api, entry, host))
     if detected_features.get("white_light_time", False):
-        entities.append(HikvisionWhiteLightTimeNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionWhiteLightTimeNumber(coordinator, api, entry, host))
     if detected_features.get("white_light_brightness", False):
-        entities.append(HikvisionWhiteLightBrightnessNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionWhiteLightBrightnessNumber(coordinator, api, entry, host))
     if detected_features.get("ir_light_brightness", False):
-        entities.append(HikvisionIRLightBrightnessNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionIRLightBrightnessNumber(coordinator, api, entry, host))
     if detected_features.get("white_light_brightness_limit", False):
-        entities.append(HikvisionWhiteLightBrightnessLimitNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionWhiteLightBrightnessLimitNumber(coordinator, api, entry, host))
     if detected_features.get("ir_light_brightness_limit", False):
-        entities.append(HikvisionIRLightBrightnessLimitNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionIRLightBrightnessLimitNumber(coordinator, api, entry, host))
     if detected_features.get("motion_sensitivity", False):
-        entities.append(HikvisionMotionSensitivityNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionMotionSensitivityNumber(coordinator, api, entry, host))
     if detected_features.get("motion_start_trigger_time", False):
-        entities.append(HikvisionMotionStartTriggerTimeNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionMotionStartTriggerTimeNumber(coordinator, api, entry, host))
     if detected_features.get("motion_end_trigger_time", False):
-        entities.append(HikvisionMotionEndTriggerTimeNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionMotionEndTriggerTimeNumber(coordinator, api, entry, host))
     if detected_features.get("brightness", False):
-        entities.append(HikvisionBrightnessNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionBrightnessNumber(coordinator, api, entry, host))
     if detected_features.get("contrast", False):
-        entities.append(HikvisionContrastNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionContrastNumber(coordinator, api, entry, host))
     if detected_features.get("saturation", False):
-        entities.append(HikvisionSaturationNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionSaturationNumber(coordinator, api, entry, host))
     if detected_features.get("sharpness", False):
-        entities.append(HikvisionSharpnessNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionSharpnessNumber(coordinator, api, entry, host))
     if detected_features.get("alarm_times", False):
-        entities.append(HikvisionAlarmTimesNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionAlarmTimesNumber(coordinator, api, entry, host))
     if detected_features.get("loudspeaker_volume", False):
-        entities.append(HikvisionLoudspeakerVolumeNumber(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionLoudspeakerVolumeNumber(coordinator, api, entry, host))
 
     async_add_entities(entities)
 
@@ -75,18 +74,19 @@ class HikvisionIRSensitivityNumber(NumberEntity):
     """Number entity for IR sensitivity."""
 
     _attr_unique_id = "hikvision_ir_sensitivity"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 7
     _attr_native_step = 1
     _attr_icon = "mdi:adjust"
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Day/Night Switch Sensitivity"
+        self._attr_name = "Day/Night Switch Sensitivity"
         self._attr_unique_id = f"{host}_ir_sensitivity"
         self._optimistic_value = None
 
@@ -150,19 +150,20 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
     """Number entity for IR filter time."""
 
     _attr_unique_id = "hikvision_ir_filter_time"
+    _attr_has_entity_name = True
     _attr_native_min_value = 5
     _attr_native_max_value = 120
     _attr_native_step = 1
     _attr_native_unit_of_measurement = "s"
     _attr_icon = "mdi:timer"
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Day/Night Switch Delay"
+        self._attr_name = "Day/Night Switch Delay"
         self._attr_unique_id = f"{host}_ir_filter_time"
         self._optimistic_value = None
 
@@ -226,18 +227,19 @@ class HikvisionSpeakerVolumeNumber(NumberEntity):
     """Number entity for speaker volume (two-way audio / media player volume)."""
 
     _attr_unique_id = "hikvision_speaker_volume"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
     _attr_icon = "mdi:volume-high"
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Speaker Volume"
+        self._attr_name = "Speaker Volume"
         self._attr_unique_id = f"{host}_speaker_volume"
         self._optimistic_value = None
 
@@ -301,18 +303,19 @@ class HikvisionMicrophoneVolumeNumber(NumberEntity):
     """Number entity for microphone input volume (two-way audio)."""
 
     _attr_unique_id = "hikvision_microphone_volume"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
     _attr_icon = "mdi:microphone"
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Mic Volume"
+        self._attr_name = "Mic Volume"
         self._attr_unique_id = f"{host}_microphone_volume"
         self._optimistic_value = None
 
@@ -369,19 +372,20 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
     """Number entity for white light duration."""
 
     _attr_unique_id = "hikvision_white_light_time"
+    _attr_has_entity_name = True
     _attr_native_min_value = 10
     _attr_native_max_value = 300
     _attr_native_step = 1
     _attr_native_unit_of_measurement = "s"
     _attr_icon = "mdi:timer-outline"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} LED On Duration"
+        self._attr_name = "LED On Duration"
         self._attr_unique_id = f"{host}_white_light_time"
         self._optimistic_value = None
 
@@ -438,6 +442,7 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
     """Number entity for white light brightness."""
 
     _attr_unique_id = "hikvision_white_light_brightness"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -445,13 +450,13 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
     _attr_icon = "mdi:brightness-6"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} White Light Brightness"
+        self._attr_name = "White Light Brightness"
         self._attr_unique_id = f"{host}_white_light_brightness"
         self._optimistic_value = None
 
@@ -508,6 +513,7 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
     """Number entity for IR light brightness."""
 
     _attr_unique_id = "hikvision_ir_light_brightness"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -515,13 +521,13 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
     _attr_icon = "mdi:brightness-6"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} IR Light Brightness"
+        self._attr_name = "IR Light Brightness"
         self._attr_unique_id = f"{host}_ir_light_brightness"
         self._optimistic_value = None
 
@@ -578,6 +584,7 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
     """Number entity for white light brightness limit."""
 
     _attr_unique_id = "hikvision_white_light_brightness_limit"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -585,13 +592,13 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
     _attr_icon = "mdi:brightness-percent"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} White Light Brightness Limit"
+        self._attr_name = "White Light Brightness Limit"
         self._attr_unique_id = f"{host}_white_light_brightness_limit"
         self._optimistic_value = None
 
@@ -650,6 +657,7 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
     """Number entity for IR light brightness limit."""
 
     _attr_unique_id = "hikvision_ir_light_brightness_limit"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -657,13 +665,13 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
     _attr_icon = "mdi:brightness-percent"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} IR Light Brightness Limit"
+        self._attr_name = "IR Light Brightness Limit"
         self._attr_unique_id = f"{host}_ir_light_brightness_limit"
         self._optimistic_value = None
 
@@ -722,19 +730,20 @@ class HikvisionMotionSensitivityNumber(NumberEntity):
     """Number entity for motion detection sensitivity."""
 
     _attr_unique_id = "hikvision_motion_sensitivity"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:adjust"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Motion Sensitivity"
+        self._attr_name = "Motion Sensitivity"
         self._attr_unique_id = f"{host}_motion_sensitivity"
         self._optimistic_value = None
 
@@ -791,19 +800,20 @@ class HikvisionMotionStartTriggerTimeNumber(NumberEntity):
     """Number entity for motion detection start trigger time."""
 
     _attr_unique_id = "hikvision_motion_start_trigger_time"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 10000
     _attr_native_step = 100
     _attr_native_unit_of_measurement = "ms"
     _attr_icon = "mdi:timer-outline"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Motion Start Trigger Time"
+        self._attr_name = "Motion Start Trigger Time"
         self._attr_unique_id = f"{host}_motion_start_trigger_time"
         self._optimistic_value = None
 
@@ -864,6 +874,7 @@ class HikvisionMotionEndTriggerTimeNumber(NumberEntity):
     """Number entity for motion detection end trigger time."""
 
     _attr_unique_id = "hikvision_motion_end_trigger_time"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 10000
     _attr_native_step = 100
@@ -871,13 +882,13 @@ class HikvisionMotionEndTriggerTimeNumber(NumberEntity):
     _attr_icon = "mdi:timer-outline"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Motion End Trigger Time"
+        self._attr_name = "Motion End Trigger Time"
         self._attr_unique_id = f"{host}_motion_end_trigger_time"
         self._optimistic_value = None
 
@@ -938,6 +949,7 @@ class HikvisionBrightnessNumber(NumberEntity):
     """Number entity for image brightness."""
 
     _attr_unique_id = "hikvision_brightness"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -945,13 +957,13 @@ class HikvisionBrightnessNumber(NumberEntity):
     _attr_icon = "mdi:brightness-6"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Brightness"
+        self._attr_name = "Brightness"
         self._attr_unique_id = f"{host}_brightness"
         self._optimistic_value = None
 
@@ -1008,6 +1020,7 @@ class HikvisionContrastNumber(NumberEntity):
     """Number entity for image contrast."""
 
     _attr_unique_id = "hikvision_contrast"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -1015,13 +1028,13 @@ class HikvisionContrastNumber(NumberEntity):
     _attr_icon = "mdi:contrast"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Contrast"
+        self._attr_name = "Contrast"
         self._attr_unique_id = f"{host}_contrast"
         self._optimistic_value = None
 
@@ -1078,6 +1091,7 @@ class HikvisionSaturationNumber(NumberEntity):
     """Number entity for image saturation."""
 
     _attr_unique_id = "hikvision_saturation"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -1085,13 +1099,13 @@ class HikvisionSaturationNumber(NumberEntity):
     _attr_icon = "mdi:palette"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Saturation"
+        self._attr_name = "Saturation"
         self._attr_unique_id = f"{host}_saturation"
         self._optimistic_value = None
 
@@ -1148,6 +1162,7 @@ class HikvisionSharpnessNumber(NumberEntity):
     """Number entity for image sharpness."""
 
     _attr_unique_id = "hikvision_sharpness"
+    _attr_has_entity_name = True
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -1155,13 +1170,13 @@ class HikvisionSharpnessNumber(NumberEntity):
     _attr_icon = "mdi:image-filter-center-focus"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Sharpness"
+        self._attr_name = "Sharpness"
         self._attr_unique_id = f"{host}_sharpness"
         self._optimistic_value = None
 
@@ -1217,19 +1232,20 @@ class HikvisionAlarmTimesNumber(NumberEntity):
     """Number entity for alarm times (number of repetitions)."""
 
     _attr_unique_id = "hikvision_alarm_times"
+    _attr_has_entity_name = True
     _attr_native_min_value = 1
     _attr_native_max_value = 50
     _attr_native_step = 1
     _attr_icon = "mdi:repeat"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Alarm Times"
+        self._attr_name = "Alarm Times"
         self._attr_unique_id = f"{host}_alarm_times"
         self._optimistic_value = None
 
@@ -1295,6 +1311,7 @@ class HikvisionLoudspeakerVolumeNumber(NumberEntity):
     """
 
     _attr_unique_id = "hikvision_loudspeaker_volume"
+    _attr_has_entity_name = True
     _attr_native_min_value = 1
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -1302,13 +1319,13 @@ class HikvisionLoudspeakerVolumeNumber(NumberEntity):
     _attr_icon = "mdi:volume-high"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the number entity."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Alarm Output Volume"
+        self._attr_name = "Alarm Output Volume"
         self._attr_unique_id = f"{host}_loudspeaker_volume"
         self._optimistic_value = None
 

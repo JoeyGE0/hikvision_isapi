@@ -5,7 +5,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.util import slugify
 
 from .const import DOMAIN
 from .device_helpers import build_configuration_url
@@ -63,6 +62,7 @@ async def async_setup_entry(
 class HikvisionCamera(Camera):
     """Camera entity for Hikvision camera stream."""
 
+    _attr_has_entity_name = True
     _attr_icon = "mdi:camera"
 
     def __init__(
@@ -82,6 +82,7 @@ class HikvisionCamera(Camera):
         self._host = host
         self._entry = entry
         self._camera_id = camera_id
+        self._camera_name = device_name
         self._stream_info = stream  # Use _stream_info to avoid conflicts with Home Assistant's stream property
         
         # Only enable stream feature if we have a stream configured
@@ -93,24 +94,22 @@ class HikvisionCamera(Camera):
         # Build unique_id
         if stream:
             # Use stream ID for unique_id (e.g., garage_101, garage_102)
-            device_name_slug = slugify(device_name.lower())
             self._attr_unique_id = f"{host}_{stream['id']}"
             
-            # Main stream (type_id=1) uses device name + "Main", others are disabled by default
+            # Main stream (type_id=1) enabled by default; others disabled
             if stream["type_id"] == 1:
-                self._attr_name = f"{device_name} Main"
+                self._attr_name = "Main"
                 self._attr_entity_registry_enabled_default = True
             else:
                 # Other streams: add stream type suffix and disable by default
-                self._attr_name = f"{device_name} {stream['type']}"
+                self._attr_name = stream['type']
                 self._attr_entity_registry_enabled_default = False
         else:
             # Fallback: old snapshot-style entity
+            self._attr_name = "Snapshot"
             if camera_id == 1 and len(api.cameras) == 1:
-                self._attr_name = f"{device_name} Snapshot"
                 self._attr_unique_id = f"{host}_camera"
             else:
-                self._attr_name = f"{device_name} Snapshot"
                 self._attr_unique_id = f"{host}_camera_{camera_id}"
 
     @property
@@ -137,12 +136,6 @@ class HikvisionCamera(Camera):
         else:
             device_identifier = device_info.get("serialNumber") or self._host
         
-        # Strip all stream type suffixes from device name (Main, Snapshot, Transcoded Stream, Sub-stream, etc.)
-        device_name_clean = self._attr_name.replace(" Main", "").replace(" Snapshot", "")
-        # Also strip common stream type suffixes
-        for suffix in [" Transcoded Stream", " Transcoded", " Sub-stream", " Sub", " Third Stream", " Third"]:
-            device_name_clean = device_name_clean.replace(suffix, "")
-        
         visit_host = (
             camera_info.get("ip_addr") if camera_info and camera_info.get("ip_addr") else self._host
         )
@@ -151,7 +144,7 @@ class HikvisionCamera(Camera):
             "configuration_url": build_configuration_url(visit_host),
             "manufacturer": device_info.get("manufacturer", "Hikvision").title(),
             "model": camera_info.get("model") if camera_info else device_info.get("model", "Hikvision Camera"),
-            "name": device_name_clean,
+            "name": self._camera_name,
             "sw_version": camera_info.get("firmware") if camera_info else device_info.get("firmwareVersion"),
         }
         
