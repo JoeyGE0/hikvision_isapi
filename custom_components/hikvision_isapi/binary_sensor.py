@@ -179,8 +179,8 @@ class EventBinarySensor(BinarySensorEntity):
         self.event = event
         
         # Set unique_id
-        self._attr_unique_id = event.unique_id
-
+        self._attr_unique_id = event.unique_id  # Store just the identifier, not full entity_id
+        
         # Set name (device name prepended automatically by HA via has_entity_name)
         event_config = EVENTS.get(event.id, {})
         event_label = event_config.get("label", event.id.title())

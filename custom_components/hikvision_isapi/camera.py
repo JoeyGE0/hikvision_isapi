@@ -66,14 +66,14 @@ class HikvisionCamera(Camera):
     _attr_icon = "mdi:camera"
 
     def __init__(
-        self,
-        coordinator: HikvisionDataUpdateCoordinator,
-        api: HikvisionISAPI,
-        entry: ConfigEntry,
-        host: str,
-        device_name: str,
+        self, 
+        coordinator: HikvisionDataUpdateCoordinator, 
+        api: HikvisionISAPI, 
+        entry: ConfigEntry, 
+        host: str, 
+        device_name: str, 
         camera_id: int = 1,
-        stream: dict = None,
+        stream: dict = None
     ):
         """Initialize the camera."""
         super().__init__()
@@ -93,17 +93,19 @@ class HikvisionCamera(Camera):
         
         # Build unique_id
         if stream:
+            # Use stream ID for unique_id (e.g., garage_101, garage_102)
             self._attr_unique_id = f"{host}_{stream['id']}"
-
+            
             # Main stream (type_id=1) enabled by default; others disabled
             if stream["type_id"] == 1:
                 self._attr_name = "Main"
                 self._attr_entity_registry_enabled_default = True
             else:
+                # Other streams: add stream type suffix and disable by default
                 self._attr_name = stream['type']
                 self._attr_entity_registry_enabled_default = False
         else:
-            # Fallback: snapshot-style entity
+            # Fallback: old snapshot-style entity
             self._attr_name = "Snapshot"
             if camera_id == 1 and len(api.cameras) == 1:
                 self._attr_unique_id = f"{host}_camera"
