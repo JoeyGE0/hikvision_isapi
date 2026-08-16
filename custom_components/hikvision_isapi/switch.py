@@ -26,34 +26,33 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
-    device_name = data["device_info"].get("deviceName", host)
     detected_features = data.get("detected_features", {})
 
     entities = []
     
     # Only add entities if their features are detected
     if detected_features.get("noise_reduce", False):
-        entities.append(HikvisionNoiseReduceSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionNoiseReduceSwitch(coordinator, api, entry, host))
     if detected_features.get("motion_detection", False):
-        entities.append(HikvisionMotionDetectionSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionMotionDetectionSwitch(coordinator, api, entry, host))
     if detected_features.get("tamper_detection", False):
-        entities.append(HikvisionTamperDetectionSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionTamperDetectionSwitch(coordinator, api, entry, host))
     if detected_features.get("intrusion_detection", False):
-        entities.append(HikvisionIntrusionDetectionSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionIntrusionDetectionSwitch(coordinator, api, entry, host))
     if detected_features.get("line_crossing_detection", False):
-        entities.append(HikvisionLineCrossingDetectionSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionLineCrossingDetectionSwitch(coordinator, api, entry, host))
     if detected_features.get("scene_change_detection", False):
-        entities.append(HikvisionSceneChangeDetectionSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionSceneChangeDetectionSwitch(coordinator, api, entry, host))
     if detected_features.get("defocus_detection", False):
-        entities.append(HikvisionDefocusDetectionSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionDefocusDetectionSwitch(coordinator, api, entry, host))
     if detected_features.get("region_entrance_detection", False):
-        entities.append(HikvisionRegionEntranceDetectionSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionRegionEntranceDetectionSwitch(coordinator, api, entry, host))
     if detected_features.get("region_exiting_detection", False):
-        entities.append(HikvisionRegionExitingDetectionSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionRegionExitingDetectionSwitch(coordinator, api, entry, host))
     if detected_features.get("alarm_input", False):
-        entities.append(HikvisionAlarmInputSwitch(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionAlarmInputSwitch(coordinator, api, entry, host))
     if detected_features.get("alarm_output", False):
-        entities.append(HikvisionAlarmOutputSwitch(coordinator, api, entry, host, device_name, 1))
+        entities.append(HikvisionAlarmOutputSwitch(coordinator, api, entry, host, 1))
 
     async_add_entities(entities)
 
@@ -62,15 +61,16 @@ class HikvisionNoiseReduceSwitch(SwitchEntity):
     """Switch entity for noise reduction."""
 
     _attr_unique_id = "hikvision_noisereduce"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:volume-off"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Noise Reduction"
+        self._attr_name = "Noise Reduction"
         self._attr_unique_id = f"{host}_noisereduce"
         self._optimistic_value = None
 
@@ -143,15 +143,16 @@ class HikvisionMotionDetectionSwitch(SwitchEntity):
     """Switch entity for motion detection control."""
 
     _attr_unique_id = "hikvision_motion_detection"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:motion-sensor"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Motion Detection"
+        self._attr_name = "Motion Detection"
         self._attr_unique_id = f"{host}_motion_detection"
         self._optimistic_value = None
 
@@ -230,15 +231,16 @@ class HikvisionTamperDetectionSwitch(SwitchEntity):
     """Switch entity for tamper detection control."""
 
     _attr_unique_id = "hikvision_tamper_detection"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:shield-alert"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Video Tampering Detection"
+        self._attr_name = "Video Tampering Detection"
         self._attr_unique_id = f"{host}_tamper_detection"
         self._optimistic_value = None
 
@@ -311,15 +313,16 @@ class HikvisionIntrusionDetectionSwitch(SwitchEntity):
     """Switch entity for intrusion detection control."""
 
     _attr_unique_id = "hikvision_intrusion_detection"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:account-alert"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Intrusion Detection"
+        self._attr_name = "Intrusion Detection"
         self._attr_unique_id = f"{host}_intrusion_detection"
         self._optimistic_value = None
 
@@ -397,15 +400,16 @@ class HikvisionLineCrossingDetectionSwitch(SwitchEntity):
     """Switch entity for line crossing detection control."""
 
     _attr_unique_id = "hikvision_line_crossing_detection"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:vector-line"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Line Crossing Detection"
+        self._attr_name = "Line Crossing Detection"
         self._attr_unique_id = f"{host}_line_crossing_detection"
         self._optimistic_value = None
 
@@ -483,15 +487,16 @@ class HikvisionSceneChangeDetectionSwitch(SwitchEntity):
     """Switch entity for scene change detection control."""
 
     _attr_unique_id = "hikvision_scene_change_detection"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:image-edit"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Scene Change Detection"
+        self._attr_name = "Scene Change Detection"
         self._attr_unique_id = f"{host}_scene_change_detection"
         self._optimistic_value = None
 
@@ -569,15 +574,16 @@ class HikvisionDefocusDetectionSwitch(SwitchEntity):
     """Switch entity for defocus detection control."""
 
     _attr_unique_id = "hikvision_defocus_detection"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:image-filter-center-focus"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Defocus Detection"
+        self._attr_name = "Defocus Detection"
         self._attr_unique_id = f"{host}_defocus_detection"
         self._optimistic_value = None
 
@@ -654,15 +660,16 @@ class HikvisionRegionEntranceDetectionSwitch(SwitchEntity):
     """Switch entity for region entrance detection control."""
 
     _attr_unique_id = "hikvision_region_entrance_detection"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:sign-direction"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Region Entrance Detection"
+        self._attr_name = "Region Entrance Detection"
         self._attr_unique_id = f"{host}_region_entrance_detection"
         self._optimistic_value = None
 
@@ -735,15 +742,16 @@ class HikvisionRegionExitingDetectionSwitch(SwitchEntity):
     """Switch entity for region exiting detection control."""
 
     _attr_unique_id = "hikvision_region_exiting_detection"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:exit-run"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Region Exiting Detection"
+        self._attr_name = "Region Exiting Detection"
         self._attr_unique_id = f"{host}_region_exiting_detection"
         self._optimistic_value = None
 
@@ -816,15 +824,16 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
     """Switch entity for alarm input control."""
 
     _attr_unique_id = "hikvision_alarm_input_1"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:video-input-hdmi"
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str):
         """Initialize the switch."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Alarm Input 1"
+        self._attr_name = "Alarm Input 1"
         self._attr_unique_id = f"{host}_alarm_input_1"
         self._optimistic_value = None
 
@@ -897,19 +906,17 @@ class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
     """Switch entity for alarm output control."""
 
     _attr_icon = "mdi:video-input-hdmi"
+    _attr_has_entity_name = True
 
-    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str, port_no: int = 1):
+    def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, port_no: int = 1):
         """Initialize the switch."""
         super().__init__(coordinator)
         self.api = api
         self._host = host
         self._entry = entry
         self._port_no = port_no
-        from homeassistant.components.switch import ENTITY_ID_FORMAT
-        from homeassistant.util import slugify
-        self.entity_id = ENTITY_ID_FORMAT.format(f"{slugify(device_name.lower())}_{port_no}_alarm_output")
         self._attr_unique_id = self.entity_id
-        self._attr_name = f"{device_name} Alarm Output {port_no}"
+        self._attr_name = f"Alarm Output {port_no}"
         self._attr_device_info = get_primary_device_info(coordinator.hass, entry)
 
     @property

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from homeassistant.components.binary_sensor import ENTITY_ID_FORMAT, BinarySensorEntity, BinarySensorDeviceClass
+from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -111,7 +111,6 @@ async def async_setup_entry(
                     api,
                     entry,
                     host,
-                    camera_name if is_nvr or len(cameras) > 1 else device_name,
                     EventInfo(
                         id=event_id,
                         channel_id=channel_id,
@@ -144,7 +143,6 @@ async def async_setup_entry(
                     api,
                     entry,
                     host,
-                    device_name,
                     event,
                     None,  # No camera serial for device-level events
                     None,  # No camera model for device-level events
@@ -159,6 +157,7 @@ class EventBinarySensor(BinarySensorEntity):
     """Event detection sensor."""
 
     _attr_is_on = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -166,7 +165,6 @@ class EventBinarySensor(BinarySensorEntity):
         api: HikvisionISAPI,
         entry: ConfigEntry,
         host: str,
-        device_name: str,
         event: EventInfo,
         camera_serial_no: str | None = None,
         camera_model: str | None = None,
@@ -180,17 +178,16 @@ class EventBinarySensor(BinarySensorEntity):
         self._entry = entry
         self.event = event
         
-        # Set entity_id and unique_id
-        self.entity_id = ENTITY_ID_FORMAT.format(event.unique_id)
-        self._attr_unique_id = event.unique_id  # Store just the identifier, not full entity_id
-        
-        # Set name using device name + event label (like switches do)
+        # Set unique_id
+        self._attr_unique_id = event.unique_id
+
+        # Set name (device name prepended automatically by HA via has_entity_name)
         event_config = EVENTS.get(event.id, {})
         event_label = event_config.get("label", event.id.title())
         if event.id == EVENT_IO:
-            self._attr_name = f"{device_name} Alarm Input {event.io_port_id}"
+            self._attr_name = f"Alarm Input {event.io_port_id}"
         else:
-            self._attr_name = f"{device_name} {event_label}"
+            self._attr_name = event_label
         
         # Set device class from event config
         self._attr_device_class = event_config.get("device_class")

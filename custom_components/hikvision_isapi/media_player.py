@@ -34,14 +34,13 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
-    device_name = data["device_info"].get("deviceName", host)
     detected_features = data.get("detected_features", {})
 
     entities = []
     
     # Only add media player if two-way audio is supported
     if detected_features.get("media_player", False):
-        entities.append(HikvisionMediaPlayer(coordinator, api, entry, host, device_name))
+        entities.append(HikvisionMediaPlayer(coordinator, api, entry, host))
 
     async_add_entities(entities)
 
@@ -64,16 +63,17 @@ class HikvisionMediaPlayer(MediaPlayerEntity):
     )
     _attr_media_content_type = MediaType.MUSIC
     _attr_unique_id = "hikvision_media_player"
+    _attr_has_entity_name = True
     _attr_icon = "mdi:speaker"
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str):
         """Initialize the media player."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Speaker"
+        self._attr_name = "Speaker"
         self._attr_unique_id = f"{host}_media_player"
         self._audio_session_id = None
         self._volume_level = None

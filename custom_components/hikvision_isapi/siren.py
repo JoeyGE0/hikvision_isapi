@@ -35,19 +35,19 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     api = data["api"]
     host = data["host"]
-    device_name = data["device_info"].get("deviceName", host)
     detected_features = data.get("detected_features", {})
 
     if not detected_features.get("test_audio_alarm", False):
         async_add_entities([])
         return
 
-    async_add_entities([HikvisionAudioAlarmSiren(coordinator, api, entry, host, device_name)])
+    async_add_entities([HikvisionAudioAlarmSiren(coordinator, api, entry, host)])
 
 
 class HikvisionAudioAlarmSiren(SirenEntity):
     """Siren entity backed by Hikvision AudioAlarm trigger endpoint."""
 
+    _attr_has_entity_name = True
     _attr_icon = "mdi:alarm-bell"
     _attr_supported_features = (
         SirenEntityFeature.TURN_ON
@@ -57,13 +57,13 @@ class HikvisionAudioAlarmSiren(SirenEntity):
         | SirenEntityFeature.VOLUME_SET
     )
 
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str) -> None:
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str) -> None:
         """Initialize the siren."""
         self.coordinator = coordinator
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Alarm"
+        self._attr_name = "Alarm"
         self._attr_unique_id = f"{host}_audio_alarm_siren"
         self._attr_is_on = False
         self._loop_task: asyncio.Task | None = None
