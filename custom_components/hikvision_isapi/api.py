@@ -19,7 +19,35 @@ from typing import Callable, Optional
 
 _LOGGER = logging.getLogger(__name__)
 
-XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
+# NOTE: ISAPI is used by Hikvision and by OEM/white-label rebrands of Hikvision
+# hardware (e.g. ANNKE), which return structurally identical XML but under a
+# different namespace URI (observed: "http://www.std-cgi.com/ver20/XMLSchema"
+# instead of "http://www.hikvision.com/ver20/XMLSchema"). Rather than hardcode
+# one namespace and fail to parse responses from OEM devices, every ISAPI XML
+# response is parsed via `_parse_isapi_xml()`, which strips the namespace URI
+# from every tag right after parsing. XML_NS is therefore kept as an empty
+# string on purpose — the f"{XML_NS}tagname" pattern used throughout this file
+# still works unchanged and now matches regardless of which namespace URI the
+# device actually used.
+XML_NS = ""
+
+
+def _parse_isapi_xml(text: str) -> ET.Element:
+    """Parse an ISAPI XML response and strip its namespace URI.
+
+    Different camera families (and OEM rebrands such as ANNKE) report ISAPI
+    XML under different namespace URIs even though the element structure is
+    identical. Stripping the namespace here — once, at the parsing boundary —
+    lets every `.find()`/`.findall()` call elsewhere in this file use plain
+    tag names (via the now-empty ``XML_NS`` constant) and keep working no
+    matter which namespace URI the device used.
+    """
+    root = ET.fromstring(text)
+    for elem in root.iter():
+        tag = elem.tag
+        if isinstance(tag, str) and tag.startswith("{"):
+            elem.tag = tag.split("}", 1)[1]
+    return root
 
 # G.711 telephony audio: 8 kHz mono, 64 kbps → 8000 bytes/s
 G711_CHUNK_SIZE = 128  # 16 ms per chunk at 8 kHz (common ISAPI packet size)
@@ -122,7 +150,7 @@ def _extract_sub_status_code(response) -> str | None:
     except (json.JSONDecodeError, TypeError):
         pass
     try:
-        root = ET.fromstring(text)
+        root = _parse_isapi_xml(text)
         sub_elem = root.find(f".//{XML_NS}subStatusCode")
         if sub_elem is not None and sub_elem.text:
             return sub_elem.text.strip()
@@ -292,7 +320,7 @@ def _extract_error_message(response) -> str:
         
         # Try XML
         try:
-            root = ET.fromstring(text)
+            root = _parse_isapi_xml(text)
             # Check common XML error elements
             for ns in [XML_NS, "{http://www.isapi.org/ver20/XMLSchema}", ""]:
                 # Check if root itself is ResponseStatus, or find it as child
@@ -440,7 +468,7 @@ class HikvisionISAPI:
             elif response.status_code == 403:
                 raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
-            return ET.fromstring(response.text)
+            return _parse_isapi_xml(response.text)
         except requests.exceptions.HTTPError as e:
             if e.response.status_code in (401, 403):
                 raise AuthenticationError(f"Authentication failed: {e}") from e
@@ -499,7 +527,7 @@ class HikvisionISAPI:
             elif response.status_code == 403:
                 raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
-            return ET.fromstring(response.text)
+            return _parse_isapi_xml(response.text)
         except requests.exceptions.HTTPError as e:
             if e.response.status_code in (401, 403):
                 raise AuthenticationError(f"Authentication failed: {e}") from e
@@ -1208,7 +1236,7 @@ class HikvisionISAPI:
                     f"Authentication failed for {self.host} ({response.status_code})"
                 )
             response.raise_for_status()
-            xml = ET.fromstring(response.text)
+            xml = _parse_isapi_xml(response.text)
 
             device_info = {}
             device_info["deviceName"] = xml.find(f".//{XML_NS}deviceName")
@@ -1247,7 +1275,7 @@ class HikvisionISAPI:
     def _isapi_response_ok(response: requests.Response) -> bool:
         """Return True if ResponseStatus statusCode indicates success (ISAPI: 1 = OK)."""
         try:
-            root = ET.fromstring(response.text)
+            root = _parse_isapi_xml(response.text)
         except ET.ParseError:
             return response.ok
         for ns in (XML_NS, "{http://www.isapi.org/ver20/XMLSchema}", ""):
@@ -1555,7 +1583,7 @@ class HikvisionISAPI:
             error_msg = _extract_error_message(response) or response.text[:200]
             sub_status = None
             try:
-                root = ET.fromstring(response.text)
+                root = _parse_isapi_xml(response.text)
                 sub_elem = root.find(f".//{XML_NS}subStatusCode")
                 if sub_elem is not None and sub_elem.text:
                     sub_status = sub_elem.text.strip()
@@ -2156,7 +2184,7 @@ class HikvisionISAPI:
                 timeout=5
             )
             response.raise_for_status()
-            xml = ET.fromstring(response.text)
+            xml = _parse_isapi_xml(response.text)
             session_id = xml.find(f".//{XML_NS}sessionId")
             return session_id.text.strip() if session_id is not None else None
         except requests.exceptions.HTTPError as e:
@@ -2315,7 +2343,7 @@ class HikvisionISAPI:
             elif response.status_code == 403:
                 raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
-            xml = ET.fromstring(response.text)
+            xml = _parse_isapi_xml(response.text)
             
             result = {}
             enabled = xml.find(f".//{XML_NS}enabled")
@@ -2575,7 +2603,7 @@ class HikvisionISAPI:
             elif response.status_code == 403:
                 raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
-            xml = ET.fromstring(response.text)
+            xml = _parse_isapi_xml(response.text)
             
             result = {}
             enabled = xml.find(f".//{XML_NS}enabled")
@@ -3442,7 +3470,7 @@ class HikvisionISAPI:
             response.raise_for_status()
             
             _LOGGER.debug("Received alarm server XML: %s", response.text)
-            xml_root = ET.fromstring(response.text)
+            xml_root = _parse_isapi_xml(response.text)
             host = self._get_event_notification_host(xml_root)
             
             if host is None:
@@ -3607,7 +3635,7 @@ class HikvisionISAPI:
             )
             response.raise_for_status()
             
-            xml_root = ET.fromstring(response.text)
+            xml_root = _parse_isapi_xml(response.text)
             host = self._get_event_notification_host(xml_root)
             
             if host is None:
