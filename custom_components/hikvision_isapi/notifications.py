@@ -43,6 +43,40 @@ CONTENT_TYPE_TEXT_HTML = "text/html"
 CONTENT_TYPE_IMAGE = "image/jpeg"
 
 
+def _xml_local_name(tag: str) -> str:
+    """Tag name with any namespace URI removed."""
+    if not isinstance(tag, str):
+        return ""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _xml_text(elem) -> str:
+    if elem is None or elem.text is None:
+        return ""
+    return elem.text.strip()
+
+
+def _find_direct_child(parent, name: str):
+    """First direct child with this tag name and non-empty text, any namespace."""
+    for child in parent:
+        if _xml_local_name(child.tag) == name and _xml_text(child):
+            return child
+    return None
+
+
+def _find_named(parent, name: str):
+    """Direct child first, then a descendant. Skips a nested tag when the real one is direct."""
+    found = _find_direct_child(parent, name)
+    if found is not None:
+        return found
+    for elem in parent.iter():
+        if elem is parent:
+            continue
+        if _xml_local_name(elem.tag) == name and _xml_text(elem):
+            return elem
+    return None
+
+
 class EventNotificationsView(HomeAssistantView):
     """Event notifications listener for Hikvision cameras."""
 
@@ -356,52 +390,42 @@ class EventNotificationsView(HomeAssistantView):
                 event_id = EVENTS_ALTERNATE_ID[event_id]
                 _LOGGER.debug("Mapped event type %s -> %s", original_id, event_id)
             
-            # Prefer dynChannelID over channelID (dynChannelID indicates proxied event from NVR camera)
-            channel_id_elem = alert.find(f".//{XML_NS}dynChannelID")
-            if channel_id_elem is None or not channel_id_elem.text:
-                channel_id_elem = alert.find(f".//{XML_NS}channelID")
-            channel_id = int(channel_id_elem.text.strip()) if channel_id_elem is not None and channel_id_elem.text else 0
-            
-            # Get IO port ID - prefer dynInputIOPortID over inputIOPortID (dynInputIOPortID indicates proxied event)
-            io_port_id_elem = alert.find(f".//{XML_NS}dynInputIOPortID")
-            if io_port_id_elem is None or not io_port_id_elem.text:
-                io_port_id_elem = alert.find(f".//{XML_NS}inputIOPortID")
-            io_port_id = int(io_port_id_elem.text.strip()) if io_port_id_elem is not None and io_port_id_elem.text else 0
-            
-            # Get serial number or MAC address
-            device_serial = None
-            mac = ""
-            
-            serial_elem = alert.find(f".//{XML_NS}Extensions/{XML_NS}serialNumber")
-            if serial_elem is not None:
-                device_serial = serial_elem.text.strip() if serial_elem.text else None
-            
-            mac_elem = alert.find(f".//{XML_NS}macAddress")
-            if mac_elem is not None:
-                mac = mac_elem.text.strip() if mac_elem.text else ""
-            
-            # Get detection target and region ID (for smart events)
+            # Prefer a direct dynChannelID (NVR proxy) over channelID.
+            # Direct children win over a nested tag with the same name.
+            # Do not use `or` on elements: a tag with no children is false.
+            channel_id_elem = _find_direct_child(alert, "dynChannelID")
+            if channel_id_elem is None:
+                channel_id_elem = _find_direct_child(alert, "channelID")
+            if channel_id_elem is None:
+                channel_id_elem = _find_named(alert, "dynChannelID")
+            if channel_id_elem is None:
+                channel_id_elem = _find_named(alert, "channelID")
+            channel_text = _xml_text(channel_id_elem)
+            channel_id = int(channel_text) if channel_text else 0
+
+            io_port_elem = _find_direct_child(alert, "dynInputIOPortID")
+            if io_port_elem is None:
+                io_port_elem = _find_direct_child(alert, "inputIOPortID")
+            if io_port_elem is None:
+                io_port_elem = _find_named(alert, "dynInputIOPortID")
+            if io_port_elem is None:
+                io_port_elem = _find_named(alert, "inputIOPortID")
+            io_text = _xml_text(io_port_elem)
+            io_port_id = int(io_text) if io_text else 0
+
+            device_serial = _xml_text(_find_named(alert, "serialNumber")) or None
+            mac = _xml_text(_find_named(alert, "macAddress"))
+
             detection_target = None
             region_id = 0
-            
-            region_elem = alert.find(f".//{XML_NS}DetectionRegionList/{XML_NS}DetectionRegionEntry")
+            region_elem = _find_named(alert, "DetectionRegionEntry")
             if region_elem is not None:
-                target_elem = region_elem.find(f".//{XML_NS}detectionTarget")
-                if target_elem is not None:
-                    detection_target = target_elem.text.strip() if target_elem.text else None
-                
-                region_id_elem = region_elem.find(f".//{XML_NS}regionID")
-                if region_id_elem is not None:
-                    region_id = int(region_id_elem.text.strip()) if region_id_elem.text else 0
-            
-            # Check for activeState to determine if event is starting or ending
-            # Some cameras send activeState="inactive" when event ends
-            active_state = None
-            active_state_elem = alert.find(f".//{XML_NS}activeState")
-            if active_state_elem is None:
-                active_state_elem = alert.find(".//activeState")
-            if active_state_elem is not None and active_state_elem.text:
-                active_state = active_state_elem.text.strip().lower()
+                detection_target = _xml_text(_find_named(region_elem, "detectionTarget")) or None
+                region_text = _xml_text(_find_named(region_elem, "regionID"))
+                region_id = int(region_text) if region_text else 0
+
+            # Some cameras send activeState="inactive" when the event ends.
+            active_state = _xml_text(_find_named(alert, "activeState")).lower() or None
             
             # Check if event is supported
             from .const import EVENTS
