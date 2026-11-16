@@ -1,100 +1,268 @@
 {
   "domain": "hikvision_isapi",
   "name": "Hikvision ISAPI Controls",
-  "version": "1.0.6",
-  "documentation": "https://github.com/JoeyGE0/hikvision_isapi",
-  "requirements": ["requests", "pydub>=0.25.1", "aiohttp"],
+  "after_dependencies": [
+    "dhcp",
+    "network"
+  ],
+  "codeowners": [
+    "@JoeyGE0"
+  ],
   "config_flow": true,
-  "iot_class": "local_push",
-  "codeowners": ["@JoeyGE0"],
-  "dependencies": [],
-  "integration_type": "device",
-  "after_dependencies": ["dhcp", "network"],
-  "quality_scale": "gold",
-  "domains": [],
-  "platforms": ["sensor", "select", "number", "media_player", "binary_sensor", "camera", "button", "switch", "update", "siren"],
+  "dependencies": [
+    "http"
+  ],
   "dhcp": [
-    {"macaddress": "00BC99*"},
-    {"macaddress": "040312*"},
-    {"macaddress": "04EECD*"},
-    {"macaddress": "083BC1*"},
-    {"macaddress": "085411*"},
-    {"macaddress": "08A189*"},
-    {"macaddress": "08CC81*"},
-    {"macaddress": "0C75D2*"},
-    {"macaddress": "1012FB*"},
-    {"macaddress": "1868CB*"},
-    {"macaddress": "188025*"},
-    {"macaddress": "240F9B*"},
-    {"macaddress": "2428FD*"},
-    {"macaddress": "2432AE*"},
-    {"macaddress": "244845*"},
-    {"macaddress": "2857BE*"},
-    {"macaddress": "2CA59C*"},
-    {"macaddress": "340962*"},
-    {"macaddress": "3C1BF8*"},
-    {"macaddress": "40ACBF*"},
-    {"macaddress": "4419B6*"},
-    {"macaddress": "4447CC*"},
-    {"macaddress": "44A642*"},
-    {"macaddress": "48785B*"},
-    {"macaddress": "4C1F86*"},
-    {"macaddress": "4C62DF*"},
-    {"macaddress": "4CBD8F*"},
-    {"macaddress": "4CF5DC*"},
-    {"macaddress": "50E538*"},
-    {"macaddress": "548C81*"},
-    {"macaddress": "54C415*"},
-    {"macaddress": "5803FB*"},
-    {"macaddress": "5850ED*"},
-    {"macaddress": "5C345B*"},
-    {"macaddress": "64DB8B*"},
-    {"macaddress": "686DBC*"},
-    {"macaddress": "743FC2*"},
-    {"macaddress": "80489F*"},
-    {"macaddress": "807C62*"},
-    {"macaddress": "80BEAF*"},
-    {"macaddress": "80F5AE*"},
-    {"macaddress": "849459*"},
-    {"macaddress": "849A40*"},
-    {"macaddress": "88DE39*"},
-    {"macaddress": "8C22D2*"},
-    {"macaddress": "8CE748*"},
-    {"macaddress": "94E1AC*"},
-    {"macaddress": "988B0A*"},
-    {"macaddress": "989DE5*"},
-    {"macaddress": "98DF82*"},
-    {"macaddress": "98F112*"},
-    {"macaddress": "A0FF0C*"},
-    {"macaddress": "A41437*"},
-    {"macaddress": "A42902*"},
-    {"macaddress": "A44BD9*"},
-    {"macaddress": "A4A459*"},
-    {"macaddress": "A4D5C2*"},
-    {"macaddress": "ACB92F*"},
-    {"macaddress": "ACCB51*"},
-    {"macaddress": "B4A382*"},
-    {"macaddress": "BC5E33*"},
-    {"macaddress": "BC9B5E*"},
-    {"macaddress": "BCAD28*"},
-    {"macaddress": "BCBAC2*"},
-    {"macaddress": "C0517E*"},
-    {"macaddress": "C056E3*"},
-    {"macaddress": "C06DED*"},
-    {"macaddress": "C42F90*"},
-    {"macaddress": "C8A702*"},
-    {"macaddress": "CC13F3*"},
-    {"macaddress": "D4E853*"},
-    {"macaddress": "DC07F8*"},
-    {"macaddress": "DCD26A*"},
-    {"macaddress": "E0BAAD*"},
-    {"macaddress": "E0CA3C*"},
-    {"macaddress": "E0DF13*"},
-    {"macaddress": "E4D58B*"},
-    {"macaddress": "E8A0ED*"},
-    {"macaddress": "ECA971*"},
-    {"macaddress": "ECC89C*"},
-    {"macaddress": "F84DFC*"},
-    {"macaddress": "FC9FFD*"}
-  ]
+    {
+      "macaddress": "00BC99*"
+    },
+    {
+      "macaddress": "040312*"
+    },
+    {
+      "macaddress": "04EECD*"
+    },
+    {
+      "macaddress": "083BC1*"
+    },
+    {
+      "macaddress": "085411*"
+    },
+    {
+      "macaddress": "08A189*"
+    },
+    {
+      "macaddress": "08CC81*"
+    },
+    {
+      "macaddress": "0C75D2*"
+    },
+    {
+      "macaddress": "1012FB*"
+    },
+    {
+      "macaddress": "1868CB*"
+    },
+    {
+      "macaddress": "188025*"
+    },
+    {
+      "macaddress": "240F9B*"
+    },
+    {
+      "macaddress": "2428FD*"
+    },
+    {
+      "macaddress": "2432AE*"
+    },
+    {
+      "macaddress": "244845*"
+    },
+    {
+      "macaddress": "2857BE*"
+    },
+    {
+      "macaddress": "2CA59C*"
+    },
+    {
+      "macaddress": "340962*"
+    },
+    {
+      "macaddress": "3C1BF8*"
+    },
+    {
+      "macaddress": "40ACBF*"
+    },
+    {
+      "macaddress": "4419B6*"
+    },
+    {
+      "macaddress": "4447CC*"
+    },
+    {
+      "macaddress": "44A642*"
+    },
+    {
+      "macaddress": "48785B*"
+    },
+    {
+      "macaddress": "4C1F86*"
+    },
+    {
+      "macaddress": "4C62DF*"
+    },
+    {
+      "macaddress": "4CBD8F*"
+    },
+    {
+      "macaddress": "4CF5DC*"
+    },
+    {
+      "macaddress": "50E538*"
+    },
+    {
+      "macaddress": "548C81*"
+    },
+    {
+      "macaddress": "54C415*"
+    },
+    {
+      "macaddress": "5803FB*"
+    },
+    {
+      "macaddress": "5850ED*"
+    },
+    {
+      "macaddress": "5C345B*"
+    },
+    {
+      "macaddress": "64DB8B*"
+    },
+    {
+      "macaddress": "686DBC*"
+    },
+    {
+      "macaddress": "743FC2*"
+    },
+    {
+      "macaddress": "80489F*"
+    },
+    {
+      "macaddress": "807C62*"
+    },
+    {
+      "macaddress": "80BEAF*"
+    },
+    {
+      "macaddress": "80F5AE*"
+    },
+    {
+      "macaddress": "849459*"
+    },
+    {
+      "macaddress": "849A40*"
+    },
+    {
+      "macaddress": "88DE39*"
+    },
+    {
+      "macaddress": "8C22D2*"
+    },
+    {
+      "macaddress": "8CE748*"
+    },
+    {
+      "macaddress": "94E1AC*"
+    },
+    {
+      "macaddress": "988B0A*"
+    },
+    {
+      "macaddress": "989DE5*"
+    },
+    {
+      "macaddress": "98DF82*"
+    },
+    {
+      "macaddress": "98F112*"
+    },
+    {
+      "macaddress": "A0FF0C*"
+    },
+    {
+      "macaddress": "A41437*"
+    },
+    {
+      "macaddress": "A42902*"
+    },
+    {
+      "macaddress": "A44BD9*"
+    },
+    {
+      "macaddress": "A4A459*"
+    },
+    {
+      "macaddress": "A4D5C2*"
+    },
+    {
+      "macaddress": "ACB92F*"
+    },
+    {
+      "macaddress": "ACCB51*"
+    },
+    {
+      "macaddress": "B4A382*"
+    },
+    {
+      "macaddress": "BC5E33*"
+    },
+    {
+      "macaddress": "BC9B5E*"
+    },
+    {
+      "macaddress": "BCAD28*"
+    },
+    {
+      "macaddress": "BCBAC2*"
+    },
+    {
+      "macaddress": "C0517E*"
+    },
+    {
+      "macaddress": "C056E3*"
+    },
+    {
+      "macaddress": "C06DED*"
+    },
+    {
+      "macaddress": "C42F90*"
+    },
+    {
+      "macaddress": "C8A702*"
+    },
+    {
+      "macaddress": "CC13F3*"
+    },
+    {
+      "macaddress": "D4E853*"
+    },
+    {
+      "macaddress": "DC07F8*"
+    },
+    {
+      "macaddress": "DCD26A*"
+    },
+    {
+      "macaddress": "E0BAAD*"
+    },
+    {
+      "macaddress": "E0CA3C*"
+    },
+    {
+      "macaddress": "E0DF13*"
+    },
+    {
+      "macaddress": "E4D58B*"
+    },
+    {
+      "macaddress": "E8A0ED*"
+    },
+    {
+      "macaddress": "ECA971*"
+    },
+    {
+      "macaddress": "ECC89C*"
+    },
+    {
+      "macaddress": "F84DFC*"
+    },
+    {
+      "macaddress": "FC9FFD*"
+    }
+  ],
+  "documentation": "https://github.com/JoeyGE0/hikvision_isapi",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "quality_scale": "gold",
+  "version": "1.0.6"
 }
