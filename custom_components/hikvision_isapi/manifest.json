@@ -263,6 +263,7 @@
   "documentation": "https://github.com/JoeyGE0/hikvision_isapi",
   "integration_type": "device",
   "iot_class": "local_push",
+  "issue_tracker": "https://github.com/JoeyGE0/hikvision_isapi/issues",
   "quality_scale": "gold",
   "version": "1.0.6"
 }
