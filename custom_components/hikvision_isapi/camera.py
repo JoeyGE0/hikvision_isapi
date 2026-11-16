@@ -1,6 +1,11 @@
 """Camera platform for Hikvision ISAPI."""
 import logging
 from homeassistant.components.camera import Camera, CameraEntityFeature
+
+try:  # Home Assistant 2026.11+
+    from homeassistant.components.camera import CameraEntityCapabilities
+except ImportError:  # pragma: no cover - older Home Assistant
+    CameraEntityCapabilities = None
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -58,10 +63,30 @@ async def async_setup_entry(
                 HikvisionCamera(coordinator, api, entry, host, camera_name, camera_id, None),
             )
         else:
+            # Native HA talk needs a G.711 ONVIF backchannel on the RTSP stream
+            # HA plays (go2rtc passes browser PCMU/PCMA straight through).
+            two_way_audio = False
+            if CameraEntityCapabilities is not None:
+                camera_ip = camera.get("ip_addr")
+                try:
+                    codecs = await hass.async_add_executor_job(
+                        api.get_rtsp_backchannel_codecs, streams[0]["id"], camera_ip
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug("Backchannel probe failed for camera %d: %s", camera_id, err)
+                    codecs = set()
+                two_way_audio = bool(codecs & {"PCMU", "PCMA"})
+                _LOGGER.debug(
+                    "Camera %d RTSP backchannel codecs: %s (two-way audio: %s)",
+                    camera_id, sorted(codecs) or "none", two_way_audio,
+                )
             # Create entity for each stream
             for stream in streams:
                 entities.append(
-                    HikvisionCamera(coordinator, api, entry, host, camera_name, camera_id, stream),
+                    HikvisionCamera(
+                        coordinator, api, entry, host, camera_name, camera_id, stream,
+                        two_way_audio=two_way_audio,
+                    ),
                 )
 
     async_add_entities(entities)
@@ -80,7 +105,8 @@ class HikvisionCamera(Camera):
         host: str, 
         device_name: str, 
         camera_id: int = 1,
-        stream: dict = None
+        stream: dict = None,
+        two_way_audio: bool = False,
     ):
         """Initialize the camera."""
         super().__init__()
@@ -90,10 +116,14 @@ class HikvisionCamera(Camera):
         self._entry = entry
         self._camera_id = camera_id
         self._stream_info = stream  # Use _stream_info to avoid conflicts with Home Assistant's stream property
-        
+
         # Only enable stream feature if we have a stream configured
         if stream:
             self._attr_supported_features = CameraEntityFeature.STREAM
+            if two_way_audio and CameraEntityCapabilities is not None:
+                self._attr_camera_entity_capabilities = CameraEntityCapabilities(
+                    two_way_audio=True
+                )
         else:
             self._attr_supported_features = CameraEntityFeature(0)  # No features
         

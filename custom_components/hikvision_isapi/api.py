@@ -3084,6 +3084,87 @@ class HikvisionISAPI:
         ip_address = camera_ip if camera_ip else self.host
         return f"rtsp://{username}:{password}@{ip_address}:{rtsp_port}/Streaming/channels/{stream_id}"
 
+    def get_rtsp_backchannel_codecs(self, stream_id: int, camera_ip: str = None) -> set[str]:
+        """Return codecs the camera accepts on an ONVIF RTSP audio backchannel.
+
+        Sends an RTSP DESCRIBE with the ONVIF backchannel Require header and
+        collects rtpmap encodings from any ``a=sendonly`` audio section. An
+        empty set means no backchannel (talk over RTSP is not possible).
+        """
+        import base64
+        import hashlib
+        import re
+        import socket
+
+        ip_address = camera_ip if camera_ip else self.host
+        port = self.get_rtsp_port()
+        uri = f"rtsp://{ip_address}:{port}/Streaming/channels/{stream_id}"
+
+        def _describe(cseq: int, auth: str | None) -> str:
+            lines = [
+                f"DESCRIBE {uri} RTSP/1.0",
+                f"CSeq: {cseq}",
+                "Accept: application/sdp",
+                "Require: www.onvif.org/ver20/backchannel",
+                "User-Agent: hikvision_isapi",
+            ]
+            if auth:
+                lines.append(f"Authorization: {auth}")
+            request = "\r\n".join(lines) + "\r\n\r\n"
+            data = b""
+            with socket.create_connection((ip_address, int(port)), timeout=5) as sock:
+                sock.settimeout(3)
+                sock.sendall(request.encode())
+                while True:
+                    try:
+                        chunk = sock.recv(65536)
+                    except socket.timeout:
+                        break
+                    if not chunk:
+                        break
+                    data += chunk
+                    head, sep, body = data.partition(b"\r\n\r\n")
+                    if sep:
+                        match = re.search(rb"Content-Length:\s*(\d+)", head, re.I)
+                        if not match or len(body) >= int(match.group(1)):
+                            break
+            return data.decode(errors="replace")
+
+        try:
+            basic = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
+            response = _describe(1, f"Basic {basic}")
+            if " 401 " in response.split("\r\n", 1)[0]:
+                match = re.search(
+                    r'WWW-Authenticate:\s*Digest\s+realm="([^"]*)",\s*nonce="([^"]*)"',
+                    response,
+                    re.I,
+                )
+                if not match:
+                    return set()
+                realm, nonce = match.groups()
+                ha1 = hashlib.md5(f"{self.username}:{realm}:{self.password}".encode()).hexdigest()
+                ha2 = hashlib.md5(f"DESCRIBE:{uri}".encode()).hexdigest()
+                digest = hashlib.md5(f"{ha1}:{nonce}:{ha2}".encode()).hexdigest()
+                response = _describe(
+                    2,
+                    f'Digest username="{self.username}", realm="{realm}", '
+                    f'nonce="{nonce}", uri="{uri}", response="{digest}"',
+                )
+        except OSError as err:
+            _LOGGER.debug("RTSP backchannel probe failed for %s: %s", ip_address, err)
+            return set()
+
+        if not response.startswith("RTSP/1.0 200"):
+            return set()
+
+        codecs: set[str] = set()
+        for section in response.split("\nm=")[1:]:
+            if not section.startswith("audio") or "a=sendonly" not in section:
+                continue
+            for encoding in re.findall(r"a=rtpmap:\d+\s+([^/\s]+)", section):
+                codecs.add(encoding.upper())
+        return codecs
+
     def get_streaming_status(self) -> dict:
         """Get streaming status information."""
         try:
