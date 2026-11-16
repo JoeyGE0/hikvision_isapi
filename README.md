@@ -2,11 +2,11 @@
 
 # Hikvision ISAPI Controls
 
-<img src="https://brands.home-assistant.io/hikvision/icon.png" alt="Hikvision ISAPI Controls Icon" width="128" height="128">
+<img src="custom_components/hikvision_isapi/brand/icon.png" alt="Hikvision ISAPI Controls Icon" width="128" height="128">
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2023.1%2B-blue)](https://www.home-assistant.io/)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-blue)](https://www.home-assistant.io/)
 
 **Home Assistant integration for Hikvision cameras using ISAPI with comprehensive control options and real-time event detection.**
 
@@ -32,6 +32,14 @@
 ### Automatic Discovery
 
 - **DHCP Discovery**: Cameras are automatically discovered on your network via DHCP (Hikvision MAC OUIs). Look for them in **Settings → Devices & Services → Discovered**.
+- **Verified before offering**: A discovered device is only shown if it answers Hikvision ISAPI (`/ISAPI/System/deviceInfo`), so PCs or other gear that share a MAC prefix are ignored.
+
+### Setup Modes (Basic / Advanced)
+
+- **Basic** (default): detections, camera streams, uptime, reboot count, firmware update, CPU and memory.
+- **Advanced**: Basic plus a second screen where you tick extra entities by category — event detections, maintenance extras, extended diagnostics, day/night & IR cut, supplement light, siren, detection on/off switches, motion tuning, image adjustment, audio alarm, two-way audio & speaker, and alarm input/output.
+- Only categories the device actually supports are listed. Newly supported default detections are enabled automatically, and anything you untick stays off.
+- Change mode or entity picks later with **Reconfigure** — your existing entity settings are kept.
 
 ### Capability-Based Entities
 
@@ -153,12 +161,12 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 2. Restart Home Assistant
 3. Go to **Settings → Devices & Services → Add Integration**
 4. Search for **"Hikvision ISAPI Controls"**
-5. Enter camera IP, username (default: `admin`), password, and update interval (default: 30 seconds)
+5. Enter camera IP, username (default: `admin`), password, and pick a **Setup mode** (Basic or Advanced)
 
 **OR** if your camera is discovered via DHCP:
 
 - Look in **Settings → Devices & Services → Discovered** for your Hikvision camera
-- Click **Configure** and enter your credentials
+- Click **Add** and enter your credentials
 
 ### Method 2: HACS (Custom Repository)
 
@@ -168,24 +176,39 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 4. Category: Integration
 5. Install and restart Home Assistant
 
+> A request to list this integration in the default HACS store is pending. Until then, add it as a custom repository as above.
+
 ## Configuration
 
 ### Camera Setup Requirements
 
 - ISAPI must be enabled on your camera
 - User needs **Remote: Parameters Settings** permission
-- Update interval: 5–300 seconds (default: 30)
 
-### Advanced Options (config flow)
+### Setup Options
+
+First screen:
 
 | Option | Default | Description |
 | ------ | ------- | ----------- |
-| **Verify SSL certificate** | On | Turn off for cameras that only speak HTTP |
-| **Configure notification host on camera** | On | Writes your HA URL and `/api/hikvision` path to the camera |
-| **Notification host URL** | Auto (HA LAN IP) | Override when HA is behind NAT or you use a reverse proxy |
-| **Forced RTSP port** | Empty | Set if RTSP is not on the default port |
+| **IP Address or Hostname** | — | Camera or NVR address |
+| **Verify SSL certificate** | On | Turn off for cameras that only speak HTTP or use a self-signed cert |
+| **Username / Password** | `admin` / — | Camera user with **Remote: Parameters Settings** |
+| **Setup mode** | Basic | Basic or Advanced (see [Setup Modes](#setup-modes-basic--advanced)) |
 
-Reconfigure the integration anytime from **Settings → Devices & Services → Hikvision ISAPI Controls → Configure**.
+Advanced options:
+
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| **Update Interval** | 30 s | Polling interval, 5–300 seconds |
+| **Enable event notifications** | On | Writes your HA URL and `/api/hikvision` path to the camera |
+| **Home Assistant Address** | Auto (HA LAN IP) | Override when HA is behind NAT or you use a reverse proxy |
+| **Force RTSP Port** | Empty | Set if RTSP is not on the default port |
+
+### Reconfigure and Re-authenticate
+
+- **Reconfigure**: **Settings → Devices & Services → Hikvision ISAPI Controls → ⋮ → Reconfigure** to change the address, credentials, setup mode, entity picks or advanced options. Entity names and enabled/disabled choices are kept.
+- **Re-authenticate**: if the camera rejects the stored password (e.g. after a factory reset), Home Assistant asks you to re-authenticate and only needs the new password.
 
 ### Event Notifications Setup (Real-Time Events)
 
@@ -433,11 +456,8 @@ automation:
 
 | Requirement      | Version                        |
 | ---------------- | ------------------------------ |
-| Home Assistant   | 2023.1+                        |
-| Python           | 3.10+                          |
+| Home Assistant   | 2025.1+                        |
 | Hikvision Camera | ISAPI enabled                  |
-| `requests`       | Installed with the integration (`manifest.json`) |
-| `aiohttp`        | Installed with the integration (`manifest.json`) |
 | `ffmpeg`         | On the HA host PATH (not a pip dep) — used to convert media to AAC / G.711 for speaker play |
 
 ---
@@ -447,6 +467,7 @@ automation:
 | Model                         | Status   | Notes                                     |
 | ----------------------------- | -------- | ----------------------------------------- |
 | **DS-2CD2387G3 (ColorVu G3)** | Tested   | Core controls + motion events; other ISAPI events vary by firmware/config |
+| **DS-2CD1383G2**              | Tested   | Core controls + motion events; two streams only |
 | Hikvision NVRs                | Supported | Multi-channel; proxied RTSP; feature set depends on connected cameras |
 | Other Hikvision models        | Untested | May work depending on ISAPI compatibility |
 
@@ -484,6 +505,7 @@ automation:
 - Camera not on same network
 - Camera already configured
 - MAC address not in discovery list
+- Device does not answer `http://<ip>/ISAPI/System/deviceInfo` (discovery checks this before showing it)
 
 **Solution:**
 
@@ -564,7 +586,7 @@ When reporting issues, please include:
 
 ## License
 
-This project is licensed under the **MIT License**.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
