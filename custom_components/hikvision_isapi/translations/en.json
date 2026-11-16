@@ -148,6 +148,7 @@
     },
     "abort": {
       "already_configured": "Device is already configured",
+      "not_hikvision_device": "Discovered device does not respond to Hikvision ISAPI",
       "reconfigure_successful": "Re-configuration was successful",
       "no_basic_data": "Basic configuration data is missing",
       "reauth_successful": "Re-authentication was successful"

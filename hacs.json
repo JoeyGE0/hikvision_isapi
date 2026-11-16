@@ -1,6 +1,5 @@
 {
   "name": "Hikvision ISAPI Controls",
   "content_in_root": false,
-  "country": "NZ",
-  "domains": ["hikvision_isapi"]
+  "render_readme": true
 }

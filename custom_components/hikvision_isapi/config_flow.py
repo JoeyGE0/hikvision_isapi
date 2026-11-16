@@ -114,6 +114,22 @@ def _parse_device_info_response(response: requests.Response, fallback_host: str)
     return device_name, serial_number
 
 
+def _looks_like_isapi(response: requests.Response) -> bool:
+    """Return True if an unauthenticated deviceInfo response came from ISAPI.
+
+    Hikvision devices answer 401 with Digest auth, or 200 with DeviceInfo XML.
+    """
+    if response.status_code == 401:
+        return "digest" in response.headers.get("WWW-Authenticate", "").lower()
+    if response.ok:
+        try:
+            root = ET.fromstring(response.text)
+        except ET.ParseError:
+            return False
+        return root.tag.split("}")[-1] == "DeviceInfo"
+    return False
+
+
 def _schema_field_names(data_schema: vol.Schema) -> set[str]:
     """Return config field names from a voluptuous schema."""
     names: set[str] = set()
@@ -934,17 +950,26 @@ class HikvisionISAPIConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except data_entry_flow.AbortFlow:
             return self.async_abort(reason="already_configured")
 
+        # The DHCP matcher is MAC-prefix only, and some of those OUIs are
+        # shared with non-Hikvision hardware (PCs, NICs). Only offer devices
+        # that actually answer the ISAPI endpoint.
         device_name = discovery_info.hostname or host
         try:
             url = f"http://{host}/ISAPI/System/deviceInfo"
             response = await self.hass.async_add_executor_job(
                 lambda: requests.get(url, verify=False, timeout=3)
             )
-            parsed_name, _ = _parse_device_info_response(response, host)
-            if parsed_name:
-                device_name = parsed_name
         except Exception:
-            pass
+            return self.async_abort(reason="not_hikvision_device")
+        if not _looks_like_isapi(response):
+            _LOGGER.debug(
+                "Ignoring DHCP discovery of %s (%s): no ISAPI response (HTTP %s)",
+                host, discovery_info.hostname, response.status_code,
+            )
+            return self.async_abort(reason="not_hikvision_device")
+        parsed_name, _ = _parse_device_info_response(response, host)
+        if parsed_name:
+            device_name = parsed_name
 
         self._discovered_host = host
         self.context.update({
