@@ -245,7 +245,7 @@ def _get_endpoints_info(api, hass) -> dict[str, Any]:
 def _count_supported_number_entities(features: dict) -> int:
     """Count supported number entities."""
     number_features = [
-        "ir_sensitivity", "ir_filter_time", "speaker_volume", "microphone_volume",
+        "ir_sensitivity", "ir_filter_time", "microphone_volume",
         "white_light_time", "white_light_brightness", "ir_light_brightness",
         "white_light_brightness_limit", "ir_light_brightness_limit",
         "motion_sensitivity", "motion_start_trigger_time", "motion_end_trigger_time",

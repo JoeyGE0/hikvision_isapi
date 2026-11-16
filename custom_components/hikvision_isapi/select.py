@@ -6,11 +6,24 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 
-from .const import DOMAIN
-from .device_helpers import get_primary_device_info
+from .const import (
+    DOMAIN,
+    ENTITY_GROUP_AUDIO_ALARM,
+    ENTITY_GROUP_DAY_NIGHT,
+    ENTITY_GROUP_MOTION_TUNING,
+    ENTITY_GROUP_SUPPLEMENT_LIGHT,
+)
+from .entity_profiles import entity_enabled
+from .device_helpers import (
+    get_brightness_control_mode,
+    get_primary_device_info,
+    patch_coordinator_section,
+)
 from .api import HikvisionISAPI
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -28,17 +41,17 @@ async def async_setup_entry(
 
     entities = []
     
-    # Only add entities if their features are detected
-    if detected_features.get("supplement_light_mode", False):
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "supplement_light_mode") and detected_features.get("supplement_light_mode", False):
         entities.append(HikvisionLightModeSelect(coordinator, api, entry, host, device_name))
-    if detected_features.get("day_night_mode", False):
+    if entity_enabled(entry, ENTITY_GROUP_DAY_NIGHT, "day_night_brightness") and detected_features.get("day_night_mode", False):
         entities.append(HikvisionBrightnessControlSelect(coordinator, api, entry, host, device_name))
+    if entity_enabled(entry, ENTITY_GROUP_DAY_NIGHT, "day_night_ir_mode") and detected_features.get("day_night_mode", False):
         entities.append(HikvisionIRModeSelect(coordinator, api, entry, host, device_name))
-    if detected_features.get("motion_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_MOTION_TUNING, "motion_target_type") and detected_features.get("motion_detection", False):
         entities.append(HikvisionMotionTargetTypeSelect(coordinator, api, entry, host, device_name))
-    if detected_features.get("audio_alarm_type", False):
+    if entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "audio_alarm_type") and detected_features.get("audio_alarm_type", False):
         entities.append(HikvisionAudioTypeSelect(coordinator, api, entry, host, device_name))
-    if detected_features.get("audio_alarm_sound", False):
+    if entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "audio_alarm_sound") and detected_features.get("audio_alarm_sound", False):
         entities.append(HikvisionWarningSoundSelect(coordinator, api, entry, host, device_name))
 
     async_add_entities(entities)
@@ -113,17 +126,15 @@ class HikvisionLightModeSelect(SelectEntity):
         )
 
         if success:
-            # Refresh coordinator to sync with device
-            await self.coordinator.async_request_refresh()
-            # Only clear optimistic if coordinator confirms the change
-            if (
-                self.coordinator.data
-                and self.coordinator.data.get("supplement_light", {}).get("mode") == api_value
-            ):
-                self._optimistic_value = None
+            # Patch local state instead of a full coordinator poll (much faster).
+            patch_coordinator_section(
+                self.coordinator, "supplement_light", {"mode": api_value}
+            )
+            self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -177,14 +188,10 @@ class HikvisionBrightnessControlSelect(SelectEntity):
         # Otherwise use coordinator data - convert API value to display name
         if not self.available:
             return None
-        if self.coordinator.data and "supplement_light" in self.coordinator.data:
-            data = self.coordinator.data["supplement_light"]
-            api_value = data.get("brightnessRegulatMode") or data.get(
-                "mixedLightBrightnessRegulatMode"
-            )
-            display_value = self._display_value_map.get(api_value)
-            if display_value in self._attr_options:
-                return display_value
+        api_value = get_brightness_control_mode(self.coordinator.data)
+        display_value = self._display_value_map.get(api_value)
+        if display_value in self._attr_options:
+            return display_value
         return None
 
     async def async_select_option(self, option: str):
@@ -199,16 +206,18 @@ class HikvisionBrightnessControlSelect(SelectEntity):
         )
 
         if success:
-            await self.coordinator.async_request_refresh()
-            if self.coordinator.data and "supplement_light" in self.coordinator.data:
-                data = self.coordinator.data["supplement_light"]
-                api_value_now = data.get("brightnessRegulatMode") or data.get(
-                    "mixedLightBrightnessRegulatMode"
-                )
-                if api_value_now == api_value:
-                    self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator,
+                "supplement_light",
+                {
+                    "brightnessRegulatMode": api_value,
+                    "mixedLightBrightnessRegulatMode": api_value,
+                },
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -286,15 +295,14 @@ class HikvisionIRModeSelect(SelectEntity):
         )
         
         if success:
-            # Refresh coordinator to sync with device
-            await self.coordinator.async_request_refresh()
-            # Only clear optimistic if coordinator confirms the change
-            if (self.coordinator.data and 
-                self.coordinator.data.get("ircut", {}).get("mode") == api_value):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "ircut", {"mode": api_value}
+            )
+            self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -357,12 +365,13 @@ class HikvisionMotionTargetTypeSelect(SelectEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("motion", {}).get("targetType") == option):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "motion", {"targetType": option}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

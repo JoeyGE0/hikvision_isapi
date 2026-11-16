@@ -4,20 +4,86 @@
     "step": {
       "user": {
         "title": "Hikvision ISAPI Controls",
-        "description": "Enter your camera/NVR credentials to get started",
+        "description": "Enter your camera/NVR credentials. **Basic** (default) includes detections, camera streams, uptime, firmware, and light diagnostics. **Advanced** adds optional extras like volumes, IR tuning, siren, and alarm controls.",
         "data": {
           "host": "IP Address or Hostname",
           "verify_ssl": "Verify SSL certificate",
           "username": "Username",
           "password": "Password",
-          "configure_advanced": "Configure advanced options"
+          "integration_profile": "Setup mode"
         },
         "data_description": {
           "host": "IP address or hostname of your Hikvision camera/NVR (e.g., 192.168.1.12)",
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Password for camera login",
-          "configure_advanced": "Enable this to configure advanced options like update interval and event notifications"
+          "integration_profile": "Basic is the everyday preset. Advanced keeps Basic and lets you add optional controls on top."
+        }
+      },
+      "entity_customize": {
+        "title": "Choose extra entities",
+        "description": "Basic is always on. Expand a **category** below and tick the checkboxes you want. Collapse categories you do not need.",
+        "sections": {
+          "detections": {
+            "name": "Event detections",
+            "description": "Motion, line crossing, tamper, and other event binary sensors",
+            "data": { "items": "Entities" }
+          },
+          "essential_system": {
+            "name": "Maintenance extras",
+            "description": "Restart button and other maintenance controls",
+            "data": { "items": "Entities" }
+          },
+          "system_diagnostics": {
+            "name": "Extended diagnostics",
+            "description": "Streaming sessions, clients, and notification host details",
+            "data": { "items": "Entities" }
+          },
+          "day_night": {
+            "name": "Day / night & IR cut",
+            "description": "IR cut modes, sensitivity, filter time",
+            "data": { "items": "Entities" }
+          },
+          "supplement_light": {
+            "name": "Supplement light",
+            "description": "Light mode, brightness, timers, limits",
+            "data": { "items": "Entities" }
+          },
+          "siren": {
+            "name": "Siren",
+            "description": "Play camera alarm from Home Assistant",
+            "data": { "items": "Entities" }
+          },
+          "detection_switches": {
+            "name": "Detection on/off switches",
+            "description": "Enable/disable detection types on the camera",
+            "data": { "items": "Entities" }
+          },
+          "motion_tuning": {
+            "name": "Motion tuning",
+            "description": "Sensitivity, target type, trigger times",
+            "data": { "items": "Entities" }
+          },
+          "image_adjustment": {
+            "name": "Image adjustment",
+            "description": "Brightness, contrast, saturation, sharpness",
+            "data": { "items": "Entities" }
+          },
+          "audio_alarm": {
+            "name": "Audio alarm",
+            "description": "Alarm tone, volume, test button",
+            "data": { "items": "Entities" }
+          },
+          "two_way_audio": {
+            "name": "Two-way audio & speaker",
+            "description": "Media player, speaker/mic volume, noise reduction",
+            "data": { "items": "Entities" }
+          },
+          "alarm_io": {
+            "name": "Alarm input / output",
+            "description": "Alarm input sensor and output relay",
+            "data": { "items": "Entities" }
+          }
         }
       },
       "reauth_confirm": {
@@ -32,6 +98,7 @@
           "verify_ssl": "Verify SSL certificate",
           "username": "Username",
           "password": "Password",
+          "integration_profile": "Setup mode",
           "update_interval": "Update Interval (seconds)",
           "set_alarm_server": "Enable event notifications",
           "alarm_server": "Home Assistant Address",
@@ -42,6 +109,7 @@
           "verify_ssl": "Verify SSL certificate (uncheck for self-signed certificate)",
           "username": "Username for camera login (usually 'admin')",
           "password": "Leave blank to keep the current password, or enter a new one",
+          "integration_profile": "Basic or Advanced. Advanced always includes Basic, then optional extras.",
           "update_interval": "How often to check for updates (5-300 seconds, default: 30)",
           "set_alarm_server": "Enable this to configure the camera to send event notifications to Home Assistant",
           "alarm_server": "Home Assistant URL that the camera can reach (usually http://YOUR_HA_IP:8123)",
@@ -74,10 +142,13 @@
       "username_required": "Username is required",
       "password_required": "Password is required",
       "alarm_server_required": "Home Assistant address is required when event notifications are enabled",
-      "invalid_rtsp_port": "RTSP port must be between 1 and 65535"
+      "invalid_rtsp_port": "RTSP port must be between 1 and 65535",
+      "entity_groups_required": "Select at least one entity group",
+      "cannot_downgrade_to_basic": "Cannot switch to Basic while Advanced entities are enabled. Reconfigure as Advanced or remove unused entities first."
     },
     "abort": {
       "already_configured": "Device is already configured",
+      "not_hikvision_device": "Discovered device does not respond to Hikvision ISAPI",
       "reconfigure_successful": "Re-configuration was successful",
       "no_basic_data": "Basic configuration data is missing",
       "reauth_successful": "Re-authentication was successful"

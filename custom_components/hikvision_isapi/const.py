@@ -6,13 +6,19 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 
 DOMAIN = "hikvision_isapi"
 
+# Config entry schema version. Dig builds briefly wrote major 2/3 for additive
+# keys. HA refuses entries whose major is higher than the installed handler, so
+# this must stay at 3 to load those installs. Prefer bumping MINOR_VERSION for
+# future additive-only changes when possible.
+CONFIG_ENTRY_VERSION: Final = 3
+CONFIG_ENTRY_MINOR_VERSION: Final = 1
+
 # After this interval from the previous scan, re-run feature detection; if the
 # capability dict changes, the config entry reloads so entities match the device.
 FEATURE_CAPABILITY_RESCAN_INTERVAL: Final = timedelta(hours=6)
 # First scheduled scan relative to coordinator startup (so new firmware/options
 # show up without waiting a full 6h).
 FEATURE_CAPABILITY_FIRST_SCAN: Final = timedelta(minutes=15)
-
 CONF_HOST = "host"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
@@ -21,6 +27,33 @@ CONF_UPDATE_INTERVAL = "update_interval"
 CONF_SET_ALARM_SERVER: Final = "set_alarm_server"
 CONF_ALARM_SERVER_HOST: Final = "alarm_server"
 RTSP_PORT_FORCED: Final = "rtsp_port_forced"
+
+# Basic vs Advanced entity profiles (config flow + platform gating).
+CONF_INTEGRATION_PROFILE: Final = "integration_profile"
+CONF_ENTITY_GROUPS: Final = "entity_groups"
+CONF_ENTITY_ITEMS: Final = "entity_items"
+# Per-category item ids that were supported at last probe (for default-on merge).
+CONF_ENTITY_KNOWN_SUPPORTED: Final = "entity_known_supported"
+# Pre–Basic/Advanced upgrade: keep all entities until user saves customize.
+CONF_LEGACY_FULL_INSTALL: Final = "legacy_full_install"
+# Inner field key inside each config-flow section (category dropdown).
+CUSTOMIZE_SECTION_ITEMS_KEY: Final = "items"
+PROFILE_BASIC: Final = "basic"
+PROFILE_ADVANCED: Final = "advanced"
+
+ENTITY_GROUP_DETECTIONS: Final = "detections"
+ENTITY_GROUP_CAMERA: Final = "camera"
+ENTITY_GROUP_ESSENTIAL_SYSTEM: Final = "essential_system"
+ENTITY_GROUP_SYSTEM_DIAGNOSTICS: Final = "system_diagnostics"
+ENTITY_GROUP_DAY_NIGHT: Final = "day_night"
+ENTITY_GROUP_SUPPLEMENT_LIGHT: Final = "supplement_light"
+ENTITY_GROUP_SIREN: Final = "siren"
+ENTITY_GROUP_DETECTION_SWITCHES: Final = "detection_switches"
+ENTITY_GROUP_MOTION_TUNING: Final = "motion_tuning"
+ENTITY_GROUP_IMAGE_ADJUSTMENT: Final = "image_adjustment"
+ENTITY_GROUP_AUDIO_ALARM: Final = "audio_alarm"
+ENTITY_GROUP_TWO_WAY_AUDIO: Final = "two_way_audio"
+ENTITY_GROUP_ALARM_IO: Final = "alarm_io"
 
 DEFAULT_UPDATE_INTERVAL = 30
 SIREN_RETRIGGER_INTERVAL_SECONDS: Final = 0.5
@@ -97,6 +130,11 @@ EVENTS: Final = {
         "slug": "DefocusDetection",
         "device_class": BinarySensorDeviceClass.PROBLEM,
     },
+    "io": {
+        "type": EVENT_IO,
+        "label": "Alarm Input",
+        "slug": "inputs",
+    },
 }
 
 # Alternate event IDs (some cameras use different names)
@@ -130,6 +168,19 @@ EVENTS_ALTERNATE_ID: Final = {
 # Alternate event IDs for mutex checking (API uses different IDs for mutex)
 MUTEX_ALTERNATE_ID: Final = {
     "motiondetection": "VMDHumanVehicle",
+}
+
+# Device-native /ISAPI/Event/triggers/<id> path IDs (G2 often rejects slug-only names).
+# Tried in order; first HTTP 200 wins. Canonical slug/id are always appended as fallback.
+EVENT_TRIGGER_IDS: Final = {
+    "motiondetection": ("VMDHumanVehicle", "VMD"),
+    "tamperdetection": ("shelteralarm",),
+    "defocus": ("DefocusDetection", "defocusdetection"),
+    "fielddetection": ("FieldDetection", "intrusion"),
+    "linedetection": ("LineDetection", "linecrossing"),
+    "scenechangedetection": ("SceneChangeDetection",),
+    "regionentrance": ("regionEntrance",),
+    "regionexiting": ("regionExiting",),
 }
 
 # Delays (seconds) before retrying ISAPI discovery when the camera returns transient

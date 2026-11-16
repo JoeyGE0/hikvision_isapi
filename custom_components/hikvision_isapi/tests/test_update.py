@@ -11,7 +11,9 @@ from custom_components.hikvision_isapi.api import (
     HikvisionISAPI,
 )
 from custom_components.hikvision_isapi.update import (
+    FIRMWARE_DIRECT_UPDATE_NOTE,
     _coordinator_data_from_firmware,
+    _pick_index_record,
     firmware_applies_to_device,
 )
 
@@ -54,6 +56,69 @@ class TestFirmwareAppliesToDevice:
         assert data["install_blocked_reason"]
 
 
+class TestPickIndexRecord:
+    """Index latest can be a sibling package; only applied_to matches are returned."""
+
+    def test_skips_incompatible_latest_for_compatible_sibling(self):
+        device = "DS-2CD2387G3-LIS2UY/SL"
+        wrong = {
+            "model": "DS-2CD2067G3-LI(2U)Y",
+            "version": "5.8.40",
+            "filename": "Firmware__V5.8.40_wrong.zip",
+            "download_url": "https://example.com/wrong.zip",
+            "hardware_version": "UNKNOWN",
+            "applied_to": "Applied to: DS-2CD2067G3-LI(2U)Y, DS-2CD2067G3-LI2UY/SL",
+        }
+        right = {
+            "model": "DS-2CD2187G3-LI(S2U)Y",
+            "version": "5.8.40",
+            "filename": "Firmware__V5.8.40_right.zip",
+            "download_url": "https://example.com/right.zip",
+            "hardware_version": "UNKNOWN",
+            "applied_to": (
+                "Applied to: DS-2CD2187G3-LI(S2U)Y, DS-2CD2387G3-LIS2UY/SL, "
+                "DS-2CD2387G3-LIS2UY/SL(2.8MM)"
+            ),
+        }
+        older = {
+            "model": "DS-2CD2387G3-LIS2UY/S(L)(RB)",
+            "version": "5.8.32",
+            "filename": "Firmware__V5.8.32.zip",
+            "download_url": "https://example.com/old.zip",
+            "hardware_version": "UNKNOWN",
+            "applied_to": "Applied to: DS-2CD2387G3-LIS2UY/SL, DS-2CD2387G3-LIS2UY/SRB",
+        }
+        index = {
+            "models": {
+                device: {
+                    "latest": wrong,
+                    "all_versions": [wrong, right, older],
+                }
+            }
+        }
+        picked = _pick_index_record(index, device, None)
+        assert picked is right
+        data = _coordinator_data_from_firmware(
+            picked, available=True, ahead_of_archive=False, device_model=device
+        )
+        assert data["package_compatible"] is True
+        assert data["download_url"]
+        assert data["install_blocked_reason"] is None
+
+    def test_returns_none_when_no_compatible_rows(self):
+        device = "DS-2CD2387G3-LIS2UY/SL"
+        wrong = {
+            "model": "DS-2CD2067G3-LI(2U)Y",
+            "version": "5.8.40",
+            "filename": "bad.zip",
+            "download_url": "https://example.com/bad.zip",
+            "applied_to": "Applied to: DS-2CD2067G3-LI(2U)Y",
+        }
+        index = {"models": {device: {"latest": wrong, "all_versions": [wrong]}}}
+        assert _pick_index_record(index, device, None) is None
+
+
+
 class TestReleaseSummary:
     """Regression: release_summary must not crash on entity add."""
 
@@ -80,14 +145,15 @@ class TestReleaseSummary:
             "Installed firmware is newer than the community archive."
         )
 
-    def test_release_summary_install_blocked(self):
+    def test_release_summary_prefers_direct_update_guidance(self):
         from unittest.mock import MagicMock
 
         from custom_components.hikvision_isapi.update import HikvisionFirmwareUpdate
 
         coordinator = MagicMock()
         coordinator.data = {
-            "install_blocked_reason": "Archive package mismatch for DS-2CD1383G2-LIUF/SL"
+            "latest_version": "5.8.40",
+            "install_blocked_reason": "Archive package mismatch for DS-2CD1383G2-LIUF/SL",
         }
         coordinator.last_update_success = True
         coordinator.hass = MagicMock()
@@ -101,7 +167,7 @@ class TestReleaseSummary:
             "DS-2CD1383G2-LIUF/SL",
             "5.8.5",
         )
-        assert "mismatch" in (entity.release_summary or "")
+        assert entity.release_summary == FIRMWARE_DIRECT_UPDATE_NOTE[:255]
 
     def test_release_summary_no_archive_match(self):
         from unittest.mock import MagicMock

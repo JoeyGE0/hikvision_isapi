@@ -21,14 +21,18 @@ from homeassistant.components.update import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import AuthenticationError, FirmwareUpgradeError, HikvisionISAPI
-from .const import DOMAIN
+from .const import DOMAIN, ENTITY_GROUP_ESSENTIAL_SYSTEM
+from .entity_profiles import entity_enabled
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 0
 
 # GitHub raw URLs for firmware archive
 FIRMWARE_ARCHIVE_BASE = "https://raw.githubusercontent.com/JoeyGE0/hikvision-fw-archive/main"
@@ -310,12 +314,52 @@ def _coordinator_data_from_firmware(
     }
 
 
+def _compatible_index_records(
+    model_entry: dict[str, Any], device_model: str
+) -> list[dict[str, Any]]:
+    """Rows under an index key whose applied_to actually lists this device."""
+    records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _add(record: Any) -> None:
+        if not isinstance(record, dict):
+            return
+        if not firmware_applies_to_device(device_model, record):
+            return
+        key = (
+            str(record.get("version") or ""),
+            str(record.get("filename") or ""),
+            str(record.get("download_url") or ""),
+        )
+        if key in seen:
+            return
+        seen.add(key)
+        records.append(record)
+
+    all_versions = model_entry.get("all_versions")
+    if isinstance(all_versions, list):
+        for record in all_versions:
+            _add(record)
+    else:
+        by_hw = model_entry.get("by_hardware_version")
+        if isinstance(by_hw, dict):
+            for record in by_hw.values():
+                _add(record)
+        _add(model_entry.get("latest"))
+    return records
+
+
 def _pick_index_record(
     index: dict[str, Any],
     device_model: str,
     hardware_version: str | None,
 ) -> dict[str, Any] | None:
-    """Select best firmware_index.json row for this device."""
+    """Select best firmware_index.json row for this device.
+
+    Archive ``latest`` can point at a sibling package that shares an index key
+    but fails ``applied_to`` for this SKU. Only return a row that passes the
+    applied_to check; prefer matching hardware version, then newest version.
+    """
     models = index.get("models")
     if not isinstance(models, dict):
         return None
@@ -325,13 +369,11 @@ def _pick_index_record(
     model_entry = models.get(normalized_model)
 
     if not model_entry:
-        best_key: str | None = None
         best_score = 0
         for key, entry in models.items():
             score = _model_match_score(normalized_model, key)
             if score > best_score:
                 best_score = score
-                best_key = key
                 model_entry = entry
         if best_score < 1_000:
             return None
@@ -339,14 +381,61 @@ def _pick_index_record(
     if not isinstance(model_entry, dict):
         return None
 
-    by_hw = model_entry.get("by_hardware_version")
-    if isinstance(by_hw, dict) and normalized_hw in by_hw:
-        record = by_hw.get(normalized_hw)
-        if isinstance(record, dict):
-            return record
+    compatible = _compatible_index_records(model_entry, device_model)
+    if not compatible:
+        return None
 
-    latest = model_entry.get("latest")
-    return latest if isinstance(latest, dict) else None
+    hw_matches = [
+        record
+        for record in compatible
+        if _normalize_hw_version(record.get("hardware_version")) == normalized_hw
+    ]
+    pool = hw_matches or compatible
+    pool.sort(key=lambda record: parse_version(record.get("version") or "0.0.0"), reverse=True)
+    return pool[0]
+
+
+async def _async_fetch_firmware_archive_json(
+    hass: HomeAssistant, url: str, session: aiohttp.ClientSession
+) -> dict[str, Any]:
+    """Fetch one firmware archive JSON file."""
+    async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+        if response.status != 200:
+            _LOGGER.warning("Failed to fetch firmware archive %s: HTTP %s", url, response.status)
+            return {}
+        text = await response.text()
+        if not text:
+            return {}
+        try:
+            import json
+
+            return json.loads(text)
+        except Exception as err:
+            _LOGGER.warning("Failed to parse firmware archive JSON from %s: %s", url, err)
+            return {}
+
+
+async def async_get_firmware_archive_bundle(hass: HomeAssistant) -> dict[str, Any]:
+    """Fetch index + live + manual JSON once per HA instance (shared cache)."""
+    domain_store = hass.data.setdefault(DOMAIN, {})
+    cache = domain_store.setdefault(
+        "_firmware_archive_cache",
+        {"lock": asyncio.Lock(), "bundle": None},
+    )
+    async with cache["lock"]:
+        if cache["bundle"] is not None:
+            return cache["bundle"]
+
+        session = async_get_clientsession(hass)
+        bundle = {
+            "index": await _async_fetch_firmware_archive_json(hass, FIRMWARE_INDEX_URL, session),
+            "live": await _async_fetch_firmware_archive_json(hass, FIRMWARES_LIVE_URL, session),
+            "manual": await _async_fetch_firmware_archive_json(
+                hass, FIRMWARES_MANUAL_URL, session
+            ),
+        }
+        cache["bundle"] = bundle
+        return bundle
 
 
 class FirmwareUpdateCoordinator(DataUpdateCoordinator):
@@ -376,62 +465,37 @@ class FirmwareUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch firmware update data from GitHub archive."""
         entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry_id, {})
-        api = entry_data.get("api")
-        if api is not None:
-            try:
-                device_info = await self.hass.async_add_executor_job(api.get_device_info)
-                live_fw = (device_info.get("firmwareVersion") or "").strip()
-                if live_fw:
-                    self.current_firmware = live_fw
-                    entry_data.setdefault("device_info", {}).update(device_info)
-            except Exception as err:
-                _LOGGER.debug("Could not read live firmware version: %s", err)
+        live_fw = (entry_data.get("device_info") or {}).get("firmwareVersion", "")
+        if live_fw := (live_fw or "").strip():
+            self.current_firmware = live_fw
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async def _fetch_firmware_json(url: str) -> dict[str, Any]:
-                    """Fetch JSON with tolerant parsing for GitHub raw content-types."""
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                        if response.status != 200:
-                            _LOGGER.warning("Failed to fetch firmware archive %s: HTTP %s", url, response.status)
-                            return {}
-                        text = await response.text()
-                        if not text:
-                            return {}
-                        try:
-                            # GitHub raw can occasionally send text/plain; parse manually.
-                            import json
-                            return json.loads(text)
-                        except Exception as err:
-                            _LOGGER.warning("Failed to parse firmware archive JSON from %s: %s", url, err)
-                            return {}
-
-                firmware_index = await _fetch_firmware_json(FIRMWARE_INDEX_URL)
-                index_record = _pick_index_record(
-                    firmware_index,
-                    self.device_model,
-                    self.hardware_version,
+            archive = await async_get_firmware_archive_bundle(self.hass)
+            firmware_index = archive["index"]
+            index_record = _pick_index_record(
+                firmware_index,
+                self.device_model,
+                self.hardware_version,
+            )
+            if index_record:
+                archive_version = (index_record.get("version") or "").strip()
+                available = bool(
+                    archive_version
+                    and compare_versions(self.current_firmware, archive_version)
                 )
-                if index_record:
-                    archive_version = (index_record.get("version") or "").strip()
-                    available = bool(
-                        archive_version
-                        and compare_versions(self.current_firmware, archive_version)
-                    )
-                    ahead = bool(
-                        archive_version
-                        and compare_versions(archive_version, self.current_firmware)
-                    )
-                    return _coordinator_data_from_firmware(
-                        index_record,
-                        available=available,
-                        ahead_of_archive=ahead and not available,
-                        device_model=self.device_model,
-                    )
+                ahead = bool(
+                    archive_version
+                    and compare_versions(archive_version, self.current_firmware)
+                )
+                return _coordinator_data_from_firmware(
+                    index_record,
+                    available=available,
+                    ahead_of_archive=ahead and not available,
+                    device_model=self.device_model,
+                )
 
-                # Fallback: scan live + manual JSON (older archive commits)
-                live_firmwares = await _fetch_firmware_json(FIRMWARES_LIVE_URL)
-                manual_firmwares = await _fetch_firmware_json(FIRMWARES_MANUAL_URL)
+            live_firmwares = archive["live"]
+            manual_firmwares = archive["manual"]
 
             # Combine firmware lists - GitHub JSON structure is flat dict with keys like "DS-2CD1043G0-I_UNKNOWN_5.7.23"
             # Each value is a dict with: model, version, download_url, date, supported_models, etc.
@@ -592,6 +656,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up update entity for the entry."""
+    if not entity_enabled(entry, ENTITY_GROUP_ESSENTIAL_SYSTEM, "firmware_update"):
+        return
+
     data = hass.data[DOMAIN][entry.entry_id]
     device_info = data["device_info"]
     host = data["host"]
@@ -626,8 +693,8 @@ async def async_setup_entry(
     )
     hass.data[DOMAIN][entry.entry_id]["firmware_update_coordinator"] = coordinator
 
-    # Avoid failing platform setup if archive fetch is temporarily unavailable.
-    await coordinator.async_refresh()
+    # Defer archive fetch so platform setup is not blocked (6 entries × 3 JSON files).
+    hass.async_create_task(coordinator.async_refresh())
     
     entity = HikvisionFirmwareUpdate(
         coordinator,
@@ -849,11 +916,10 @@ class HikvisionFirmwareUpdate(UpdateEntity):
             return str(summary)[:255]
         if self.coordinator.data.get("ahead_of_archive"):
             return "Installed firmware is newer than the community archive."
-        blocked = self.coordinator.data.get("install_blocked_reason")
-        if blocked:
-            return str(blocked)[:255]
         if not self.coordinator.data.get("latest_version"):
             return FIRMWARE_NO_ARCHIVE_MATCH_NOTE[:255]
+        # Prefer the soft web-UI guidance over an "Install blocked" shout —
+        # download/Install are already disabled when package_compatible is false.
         return FIRMWARE_DIRECT_UPDATE_NOTE[:255]
 
     @property
@@ -908,11 +974,6 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 "Note: Your camera firmware is newer than the highest version listed "
                 "in the community archive for this model."
             )
-        blocked = data.get("install_blocked_reason")
-        if blocked:
-            lines.append("")
-            lines.append("Install blocked:")
-            lines.append(str(blocked))
         if release_date:
             lines.append(f"Release date: {release_date}")
         if self._model:
@@ -1077,7 +1138,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
         async with lock:
             try:
                 self._report_install_progress(0)
-                _LOGGER.warning(
+                _LOGGER.info(
                     "Starting firmware upgrade on %s (%s): %s -> %s",
                     self._host,
                     self._model,
@@ -1101,14 +1162,14 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                     if err.sub_status != "connection_lost":
                         raise
                     upload_disconnected = True
-                    _LOGGER.warning(
+                    _LOGGER.info(
                         "Firmware upload connection dropped on %s; "
                         "camera may still be flashing — waiting for reboot",
                         self._host,
                     )
                 except (ConnectionError, OSError) as err:
                     upload_disconnected = True
-                    _LOGGER.warning(
+                    _LOGGER.info(
                         "Firmware upload connection lost on %s (%s); "
                         "camera may still be flashing — waiting for reboot",
                         self._host,
@@ -1129,7 +1190,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 except FirmwareUpgradeError as err:
                     if not upload_disconnected:
                         raise
-                    _LOGGER.warning(
+                    _LOGGER.info(
                         "upgradeStatus polling inconclusive on %s after disconnect: %s",
                         self._host,
                         err,
@@ -1172,7 +1233,7 @@ class HikvisionFirmwareUpdate(UpdateEntity):
 
                 install_succeeded = True
                 self._report_install_progress(100)
-                _LOGGER.warning(
+                _LOGGER.info(
                     "Firmware upgrade completed on %s: now running %s%s",
                     self._host,
                     new_firmware,

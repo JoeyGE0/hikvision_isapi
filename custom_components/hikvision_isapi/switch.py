@@ -4,16 +4,57 @@ import logging
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .device_helpers import get_primary_device_info
+from .const import (
+    DOMAIN,
+    ENTITY_GROUP_ALARM_IO,
+    ENTITY_GROUP_DETECTION_SWITCHES,
+    ENTITY_GROUP_TWO_WAY_AUDIO,
+)
+from .entity_profiles import entity_enabled
+from .device_helpers import get_primary_device_info, alarm_output_data_key, patch_coordinator_section
 from .api import HikvisionISAPI, EventMutexError
 from .coordinator import HikvisionDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 1
+
+
+async def _async_sync_alarm_input_state(
+    coordinator: HikvisionDataUpdateCoordinator,
+    hass: HomeAssistant,
+    api: HikvisionISAPI,
+    port_id: int = 1,
+) -> bool | None:
+    """Read alarm input config from camera and merge into coordinator (no full refresh)."""
+    result = await hass.async_add_executor_job(api.get_alarm_input, port_id)
+    if not result or "enabled" not in result:
+        return None
+    if coordinator.data is not None:
+        coordinator.data["alarm_input"] = result
+    return bool(result["enabled"])
+
+
+async def _async_sync_alarm_output_state(
+    coordinator: HikvisionDataUpdateCoordinator,
+    hass: HomeAssistant,
+    api: HikvisionISAPI,
+    data_key: str,
+    port_id: int = 1,
+) -> bool | None:
+    """Read alarm output relay state from camera and merge into coordinator."""
+    result = await hass.async_add_executor_job(api.get_alarm_output, port_id)
+    if not result or "enabled" not in result:
+        return None
+    enabled = bool(result["enabled"])
+    if coordinator.data is not None:
+        coordinator.data[data_key] = enabled
+    return enabled
 
 
 async def async_setup_entry(
@@ -31,28 +72,27 @@ async def async_setup_entry(
 
     entities = []
     
-    # Only add entities if their features are detected
-    if detected_features.get("noise_reduce", False):
+    if entity_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO, "noise_reduce") and detected_features.get("noise_reduce", False):
         entities.append(HikvisionNoiseReduceSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("motion_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_DETECTION_SWITCHES, "motion_detection") and detected_features.get("motion_detection", False):
         entities.append(HikvisionMotionDetectionSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("tamper_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_DETECTION_SWITCHES, "tamper_detection") and detected_features.get("tamper_detection", False):
         entities.append(HikvisionTamperDetectionSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("intrusion_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_DETECTION_SWITCHES, "intrusion_detection") and detected_features.get("intrusion_detection", False):
         entities.append(HikvisionIntrusionDetectionSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("line_crossing_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_DETECTION_SWITCHES, "line_crossing_detection") and detected_features.get("line_crossing_detection", False):
         entities.append(HikvisionLineCrossingDetectionSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("scene_change_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_DETECTION_SWITCHES, "scene_change_detection") and detected_features.get("scene_change_detection", False):
         entities.append(HikvisionSceneChangeDetectionSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("defocus_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_DETECTION_SWITCHES, "defocus_detection") and detected_features.get("defocus_detection", False):
         entities.append(HikvisionDefocusDetectionSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("region_entrance_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_DETECTION_SWITCHES, "region_entrance_detection") and detected_features.get("region_entrance_detection", False):
         entities.append(HikvisionRegionEntranceDetectionSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("region_exiting_detection", False):
+    if entity_enabled(entry, ENTITY_GROUP_DETECTION_SWITCHES, "region_exiting_detection") and detected_features.get("region_exiting_detection", False):
         entities.append(HikvisionRegionExitingDetectionSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("alarm_input", False):
+    if entity_enabled(entry, ENTITY_GROUP_ALARM_IO, "alarm_input_switch") and detected_features.get("alarm_input", False):
         entities.append(HikvisionAlarmInputSwitch(coordinator, api, entry, host, device_name))
-    if detected_features.get("alarm_output", False):
+    if entity_enabled(entry, ENTITY_GROUP_ALARM_IO, "alarm_output_switch") and detected_features.get("alarm_output", False):
         entities.append(HikvisionAlarmOutputSwitch(coordinator, api, entry, host, device_name, 1))
 
     async_add_entities(entities)
@@ -107,10 +147,10 @@ class HikvisionNoiseReduceSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("audio", {}).get("noisereduce") == True):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "audio", {"noisereduce": True}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -124,10 +164,10 @@ class HikvisionNoiseReduceSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("audio", {}).get("noisereduce") == False):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "audio", {"noisereduce": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -189,10 +229,10 @@ class HikvisionMotionDetectionSwitch(SwitchEntity):
             )
             
             if success:
-                await self.coordinator.async_request_refresh()
-                if (self.coordinator.data and 
-                    self.coordinator.data.get("motion", {}).get("enabled") == True):
-                    self._optimistic_value = None
+                patch_coordinator_section(
+                    self.coordinator, "motion", {"enabled": True}
+                )
+                self._optimistic_value = None
             else:
                 self._optimistic_value = None
         except EventMutexError as e:
@@ -211,10 +251,10 @@ class HikvisionMotionDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("motion", {}).get("enabled") == False):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "motion", {"enabled": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -275,10 +315,10 @@ class HikvisionTamperDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("tamper", {}).get("enabled") == True):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "tamper", {"enabled": True}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -292,10 +332,10 @@ class HikvisionTamperDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("tamper", {}).get("enabled") == False):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "tamper", {"enabled": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -357,10 +397,10 @@ class HikvisionIntrusionDetectionSwitch(SwitchEntity):
             )
             
             if success:
-                await self.coordinator.async_request_refresh()
-                if (self.coordinator.data and 
-                    self.coordinator.data.get("field_detection", {}).get("enabled") == True):
-                    self._optimistic_value = None
+                patch_coordinator_section(
+                    self.coordinator, "field_detection", {"enabled": True}
+                )
+                self._optimistic_value = None
             else:
                 self._optimistic_value = None
         except EventMutexError as e:
@@ -378,10 +418,10 @@ class HikvisionIntrusionDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("field_detection", {}).get("enabled") == False):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "field_detection", {"enabled": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -443,10 +483,10 @@ class HikvisionLineCrossingDetectionSwitch(SwitchEntity):
             )
             
             if success:
-                await self.coordinator.async_request_refresh()
-                if (self.coordinator.data and 
-                    self.coordinator.data.get("line_detection", {}).get("enabled") == True):
-                    self._optimistic_value = None
+                patch_coordinator_section(
+                    self.coordinator, "line_detection", {"enabled": True}
+                )
+                self._optimistic_value = None
             else:
                 self._optimistic_value = None
         except EventMutexError as e:
@@ -464,10 +504,10 @@ class HikvisionLineCrossingDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("line_detection", {}).get("enabled") == False):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "line_detection", {"enabled": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -529,10 +569,10 @@ class HikvisionSceneChangeDetectionSwitch(SwitchEntity):
             )
             
             if success:
-                await self.coordinator.async_request_refresh()
-                if (self.coordinator.data and 
-                    self.coordinator.data.get("scene_change", {}).get("enabled") == True):
-                    self._optimistic_value = None
+                patch_coordinator_section(
+                    self.coordinator, "scene_change", {"enabled": True}
+                )
+                self._optimistic_value = None
             else:
                 self._optimistic_value = None
         except EventMutexError as e:
@@ -550,10 +590,10 @@ class HikvisionSceneChangeDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("scene_change", {}).get("enabled") == False):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "scene_change", {"enabled": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -614,14 +654,13 @@ class HikvisionDefocusDetectionSwitch(SwitchEntity):
         )
 
         if success:
-            await self.coordinator.async_request_refresh()
-            if (
-                self.coordinator.data
-                and self.coordinator.data.get("defocus", {}).get("enabled") is True
-            ):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "defocus", {"enabled": True}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
         """Turn off defocus detection."""
@@ -633,14 +672,13 @@ class HikvisionDefocusDetectionSwitch(SwitchEntity):
         )
 
         if success:
-            await self.coordinator.async_request_refresh()
-            if (
-                self.coordinator.data
-                and self.coordinator.data.get("defocus", {}).get("enabled") is False
-            ):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "defocus", {"enabled": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -699,10 +737,10 @@ class HikvisionRegionEntranceDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("region_entrance", {}).get("enabled") == True):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "region_entrance", {"enabled": True}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -716,10 +754,10 @@ class HikvisionRegionEntranceDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("region_entrance", {}).get("enabled") == False):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "region_entrance", {"enabled": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -780,10 +818,10 @@ class HikvisionRegionExitingDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("region_exiting", {}).get("enabled") == True):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "region_exiting", {"enabled": True}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -797,10 +835,10 @@ class HikvisionRegionExitingDetectionSwitch(SwitchEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("region_exiting", {}).get("enabled") == False):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "region_exiting", {"enabled": False}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
 
@@ -813,7 +851,7 @@ class HikvisionRegionExitingDetectionSwitch(SwitchEntity):
 
 
 class HikvisionAlarmInputSwitch(SwitchEntity):
-    """Switch entity for alarm input control."""
+    """Enable/disable alarm input port in camera config (not physical contact state)."""
 
     _attr_unique_id = "hikvision_alarm_input_1"
     _attr_icon = "mdi:video-input-hdmi"
@@ -824,7 +862,7 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
         self.api = api
         self._host = host
         self._entry = entry
-        self._attr_name = f"{device_name} Alarm Input 1"
+        self._attr_name = f"{device_name} Alarm Input 1 Enabled"
         self._attr_unique_id = f"{host}_alarm_input_1"
         self._optimistic_value = None
 
@@ -840,50 +878,54 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return if alarm input is enabled."""
+        """Return if alarm input is enabled in camera config."""
         if self._optimistic_value is not None:
             return self._optimistic_value
-        
+
         if not self.available:
             return None
-        
+
         if self.coordinator.data and "alarm_input" in self.coordinator.data:
             return self.coordinator.data["alarm_input"].get("enabled", False)
         return False
 
     async def async_turn_on(self, **kwargs):
-        """Turn on alarm input."""
+        """Enable alarm input port."""
         self._optimistic_value = True
         self.async_write_ha_state()
-        
+
         success = await self.hass.async_add_executor_job(
             self.api.set_alarm_input, 1, True
         )
-        
+
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("alarm_input", {}).get("enabled") == True):
+            live = await _async_sync_alarm_input_state(
+                self.coordinator, self.hass, self.api, 1
+            )
+            if live is True:
                 self._optimistic_value = None
         else:
             self._optimistic_value = None
+        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Turn off alarm input."""
+        """Disable alarm input port."""
         self._optimistic_value = False
         self.async_write_ha_state()
-        
+
         success = await self.hass.async_add_executor_job(
             self.api.set_alarm_input, 1, False
         )
-        
+
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("alarm_input", {}).get("enabled") == False):
+            live = await _async_sync_alarm_input_state(
+                self.coordinator, self.hass, self.api, 1
+            )
+            if live is False:
                 self._optimistic_value = None
         else:
             self._optimistic_value = None
+        self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -894,9 +936,9 @@ class HikvisionAlarmInputSwitch(SwitchEntity):
 
 
 class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch entity for alarm output control."""
+    """Switch entity for alarm output relay (external siren / beeper)."""
 
-    _attr_icon = "mdi:video-input-hdmi"
+    _attr_icon = "mdi:alarm-light-outline"
 
     def __init__(self, coordinator: HikvisionDataUpdateCoordinator, api: HikvisionISAPI, entry: ConfigEntry, host: str, device_name: str, port_no: int = 1):
         """Initialize the switch."""
@@ -905,43 +947,60 @@ class HikvisionAlarmOutputSwitch(CoordinatorEntity, SwitchEntity):
         self._host = host
         self._entry = entry
         self._port_no = port_no
-        from homeassistant.components.switch import ENTITY_ID_FORMAT
-        from homeassistant.util import slugify
-        self.entity_id = ENTITY_ID_FORMAT.format(f"{slugify(device_name.lower())}_{port_no}_alarm_output")
-        self._attr_unique_id = self.entity_id
+        self._device_name = device_name
+        self._data_key = alarm_output_data_key(device_name, port_no)
+        self._attr_unique_id = f"{host}_alarm_output_{port_no}"
         self._attr_name = f"{device_name} Alarm Output {port_no}"
         self._attr_device_info = get_primary_device_info(coordinator.hass, entry)
+        self._optimistic_value = None
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if the switch is on."""
+        """Return True when alarm output relay is active."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
         if not self.coordinator.data:
             return None
-        # Coordinator stores state using entity_id as key (full entity_id format)
-        return self.coordinator.data.get(self.entity_id, False)
+        return self.coordinator.data.get(self._data_key, False)
 
     async def async_turn_on(self, **kwargs):
-        """Turn on."""
+        """Drive alarm output high."""
+        self._optimistic_value = True
+        self.async_write_ha_state()
         try:
             success = await self.hass.async_add_executor_job(
                 self.api.set_alarm_output, self._port_no, True
             )
             if not success:
-                raise Exception("Failed to set alarm output")
-        except Exception as ex:
-            raise ex
+                raise HomeAssistantError("Failed to set alarm output on")
+            live = await _async_sync_alarm_output_state(
+                self.coordinator, self.hass, self.api, self._data_key, self._port_no
+            )
+            if live is True:
+                self._optimistic_value = None
+        except Exception as err:
+            self._optimistic_value = None
+            raise HomeAssistantError(f"Failed to set alarm output on: {err}") from err
         finally:
-            await self.coordinator.async_request_refresh()
+            self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Turn off."""
+        """Drive alarm output low."""
+        self._optimistic_value = False
+        self.async_write_ha_state()
         try:
             success = await self.hass.async_add_executor_job(
                 self.api.set_alarm_output, self._port_no, False
             )
             if not success:
-                raise Exception("Failed to set alarm output")
-        except Exception:
-            raise
+                raise HomeAssistantError("Failed to set alarm output off")
+            live = await _async_sync_alarm_output_state(
+                self.coordinator, self.hass, self.api, self._data_key, self._port_no
+            )
+            if live is False:
+                self._optimistic_value = None
+        except Exception as err:
+            self._optimistic_value = None
+            raise HomeAssistantError(f"Failed to set alarm output off: {err}") from err
         finally:
-            await self.coordinator.async_request_refresh()
+            self.async_write_ha_state()

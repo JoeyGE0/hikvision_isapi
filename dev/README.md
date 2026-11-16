@@ -2,6 +2,8 @@
 
 Local tooling, research notes, and camera diagnostics for the Hikvision ISAPI integration. **Not required for HACS install** — only `custom_components/hikvision_isapi/` ships with the integration.
 
+**New chat / agent context:** see workspace [`dev/context/README.md`](../../dev/context/README.md) (workflow, cameras, release process).
+
 | Folder | Contents |
 | ------ | -------- |
 | `research/` | Endpoint analysis, entity mapping notes, audio/firmware research, integration TODO |

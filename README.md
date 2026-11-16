@@ -2,11 +2,11 @@
 
 # Hikvision ISAPI Controls
 
-<img src="https://brands.home-assistant.io/hikvision/icon.png" alt="Hikvision ISAPI Controls Icon" width="128" height="128">
+<img src="custom_components/hikvision_isapi/brand/icon.png" alt="Hikvision ISAPI Controls Icon" width="128" height="128">
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2023.1%2B-blue)](https://www.home-assistant.io/)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-blue)](https://www.home-assistant.io/)
 
 **Home Assistant integration for Hikvision cameras using ISAPI with comprehensive control options and real-time event detection.**
 
@@ -23,7 +23,7 @@
 ### Known Issues
 
 - **Binary sensors**: Motion is working. Other event types (intrusion, line crossing, etc.) usually need correct linkage and notification host on the camera. Event binary sensors are **disabled by default** when the camera reports the trigger as disabled in `Event/triggers`.
-- **Media player (Speaker)**: Only created when two-way audio is detected. Playback is limited / unreliable for typical HA use (TTS and arbitrary MP3 are not really supported; see code notes on G.711 formats). The entity is also **disabled by default** in the entity registry for new setups.
+- **Media player (Speaker)**: Only created when two-way audio is detected. Browse HA media (mp3/wav/m4a/TTS/etc.), ffmpeg converts to the camera talk codec (AAC or G.711), then streams over ISAPI (same framing as go2rtc AAC talk). Requires `ffmpeg` on the HA host. Use the media player’s built-in volume (no separate `number.*_speaker_volume`).
 
 ---
 
@@ -32,6 +32,14 @@
 ### Automatic Discovery
 
 - **DHCP Discovery**: Cameras are automatically discovered on your network via DHCP (Hikvision MAC OUIs). Look for them in **Settings → Devices & Services → Discovered**.
+- **Verified before offering**: A discovered device is only shown if it answers Hikvision ISAPI (`/ISAPI/System/deviceInfo`), so PCs or other gear that share a MAC prefix are ignored.
+
+### Setup Modes (Basic / Advanced)
+
+- **Basic** (default): detections, camera streams, uptime, reboot count, firmware update, CPU and memory.
+- **Advanced**: Basic plus a second screen where you tick extra entities by category — event detections, maintenance extras, extended diagnostics, day/night & IR cut, supplement light, siren, detection on/off switches, motion tuning, image adjustment, audio alarm, two-way audio & speaker, and alarm input/output.
+- Only categories the device actually supports are listed. Newly supported default detections are enabled automatically, and anything you untick stays off.
+- Change mode or entity picks later with **Reconfigure** — your existing entity settings are kept.
 
 ### Capability-Based Entities
 
@@ -88,10 +96,9 @@ Real-time event detection via webhook notifications. Binary sensors update insta
 
 | Control               | Range/Options                                                     |
 | --------------------- | ----------------------------------------------------------------- |
-| **Speaker Volume**    | 0-100%                                                            |
+| **Speaker**           | Media player with volume; plays media after ffmpeg → AAC/G.711 ISAPI stream |
 | **Microphone Volume** | 0-100%                                                            |
 | **Noise Reduction**   | Enable/disable                                                    |
-| **Speaker**           | Media player entity (experimental; **disabled by default**; not suitable for normal TTS/MP3) |
 
 ### System Monitoring (Diagnostic)
 
@@ -154,12 +161,12 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 2. Restart Home Assistant
 3. Go to **Settings → Devices & Services → Add Integration**
 4. Search for **"Hikvision ISAPI Controls"**
-5. Enter camera IP, username (default: `admin`), password, and update interval (default: 30 seconds)
+5. Enter camera IP, username (default: `admin`), password, and pick a **Setup mode** (Basic or Advanced)
 
 **OR** if your camera is discovered via DHCP:
 
 - Look in **Settings → Devices & Services → Discovered** for your Hikvision camera
-- Click **Configure** and enter your credentials
+- Click **Add** and enter your credentials
 
 ### Method 2: HACS (Custom Repository)
 
@@ -169,24 +176,39 @@ All streams support RTSP streaming and snapshots. Only streams available on your
 4. Category: Integration
 5. Install and restart Home Assistant
 
+> A request to list this integration in the default HACS store is pending. Until then, add it as a custom repository as above.
+
 ## Configuration
 
 ### Camera Setup Requirements
 
 - ISAPI must be enabled on your camera
 - User needs **Remote: Parameters Settings** permission
-- Update interval: 5–300 seconds (default: 30)
 
-### Advanced Options (config flow)
+### Setup Options
+
+First screen:
 
 | Option | Default | Description |
 | ------ | ------- | ----------- |
-| **Verify SSL certificate** | On | Turn off for cameras that only speak HTTP |
-| **Configure notification host on camera** | On | Writes your HA URL and `/api/hikvision` path to the camera |
-| **Notification host URL** | Auto (HA LAN IP) | Override when HA is behind NAT or you use a reverse proxy |
-| **Forced RTSP port** | Empty | Set if RTSP is not on the default port |
+| **IP Address or Hostname** | — | Camera or NVR address |
+| **Verify SSL certificate** | On | Turn off for cameras that only speak HTTP or use a self-signed cert |
+| **Username / Password** | `admin` / — | Camera user with **Remote: Parameters Settings** |
+| **Setup mode** | Basic | Basic or Advanced (see [Setup Modes](#setup-modes-basic--advanced)) |
 
-Reconfigure the integration anytime from **Settings → Devices & Services → Hikvision ISAPI Controls → Configure**.
+Advanced options:
+
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| **Update Interval** | 30 s | Polling interval, 5–300 seconds |
+| **Enable event notifications** | On | Writes your HA URL and `/api/hikvision` path to the camera |
+| **Home Assistant Address** | Auto (HA LAN IP) | Override when HA is behind NAT or you use a reverse proxy |
+| **Force RTSP Port** | Empty | Set if RTSP is not on the default port |
+
+### Reconfigure and Re-authenticate
+
+- **Reconfigure**: **Settings → Devices & Services → Hikvision ISAPI Controls → ⋮ → Reconfigure** to change the address, credentials, setup mode, entity picks or advanced options. Entity names and enabled/disabled choices are kept.
+- **Re-authenticate**: if the camera rejects the stored password (e.g. after a factory reset), Home Assistant asks you to re-authenticate and only needs the new password.
 
 ### Event Notifications Setup (Real-Time Events)
 
@@ -248,7 +270,6 @@ Friendly names start with your device name (e.g. `Garage Motion`). **Entity IDs*
 | --------------------------------------------------- | ---------------------------- | --------- | -------------- |
 | `number.{device_name}_day_night_switch_sensitivity` | Day/Night IR sensitivity     | 0–7       | Enabled        |
 | `number.{device_name}_day_night_switch_delay`       | Day/Night IR filter delay    | 5–120 s   | Enabled        |
-| `number.{device_name}_speaker_volume`               | Two-way / speaker volume     | 0–100%    | Enabled        |
 | `number.{device_name}_microphone_volume`            | Microphone volume            | 0–100%    | Enabled        |
 | `number.{device_name}_led_on_duration`              | White-light LED on duration  | 10–300 s  | Enabled        |
 | `number.{device_name}_white_light_brightness`       | White light brightness       | 0–100%    | Disabled       |
@@ -280,8 +301,8 @@ Friendly names start with your device name (e.g. `Garage Motion`). **Entity IDs*
 | `switch.{device_name}_region_entrance_detection` | Region entrance detection enable/disable | Enabled        |
 | `switch.{device_name}_region_exiting_detection`  | Region exiting detection enable/disable  | Enabled        |
 | `switch.{device_name}_defocus_detection`         | Defocus detection enable/disable         | Enabled        |
-| `switch.{device_name}_alarm_input_1`             | Alarm input port 1 enable/disable        | Enabled        |
-| `switch.{device_name}_alarm_output_1`            | Alarm output port 1 control (high/low)   | Enabled        |
+| `switch.{device_name}_alarm_input_1`             | Alarm input port 1 enable/disable in camera config | Enabled        |
+| `switch.{device_name}_alarm_output_1`            | Alarm output relay high/low (external siren)       | Enabled        |
 
 ### Binary sensor entities (real-time events)
 
@@ -390,7 +411,7 @@ Common responses:
 
 | Entity ID (typical)                  | Description    | Default / status |
 | ------------------------------------ | -------------- | ---------------- |
-| `media_player.{device_name}_speaker` | Speaker entity | Only when two-way audio is detected; **disabled by default**; ❌ not suitable for normal TTS/MP3 playback |
+| `media_player.{device_name}_speaker` | Speaker entity | Only when two-way audio is detected; volume on the media player; convert+play via ffmpeg (needs ffmpeg on host) |
 
 ---
 
@@ -435,12 +456,9 @@ automation:
 
 | Requirement      | Version                        |
 | ---------------- | ------------------------------ |
-| Home Assistant   | 2023.1+                        |
-| Python           | 3.10+                          |
+| Home Assistant   | 2025.1+                        |
 | Hikvision Camera | ISAPI enabled                  |
-| `requests`       | Installed with the integration (`manifest.json`) |
-| `aiohttp`        | Installed with the integration (`manifest.json`) |
-| `pydub`          | >=0.25.1 (installed with the integration; used for audio conversion in the media player) |
+| `ffmpeg`         | On the HA host PATH (not a pip dep) — used to convert media to AAC / G.711 for speaker play |
 
 ---
 
@@ -449,6 +467,7 @@ automation:
 | Model                         | Status   | Notes                                     |
 | ----------------------------- | -------- | ----------------------------------------- |
 | **DS-2CD2387G3 (ColorVu G3)** | Tested   | Core controls + motion events; other ISAPI events vary by firmware/config |
+| **DS-2CD1383G2**              | Tested   | Core controls + motion events; two streams only |
 | Hikvision NVRs                | Supported | Multi-channel; proxied RTSP; feature set depends on connected cameras |
 | Other Hikvision models        | Untested | May work depending on ISAPI compatibility |
 
@@ -486,6 +505,7 @@ automation:
 - Camera not on same network
 - Camera already configured
 - MAC address not in discovery list
+- Device does not answer `http://<ip>/ISAPI/System/deviceInfo` (discovery checks this before showing it)
 
 **Solution:**
 
@@ -515,9 +535,9 @@ automation:
 
 ### Audio / media player
 
-**Status:** The speaker **media player** is only added when two-way audio is detected and is not reliable for normal playback; prefer **Speaker volume** (number entity) for level control.
+**Status:** The speaker **media player** is only added when two-way audio is detected. Use its volume control (there is no separate `number.*_speaker_volume`). Browse media / call `media_player.play_media`. Audio is converted with **ffmpeg** to match the camera TwoWayAudio codec (AAC → length-prefixed ADTS; G.711 → raw µ/A-law), matching the backyard lab / go2rtc ISAPI talk path.
 
-**Tip:** Enable the media player in the entity registry if you removed it or started from a template that hides it.
+**Tip:** Install/ensure `ffmpeg` is available inside Home Assistant (Core/Supervised images usually include it).
 
 ### Camera Streams Not Showing
 
@@ -566,7 +586,7 @@ When reporting issues, please include:
 
 ## License
 
-This project is licensed under the **MIT License**.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 

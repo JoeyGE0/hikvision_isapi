@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 import requests
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import device_registry as dr
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -10,10 +10,28 @@ from homeassistant.components.network import async_get_source_ip
 
 from pathlib import Path
 
-from .const import DOMAIN, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, ALARM_SERVER_PATH, CONF_SET_ALARM_SERVER, CONF_ALARM_SERVER_HOST, CONF_VERIFY_SSL, RTSP_PORT_FORCED, ISAPI_BOOT_RETRY_DELAYS
+from .const import (
+    DOMAIN,
+    CONFIG_ENTRY_MINOR_VERSION,
+    CONFIG_ENTRY_VERSION,
+    CONF_ENTITY_ITEMS,
+    CONF_ENTITY_KNOWN_SUPPORTED,
+    CONF_INTEGRATION_PROFILE,
+    CONF_LEGACY_FULL_INSTALL,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
+    ALARM_SERVER_PATH,
+    CONF_SET_ALARM_SERVER,
+    CONF_ALARM_SERVER_HOST,
+    CONF_VERIFY_SSL,
+    RTSP_PORT_FORCED,
+    ISAPI_BOOT_RETRY_DELAYS,
+    PROFILE_ADVANCED,
+)
 from .api import HikvisionISAPI, AuthenticationError
 from .coordinator import HikvisionDataUpdateCoordinator
 from .device_helpers import build_configuration_url, build_primary_device_info
+from .entity_profiles import entry_needs_advanced_profile_heal
 from .notifications import EventNotificationsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,7 +65,79 @@ def _entry_platforms() -> list[str]:
     return platforms
 
 
+def legacy_major_version_minor(version: int) -> int:
+    """Unused helper kept for tests; majors now match CONFIG_ENTRY_VERSION."""
+    return CONFIG_ENTRY_MINOR_VERSION
+
+
+@callback
+def async_heal_legacy_entry_versions(hass: HomeAssistant) -> None:
+    """Clamp any future-major entries down to the current handler version.
+
+    Dig builds stored majors 2/3; CONFIG_ENTRY_VERSION is 3 so those load
+    without rewriting. This only runs if an entry somehow exceeds that.
+    """
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.version <= CONFIG_ENTRY_VERSION:
+            continue
+        _LOGGER.warning(
+            "Config entry %s was stored with version %s; rewriting to %s.%s",
+            entry.title,
+            entry.version,
+            CONFIG_ENTRY_VERSION,
+            CONFIG_ENTRY_MINOR_VERSION,
+        )
+        hass.config_entries.async_update_entry(
+            entry,
+            version=CONFIG_ENTRY_VERSION,
+            minor_version=CONFIG_ENTRY_MINOR_VERSION,
+        )
+
+
 async def async_setup(hass: HomeAssistant, config: dict):
+    async_heal_legacy_entry_versions(hass)
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate older majors/minors up to CONFIG_ENTRY_VERSION.
+
+    Dig builds used major 2 (profile) and 3 (entity picker). Handler VERSION is
+    3 so those entries load. Entries still on major 1 (with minor 1-3) are
+    brought up here.
+    """
+    if config_entry.version > CONFIG_ENTRY_VERSION:
+        return False
+
+    data = dict(config_entry.data)
+    version = config_entry.version
+    minor = config_entry.minor_version
+    changed = False
+
+    # Additive keys introduced across majors 1→3 / minors 1→3.
+    if version < 2 or (version == 1 and minor < 2):
+        if CONF_INTEGRATION_PROFILE not in data:
+            data[CONF_INTEGRATION_PROFILE] = PROFILE_ADVANCED
+            changed = True
+
+    if version < 3 or (version == 1 and minor < 3):
+        if not isinstance(data.get(CONF_ENTITY_ITEMS), dict):
+            data[CONF_LEGACY_FULL_INSTALL] = True
+            data.setdefault(CONF_INTEGRATION_PROFILE, PROFILE_ADVANCED)
+            changed = True
+
+    if version != CONFIG_ENTRY_VERSION or minor != CONFIG_ENTRY_MINOR_VERSION:
+        version = CONFIG_ENTRY_VERSION
+        minor = CONFIG_ENTRY_MINOR_VERSION
+        changed = True
+
+    if changed:
+        hass.config_entries.async_update_entry(
+            config_entry,
+            data=data,
+            version=version,
+            minor_version=minor,
+        )
     return True
 
 
@@ -129,6 +219,17 @@ async def _discover_isapi_capabilities(
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     _LOGGER.info("=== HIKVISION ISAPI: Setting up integration for %s ===", entry.data.get("host", "unknown"))
     hass.data.setdefault(DOMAIN, {})
+
+    # Repair Basic profile left with Advanced leftovers (bad reauth/reconfigure).
+    # Updating data here does not recurse setup; entities load with the healed profile.
+    if entry_needs_advanced_profile_heal(entry):
+        healed = {**entry.data, CONF_INTEGRATION_PROFILE: PROFILE_ADVANCED}
+        hass.config_entries.async_update_entry(entry, data=healed)
+        _LOGGER.warning(
+            "Healed %s back to Advanced profile (Basic was set while Advanced "
+            "entity preferences were still stored)",
+            entry.data.get("host"),
+        )
     
     # Get device info and create device
     host = entry.data["host"]
@@ -229,6 +330,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Store data BEFORE creating coordinator (coordinator needs it)
     hass.data[DOMAIN][entry.entry_id] = {
         "api": api,
+        "api_lock": asyncio.Lock(),
         "device_info": device_info,
         "capabilities": capabilities,
         "cameras": cameras,
@@ -257,35 +359,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     else:
         _LOGGER.info("=== HIKVISION ISAPI: Using existing webhook (not first instance) ===")
 
-    # Set alarm server if enabled
+    # Set alarm server if enabled (background — don't block setup)
     if entry.data.get(CONF_SET_ALARM_SERVER, True):
-        alarm_server_host = entry.data.get(CONF_ALARM_SERVER_HOST)
-        if not alarm_server_host:
-            local_ip = await async_get_source_ip(hass)
-            alarm_server_host = f"http://{local_ip}:8123"
-        try:
-            actual_path = await hass.async_add_executor_job(
-                api.set_alarm_server, alarm_server_host, ALARM_SERVER_PATH
-            )
-            if actual_path:
-                _LOGGER.info("=== HIKVISION ISAPI: Successfully configured notification host on camera (path: %s) ===", actual_path)
-                # Update ALARM_SERVER_PATH if it was changed to match existing (e.g., /api/hikvision)
-                if actual_path != ALARM_SERVER_PATH:
-                    _LOGGER.info("=== HIKVISION ISAPI: Using existing notification path: %s ===", actual_path)
-                try:
-                    await hass.async_add_executor_job(
-                        api.ensure_http_alarm_notifications_for_events,
-                        None,
-                    )
-                except Exception as notify_err:
-                    _LOGGER.warning(
-                        "=== HIKVISION ISAPI: Could not enable Surveillance Center on event triggers: %s ===",
-                        notify_err,
-                    )
-            else:
-                _LOGGER.warning("=== HIKVISION ISAPI: Failed to configure notification host on camera ===")
-        except Exception as e:
-            _LOGGER.error("=== HIKVISION ISAPI: Error configuring notification host: %s ===", e)
+        async def _configure_alarm_server() -> None:
+            alarm_server_host = entry.data.get(CONF_ALARM_SERVER_HOST)
+            if not alarm_server_host:
+                local_ip = await async_get_source_ip(hass)
+                alarm_server_host = f"http://{local_ip}:8123"
+            try:
+                actual_path = await hass.async_add_executor_job(
+                    api.set_alarm_server, alarm_server_host, ALARM_SERVER_PATH
+                )
+                if actual_path:
+                    _LOGGER.info("=== HIKVISION ISAPI: Successfully configured notification host on camera (path: %s) ===", actual_path)
+                    if actual_path != ALARM_SERVER_PATH:
+                        _LOGGER.info("=== HIKVISION ISAPI: Using existing notification path: %s ===", actual_path)
+                    try:
+                        await hass.async_add_executor_job(
+                            api.ensure_http_alarm_notifications_for_events,
+                            None,
+                        )
+                    except Exception as notify_err:
+                        _LOGGER.warning(
+                            "=== HIKVISION ISAPI: Could not enable Surveillance Center on event triggers: %s ===",
+                            notify_err,
+                        )
+                else:
+                    _LOGGER.warning("=== HIKVISION ISAPI: Failed to configure notification host on camera ===")
+            except Exception as e:
+                _LOGGER.error("=== HIKVISION ISAPI: Error configuring notification host: %s ===", e)
+
+        hass.async_create_task(_configure_alarm_server())
 
     return True
 

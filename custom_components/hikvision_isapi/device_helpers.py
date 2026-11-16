@@ -2,12 +2,128 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TypeVar
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
+
+T = TypeVar("T")
+
+# Supplement-light API values where white-LED settings apply.
+SUPPLEMENT_MODES_WHITE_ACTIVE = frozenset({"eventIntelligence", "colorVuWhiteLight"})
+# Supplement-light API values where IR-LED settings apply.
+SUPPLEMENT_MODES_IR_ACTIVE = frozenset({"eventIntelligence", "irLight"})
+
+SUPPLEMENT_MODE_LABELS = {
+    "eventIntelligence": "Smart",
+    "colorVuWhiteLight": "White Supplement Light",
+    "irLight": "IR Supplement Light",
+    "close": "Off",
+}
+
+
+def get_supplement_light_mode(coordinator_data: dict | None) -> str | None:
+    """Return raw supplementLightMode from coordinator data, if known."""
+    if not coordinator_data:
+        return None
+    supplement = coordinator_data.get("supplement_light")
+    if not isinstance(supplement, dict):
+        return None
+    mode = supplement.get("mode")
+    return mode if isinstance(mode, str) and mode else None
+
+
+def supplement_mode_label(mode: str | None) -> str:
+    """Human-readable supplement light mode for error messages."""
+    if not mode:
+        return "unknown"
+    return SUPPLEMENT_MODE_LABELS.get(mode, mode)
+
+
+def supplement_mode_supports_white_light(mode: str | None) -> bool:
+    """True when white-LED duration/brightness controls apply."""
+    return mode in SUPPLEMENT_MODES_WHITE_ACTIVE
+
+
+def supplement_mode_supports_ir_light(mode: str | None) -> bool:
+    """True when IR-LED brightness controls apply."""
+    return mode in SUPPLEMENT_MODES_IR_ACTIVE
+
+
+def patch_coordinator_section(coordinator, section: str, updates: dict) -> None:
+    """Optimistically merge updates into a coordinator data section (no full refresh)."""
+    data = coordinator.data
+    if not isinstance(data, dict):
+        return
+    current = data.get(section)
+    if isinstance(current, dict):
+        merged = {**current, **updates}
+    elif updates:
+        merged = dict(updates)
+    else:
+        merged = {}
+    coordinator.async_set_updated_data({**data, section: merged})
+
+
+def get_brightness_control_mode(coordinator_data: dict | None) -> str | None:
+    """Return auto/manual brightness regulation mode for the active supplement mode.
+
+    Cameras often keep both ``mixedLightBrightnessRegulatMode`` (IR/white) and
+    ``EventIntelligenceModeCfg/brightnessRegulatMode`` (Smart). Prefer the field
+    that matches the current supplement mode so a stale nested ``auto`` cannot
+    hide a top-level ``manual`` (or vice versa).
+    """
+    if not coordinator_data:
+        return None
+    supplement = coordinator_data.get("supplement_light")
+    if not isinstance(supplement, dict):
+        return None
+    mixed = supplement.get("mixedLightBrightnessRegulatMode")
+    bright = supplement.get("brightnessRegulatMode")
+    mixed_s = mixed if isinstance(mixed, str) and mixed else None
+    bright_s = bright if isinstance(bright, str) and bright else None
+    if get_supplement_light_mode(coordinator_data) == "eventIntelligence":
+        return bright_s or mixed_s
+    return mixed_s or bright_s
+
+
+def get_ircut_mode(coordinator_data: dict | None) -> str | None:
+    """Return raw IrcutFilterType from coordinator data, if known."""
+    if not coordinator_data:
+        return None
+    ircut = coordinator_data.get("ircut")
+    if not isinstance(ircut, dict):
+        return None
+    mode = ircut.get("mode")
+    return mode if isinstance(mode, str) and mode else None
+
+
+def ircut_mode_is_auto(coordinator_data: dict | None) -> bool:
+    """True when day/night switch sensitivity and delay settings apply."""
+    return get_ircut_mode(coordinator_data) == "auto"
+
+
+def ircut_mode_label(mode: str | None) -> str:
+    """Human-readable IR cut mode for error messages."""
+    labels = {"auto": "Auto", "day": "Day", "night": "Night"}
+    if not mode:
+        return "unknown"
+    return labels.get(mode, mode)
+
+
+def alarm_output_data_key(device_name: str, port_no: int = 1) -> str:
+    """Coordinator dict key for alarm output state (matches switch entity_id slug)."""
+    from homeassistant.components.switch import ENTITY_ID_FORMAT
+    from homeassistant.util import slugify
+
+    return ENTITY_ID_FORMAT.format(
+        f"{slugify(device_name.lower())}_{port_no}_alarm_output"
+    )
 
 
 def primary_device_identifier(device_info: dict, host: str) -> str:
@@ -52,3 +168,16 @@ def build_primary_device_info(domain: str, device_info: dict, host: str) -> Devi
 def get_primary_device_info(hass: HomeAssistant, entry: ConfigEntry) -> DeviceInfo:
     """Return cached primary DeviceInfo for entities on this config entry."""
     return hass.data[DOMAIN][entry.entry_id]["ha_device_info"]
+
+
+async def async_run_api(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    func: Callable[..., T],
+    *args,
+    **kwargs,
+) -> T:
+    """Run a blocking ISAPI call under the per-entry API lock."""
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    async with entry_data["api_lock"]:
+        return await hass.async_add_executor_job(func, *args, **kwargs)

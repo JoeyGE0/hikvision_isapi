@@ -3,16 +3,38 @@ import logging
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .device_helpers import get_primary_device_info
+from .const import (
+    DOMAIN,
+    ENTITY_GROUP_AUDIO_ALARM,
+    ENTITY_GROUP_DAY_NIGHT,
+    ENTITY_GROUP_IMAGE_ADJUSTMENT,
+    ENTITY_GROUP_MOTION_TUNING,
+    ENTITY_GROUP_SUPPLEMENT_LIGHT,
+    ENTITY_GROUP_TWO_WAY_AUDIO,
+)
+from .entity_profiles import entity_enabled
+from .device_helpers import (
+    get_ircut_mode,
+    get_primary_device_info,
+    get_supplement_light_mode,
+    ircut_mode_is_auto,
+    ircut_mode_label,
+    patch_coordinator_section,
+    supplement_mode_label,
+    supplement_mode_supports_ir_light,
+    supplement_mode_supports_white_light,
+)
 from .api import HikvisionISAPI
 from .coordinator import HikvisionDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -30,42 +52,40 @@ async def async_setup_entry(
 
     entities = []
     
-    # Only add entities if their features are detected
-    if detected_features.get("ir_sensitivity", False):
+    if entity_enabled(entry, ENTITY_GROUP_DAY_NIGHT, "ir_sensitivity") and detected_features.get("ir_sensitivity", False):
         entities.append(HikvisionIRSensitivityNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("ir_filter_time", False):
+    if entity_enabled(entry, ENTITY_GROUP_DAY_NIGHT, "ir_filter_time") and detected_features.get("ir_filter_time", False):
         entities.append(HikvisionIRFilterTimeNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("speaker_volume", False):
-        entities.append(HikvisionSpeakerVolumeNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("microphone_volume", False):
+    # Speaker volume is on media_player.*_speaker when two-way audio is supported — no number entity.
+    if entity_enabled(entry, ENTITY_GROUP_TWO_WAY_AUDIO, "microphone_volume") and detected_features.get("microphone_volume", False):
         entities.append(HikvisionMicrophoneVolumeNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("white_light_time", False):
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "white_light_time") and detected_features.get("white_light_time", False):
         entities.append(HikvisionWhiteLightTimeNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("white_light_brightness", False):
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "white_light_brightness") and detected_features.get("white_light_brightness", False):
         entities.append(HikvisionWhiteLightBrightnessNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("ir_light_brightness", False):
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "ir_light_brightness") and detected_features.get("ir_light_brightness", False):
         entities.append(HikvisionIRLightBrightnessNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("white_light_brightness_limit", False):
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "white_light_brightness_limit") and detected_features.get("white_light_brightness_limit", False):
         entities.append(HikvisionWhiteLightBrightnessLimitNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("ir_light_brightness_limit", False):
+    if entity_enabled(entry, ENTITY_GROUP_SUPPLEMENT_LIGHT, "ir_light_brightness_limit") and detected_features.get("ir_light_brightness_limit", False):
         entities.append(HikvisionIRLightBrightnessLimitNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("motion_sensitivity", False):
+    if entity_enabled(entry, ENTITY_GROUP_MOTION_TUNING, "motion_sensitivity") and detected_features.get("motion_sensitivity", False):
         entities.append(HikvisionMotionSensitivityNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("motion_start_trigger_time", False):
+    if entity_enabled(entry, ENTITY_GROUP_MOTION_TUNING, "motion_start_trigger_time") and detected_features.get("motion_start_trigger_time", False):
         entities.append(HikvisionMotionStartTriggerTimeNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("motion_end_trigger_time", False):
+    if entity_enabled(entry, ENTITY_GROUP_MOTION_TUNING, "motion_end_trigger_time") and detected_features.get("motion_end_trigger_time", False):
         entities.append(HikvisionMotionEndTriggerTimeNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("brightness", False):
+    if entity_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT, "brightness") and detected_features.get("brightness", False):
         entities.append(HikvisionBrightnessNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("contrast", False):
+    if entity_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT, "contrast") and detected_features.get("contrast", False):
         entities.append(HikvisionContrastNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("saturation", False):
+    if entity_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT, "saturation") and detected_features.get("saturation", False):
         entities.append(HikvisionSaturationNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("sharpness", False):
+    if entity_enabled(entry, ENTITY_GROUP_IMAGE_ADJUSTMENT, "sharpness") and detected_features.get("sharpness", False):
         entities.append(HikvisionSharpnessNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("alarm_times", False):
+    if entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "alarm_times") and detected_features.get("alarm_times", False):
         entities.append(HikvisionAlarmTimesNumber(coordinator, api, entry, host, device_name))
-    if detected_features.get("loudspeaker_volume", False):
+    if entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "loudspeaker_volume") and detected_features.get("loudspeaker_volume", False):
         entities.append(HikvisionLoudspeakerVolumeNumber(coordinator, api, entry, host, device_name))
 
     async_add_entities(entities)
@@ -98,7 +118,9 @@ class HikvisionIRSensitivityNumber(NumberEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        if not self.coordinator.last_update_success:
+            return False
+        return ircut_mode_is_auto(self.coordinator.data)
 
     @property
     def native_value(self) -> float | None:
@@ -108,7 +130,7 @@ class HikvisionIRSensitivityNumber(NumberEntity):
             return self._optimistic_value
         
         # Otherwise use coordinator data
-        if not self.available:
+        if not self.coordinator.last_update_success:
             return None
         if self.coordinator.data and "ircut" in self.coordinator.data:
             sensitivity = self.coordinator.data["ircut"].get("sensitivity")
@@ -118,6 +140,13 @@ class HikvisionIRSensitivityNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        if not ircut_mode_is_auto(self.coordinator.data):
+            mode = ircut_mode_label(get_ircut_mode(self.coordinator.data))
+            raise HomeAssistantError(
+                f"Day/Night Switch Sensitivity only applies when Day/Night Switch is Auto "
+                f"(current: {mode})"
+            )
+
         # Optimistic update - show immediately
         self._optimistic_value = float(value)
         self.async_write_ha_state()
@@ -128,15 +157,11 @@ class HikvisionIRSensitivityNumber(NumberEntity):
         )
         
         if success:
-            # Refresh coordinator to sync with device
-            await self.coordinator.async_request_refresh()
-            # Only clear optimistic if coordinator confirms the change
-            if (self.coordinator.data and 
-                self.coordinator.data.get("ircut", {}).get("sensitivity") == int(value)):
-                self._optimistic_value = None
-        else:
-            # Write failed, clear optimistic and let coordinator show actual state
+            patch_coordinator_section(self.coordinator, "ircut", {"sensitivity": int(value)})
             self._optimistic_value = None
+        else:
+            self._optimistic_value = None
+            raise HomeAssistantError("Failed to set Day/Night Switch Sensitivity on camera")
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -174,7 +199,9 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        if not self.coordinator.last_update_success:
+            return False
+        return ircut_mode_is_auto(self.coordinator.data)
 
     @property
     def native_value(self) -> float | None:
@@ -184,7 +211,7 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
             return self._optimistic_value
         
         # Otherwise use coordinator data
-        if not self.available:
+        if not self.coordinator.last_update_success:
             return None
         if self.coordinator.data and "ircut" in self.coordinator.data:
             filter_time = self.coordinator.data["ircut"].get("filter_time")
@@ -194,6 +221,13 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        if not ircut_mode_is_auto(self.coordinator.data):
+            mode = ircut_mode_label(get_ircut_mode(self.coordinator.data))
+            raise HomeAssistantError(
+                f"Day/Night Switch Delay only applies when Day/Night Switch is Auto "
+                f"(current: {mode})"
+            )
+
         # Optimistic update - show immediately
         self._optimistic_value = float(value)
         self.async_write_ha_state()
@@ -204,90 +238,11 @@ class HikvisionIRFilterTimeNumber(NumberEntity):
         )
         
         if success:
-            # Refresh coordinator to sync with device
-            await self.coordinator.async_request_refresh()
-            # Only clear optimistic if coordinator confirms the change
-            if (self.coordinator.data and 
-                self.coordinator.data.get("ircut", {}).get("filter_time") == int(value)):
-                self._optimistic_value = None
-        else:
-            # Write failed, clear optimistic and let coordinator show actual state
+            patch_coordinator_section(self.coordinator, "ircut", {"filter_time": int(value)})
             self._optimistic_value = None
-
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
-
-
-class HikvisionSpeakerVolumeNumber(NumberEntity):
-    """Number entity for speaker volume (two-way audio / media player volume)."""
-
-    _attr_unique_id = "hikvision_speaker_volume"
-    _attr_native_min_value = 0
-    _attr_native_max_value = 100
-    _attr_native_step = 1
-    _attr_icon = "mdi:volume-high"
-
-    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str):
-        """Initialize the number entity."""
-        self.coordinator = coordinator
-        self.api = api
-        self._host = host
-        self._entry = entry
-        self._attr_name = f"{device_name} Speaker Volume"
-        self._attr_unique_id = f"{host}_speaker_volume"
-        self._optimistic_value = None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return get_primary_device_info(self.coordinator.hass, self._entry)
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the current value."""
-        # Use optimistic value if set (immediate feedback)
-        if self._optimistic_value is not None:
-            return self._optimistic_value
-        
-        # Otherwise use coordinator data
-        if not self.available:
-            return None
-        if self.coordinator.data and "audio" in self.coordinator.data:
-            volume = self.coordinator.data["audio"].get("speakerVolume")
-            if volume is not None:
-                return float(volume)
-        return None
-
-    async def async_set_native_value(self, value: float):
-        """Set the value."""
-        # Optimistic update - show immediately
-        self._optimistic_value = float(value)
-        self.async_write_ha_state()
-        
-        # Send to device
-        success = await self.hass.async_add_executor_job(
-            self.api.set_speaker_volume, int(value)
-        )
-        
-        if success:
-            # Refresh coordinator to sync with device
-            await self.coordinator.async_request_refresh()
-            # Only clear optimistic if coordinator confirms the change
-            if (self.coordinator.data and 
-                self.coordinator.data.get("audio", {}).get("speakerVolume") == int(value)):
-                self._optimistic_value = None
         else:
-            # Write failed, clear optimistic and let coordinator show actual state
             self._optimistic_value = None
+            raise HomeAssistantError("Failed to set Day/Night Switch Delay on camera")
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -354,15 +309,14 @@ class HikvisionMicrophoneVolumeNumber(NumberEntity):
         )
         
         if success:
-            # Refresh coordinator to sync with device
-            await self.coordinator.async_request_refresh()
-            # Only clear optimistic if coordinator confirms the change
-            if (self.coordinator.data and 
-                self.coordinator.data.get("audio", {}).get("microphoneVolume") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "audio", {"microphoneVolume": int(value)}
+            )
+            self._optimistic_value = None
         else:
             # Write failed, clear optimistic and let coordinator show actual state
             self._optimistic_value = None
+            self.async_write_ha_state()
 
 
 class HikvisionWhiteLightTimeNumber(NumberEntity):
@@ -393,7 +347,11 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        if not self.coordinator.last_update_success:
+            return False
+        return supplement_mode_supports_white_light(
+            get_supplement_light_mode(self.coordinator.data)
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -401,7 +359,7 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
-        if not self.available:
+        if not self.coordinator.last_update_success:
             return None
         if self.coordinator.data and "white_light_time" in self.coordinator.data:
             time_value = self.coordinator.data["white_light_time"]
@@ -411,6 +369,13 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        mode = get_supplement_light_mode(self.coordinator.data)
+        if not supplement_mode_supports_white_light(mode):
+            raise HomeAssistantError(
+                "LED On Duration only applies when Supplement Light is Smart or "
+                f"White Supplement Light (current: {supplement_mode_label(mode)})"
+            )
+
         self._optimistic_value = float(value)
         self.async_write_ha_state()
         
@@ -419,12 +384,14 @@ class HikvisionWhiteLightTimeNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("white_light_time") == int(value)):
-                self._optimistic_value = None
+            data = dict(self.coordinator.data or {})
+            data["white_light_time"] = int(value)
+            self.coordinator.async_set_updated_data(data)
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
+            raise HomeAssistantError("Failed to set LED On Duration on camera")
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -463,7 +430,11 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        if not self.coordinator.last_update_success:
+            return False
+        return supplement_mode_supports_white_light(
+            get_supplement_light_mode(self.coordinator.data)
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -471,7 +442,7 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
-        if not self.available:
+        if not self.coordinator.last_update_success:
             return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             brightness = self.coordinator.data["supplement_light"].get("whiteLightBrightness")
@@ -481,6 +452,13 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        mode = get_supplement_light_mode(self.coordinator.data)
+        if not supplement_mode_supports_white_light(mode):
+            raise HomeAssistantError(
+                "White Light Brightness only applies when Supplement Light is Smart or "
+                f"White Supplement Light (current: {supplement_mode_label(mode)})"
+            )
+
         self._optimistic_value = float(value)
         self.async_write_ha_state()
         
@@ -489,12 +467,14 @@ class HikvisionWhiteLightBrightnessNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("supplement_light", {}).get("whiteLightBrightness") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "supplement_light", {"whiteLightBrightness": int(value)}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
+            raise HomeAssistantError("Failed to set White Light Brightness on camera")
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -533,7 +513,11 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        if not self.coordinator.last_update_success:
+            return False
+        return supplement_mode_supports_ir_light(
+            get_supplement_light_mode(self.coordinator.data)
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -541,7 +525,7 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
         
-        if not self.available:
+        if not self.coordinator.last_update_success:
             return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             brightness = self.coordinator.data["supplement_light"].get("irLightBrightness")
@@ -551,6 +535,13 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        mode = get_supplement_light_mode(self.coordinator.data)
+        if not supplement_mode_supports_ir_light(mode):
+            raise HomeAssistantError(
+                "IR Light Brightness only applies when Supplement Light is Smart or "
+                f"IR Supplement Light (current: {supplement_mode_label(mode)})"
+            )
+
         self._optimistic_value = float(value)
         self.async_write_ha_state()
         
@@ -559,12 +550,14 @@ class HikvisionIRLightBrightnessNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("supplement_light", {}).get("irLightBrightness") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "supplement_light", {"irLightBrightness": int(value)}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
+            raise HomeAssistantError("Failed to set IR Light Brightness on camera")
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -603,7 +596,11 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        if not self.coordinator.last_update_success:
+            return False
+        return supplement_mode_supports_white_light(
+            get_supplement_light_mode(self.coordinator.data)
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -611,7 +608,7 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
 
-        if not self.available:
+        if not self.coordinator.last_update_success:
             return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             limit = self.coordinator.data["supplement_light"].get("whiteLightbrightLimit")
@@ -621,6 +618,13 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        mode = get_supplement_light_mode(self.coordinator.data)
+        if not supplement_mode_supports_white_light(mode):
+            raise HomeAssistantError(
+                "White Light Brightness Limit only applies when Supplement Light is Smart or "
+                f"White Supplement Light (current: {supplement_mode_label(mode)})"
+            )
+
         self._optimistic_value = float(value)
         self.async_write_ha_state()
 
@@ -629,14 +633,14 @@ class HikvisionWhiteLightBrightnessLimitNumber(NumberEntity):
         )
 
         if success:
-            await self.coordinator.async_request_refresh()
-            if (
-                self.coordinator.data
-                and self.coordinator.data.get("supplement_light", {}).get("whiteLightbrightLimit") == int(value)
-            ):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "supplement_light", {"whiteLightbrightLimit": int(value)}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
+            raise HomeAssistantError("Failed to set White Light Brightness Limit on camera")
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -675,7 +679,11 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        if not self.coordinator.last_update_success:
+            return False
+        return supplement_mode_supports_ir_light(
+            get_supplement_light_mode(self.coordinator.data)
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -683,7 +691,7 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
         if self._optimistic_value is not None:
             return self._optimistic_value
 
-        if not self.available:
+        if not self.coordinator.last_update_success:
             return None
         if self.coordinator.data and "supplement_light" in self.coordinator.data:
             limit = self.coordinator.data["supplement_light"].get("irLightbrightLimit")
@@ -693,6 +701,13 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set the value."""
+        mode = get_supplement_light_mode(self.coordinator.data)
+        if not supplement_mode_supports_ir_light(mode):
+            raise HomeAssistantError(
+                "IR Light Brightness Limit only applies when Supplement Light is Smart or "
+                f"IR Supplement Light (current: {supplement_mode_label(mode)})"
+            )
+
         self._optimistic_value = float(value)
         self.async_write_ha_state()
 
@@ -701,14 +716,14 @@ class HikvisionIRLightBrightnessLimitNumber(NumberEntity):
         )
 
         if success:
-            await self.coordinator.async_request_refresh()
-            if (
-                self.coordinator.data
-                and self.coordinator.data.get("supplement_light", {}).get("irLightbrightLimit") == int(value)
-            ):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "supplement_light", {"irLightbrightLimit": int(value)}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
+            raise HomeAssistantError("Failed to set IR Light Brightness Limit on camera")
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -772,12 +787,13 @@ class HikvisionMotionSensitivityNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("motion", {}).get("sensitivityLevel") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "motion", {"sensitivityLevel": int(value)}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -845,12 +861,13 @@ class HikvisionMotionStartTriggerTimeNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("motion", {}).get("startTriggerTime") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "motion", {"startTriggerTime": int(value)}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -919,12 +936,13 @@ class HikvisionMotionEndTriggerTimeNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("motion", {}).get("endTriggerTime") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(
+                self.coordinator, "motion", {"endTriggerTime": int(value)}
+            )
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -989,12 +1007,11 @@ class HikvisionBrightnessNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("color", {}).get("brightness") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(self.coordinator, "color", {"brightness": int(value)})
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1059,12 +1076,11 @@ class HikvisionContrastNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("color", {}).get("contrast") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(self.coordinator, "color", {"contrast": int(value)})
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1129,12 +1145,11 @@ class HikvisionSaturationNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if (self.coordinator.data and 
-                self.coordinator.data.get("color", {}).get("saturation") == int(value)):
-                self._optimistic_value = None
+            patch_coordinator_section(self.coordinator, "color", {"saturation": int(value)})
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -1199,11 +1214,13 @@ class HikvisionSharpnessNumber(NumberEntity):
         )
         
         if success:
-            await self.coordinator.async_request_refresh()
-            if self.coordinator.data and self.coordinator.data.get("sharpness") == int(value):
-                self._optimistic_value = None
+            data = dict(self.coordinator.data or {})
+            data["sharpness"] = int(value)
+            self.coordinator.async_set_updated_data(data)
+            self._optimistic_value = None
         else:
             self._optimistic_value = None
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

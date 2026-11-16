@@ -5,7 +5,11 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import xml.etree.ElementTree as ET
 
-from custom_components.hikvision_isapi.api import HikvisionISAPI, AuthenticationError
+from custom_components.hikvision_isapi.api import (
+    AudioStreamSession,
+    AuthenticationError,
+    HikvisionISAPI,
+)
 
 
 @pytest.fixture
@@ -122,4 +126,43 @@ class TestHikvisionISAPI:
         assert result is True
         mock_get.assert_called_once()
         mock_put.assert_called_once()
+
+    @patch("custom_components.hikvision_isapi.api.time.sleep")
+    @patch("custom_components.hikvision_isapi.api.requests.put")
+    def test_enable_two_way_audio_closes_stale_session_on_400(
+        self,
+        mock_put,
+        mock_sleep,
+        api,
+    ):
+        """A busy channel is closed and retried with complete settings."""
+        first = Mock(status_code=400)
+        second = Mock(status_code=200)
+        mock_put.side_effect = [first, second]
+        api.get_two_way_audio = Mock(
+            return_value={
+                "enabled": False,
+                "audioCompressionType": "AAC",
+                "speakerVolume": 35,
+                "microphoneVolume": 70,
+                "noisereduce": True,
+            }
+        )
+        api._close_audio_session_silent = Mock(return_value=True)
+
+        assert api.ensure_two_way_audio_enabled() is True
+        assert mock_put.call_count == 2
+        api._close_audio_session_silent.assert_called_once()
+        mock_sleep.assert_called_once_with(0.3)
+        xml_data = mock_put.call_args_list[0].kwargs["data"]
+        assert "<speakerVolume>70</speakerVolume>" in xml_data
+        assert "<microphoneVolume>35</microphoneVolume>" in xml_data
+        assert "<audioOutputType>Speaker</audioOutputType>" in xml_data
+
+    def test_disconnected_audio_stream_drops_payload(self, api):
+        """Muted playback can advance while its camera socket is closed."""
+        stream = AudioStreamSession("AAC", 16000, 64)
+
+        assert api._send_stream_payload(stream, b"audio") is False
+        assert stream.connected is False
 
