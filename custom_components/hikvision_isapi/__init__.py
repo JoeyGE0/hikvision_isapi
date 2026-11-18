@@ -51,10 +51,14 @@ _BASE_PLATFORMS = [
 ]
 
 
+# Checked once at import (imports run in the executor, not the event loop).
+_HAS_UPDATE_PLATFORM = (_INTEGRATION_DIR / "update.py").is_file()
+
+
 def _entry_platforms() -> list[str]:
     """Platforms to load; skip update if update.py missing (partial HACS install)."""
     platforms = list(_BASE_PLATFORMS)
-    if (_INTEGRATION_DIR / "update.py").is_file():
+    if _HAS_UPDATE_PLATFORM:
         platforms.append("update")
     else:
         _LOGGER.warning(
