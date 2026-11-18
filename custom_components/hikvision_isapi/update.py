@@ -193,6 +193,13 @@ def _model_series_token(model: str) -> str:
     return parts[1] if len(parts) >= 2 else model.upper()
 
 
+def _create_firmware_temp_file(suffix: str) -> str:
+    """Create an empty temp file for the firmware download (run in executor)."""
+    fd, path = tempfile.mkstemp(suffix=suffix, prefix="hikvision_fw_")
+    os.close(fd)
+    return path
+
+
 def _firmware_suffix_from_url(url: str) -> str:
     """Pick a safe temp-file suffix from the download URL."""
     path = urlparse(url).path
@@ -1035,30 +1042,33 @@ class HikvisionFirmwareUpdate(UpdateEntity):
     async def _async_download_firmware(self, url: str, dest_path: str) -> None:
         """Download firmware from archive to a local temp file."""
         downloaded = 0
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=FIRMWARE_UPLOAD_TIMEOUT) as response:
-                if response.status != 200:
-                    raise HomeAssistantError(
-                        f"Firmware download failed: HTTP {response.status} from {url}"
-                    )
-                total = int(response.headers.get("Content-Length", 0) or 0)
-                if total > MAX_FIRMWARE_BYTES:
-                    raise HomeAssistantError("Firmware file exceeds maximum allowed size")
+        session = async_get_clientsession(self.hass)
+        async with session.get(url, timeout=FIRMWARE_UPLOAD_TIMEOUT) as response:
+            if response.status != 200:
+                raise HomeAssistantError(
+                    f"Firmware download failed: HTTP {response.status} from {url}"
+                )
+            total = int(response.headers.get("Content-Length", 0) or 0)
+            if total > MAX_FIRMWARE_BYTES:
+                raise HomeAssistantError("Firmware file exceeds maximum allowed size")
 
-                with open(dest_path, "wb") as outfile:
-                    async for chunk in response.content.iter_chunked(1024 * 64):
-                        if not chunk:
-                            continue
-                        outfile.write(chunk)
-                        downloaded += len(chunk)
-                        if downloaded > MAX_FIRMWARE_BYTES:
-                            raise HomeAssistantError(
-                                "Firmware file exceeds maximum allowed size"
-                            )
-                        if total > 0:
-                            self._report_install_progress(
-                                min(39, int(downloaded / total * 40))
-                            )
+            outfile = await self.hass.async_add_executor_job(open, dest_path, "wb")
+            try:
+                async for chunk in response.content.iter_chunked(1024 * 64):
+                    if not chunk:
+                        continue
+                    await self.hass.async_add_executor_job(outfile.write, chunk)
+                    downloaded += len(chunk)
+                    if downloaded > MAX_FIRMWARE_BYTES:
+                        raise HomeAssistantError(
+                            "Firmware file exceeds maximum allowed size"
+                        )
+                    if total > 0:
+                        self._report_install_progress(
+                            min(39, int(downloaded / total * 40))
+                        )
+            finally:
+                await self.hass.async_add_executor_job(outfile.close)
 
         if downloaded < 1:
             raise HomeAssistantError("Downloaded firmware file is empty")
@@ -1123,9 +1133,9 @@ class HikvisionFirmwareUpdate(UpdateEntity):
             )
 
         suffix = _firmware_suffix_from_url(download_url)
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        firmware_path = tmp.name
-        tmp.close()
+        firmware_path = await hass.async_add_executor_job(
+            _create_firmware_temp_file, suffix
+        )
 
         loop = asyncio.get_running_loop()
 
@@ -1285,10 +1295,8 @@ class HikvisionFirmwareUpdate(UpdateEntity):
                 self._report_install_progress(None)
                 await self.coordinator.async_refresh()
                 self.async_write_ha_state()
-                try:
-                    os.unlink(firmware_path)
-                except OSError:
-                    pass
+                with contextlib.suppress(OSError):
+                    await hass.async_add_executor_job(os.unlink, firmware_path)
     
     @callback
     def _handle_coordinator_update(self) -> None:
