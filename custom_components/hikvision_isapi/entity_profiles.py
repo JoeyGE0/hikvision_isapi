@@ -26,6 +26,7 @@ from .const import (
     ENTITY_GROUP_SUPPLEMENT_LIGHT,
     ENTITY_GROUP_SYSTEM_DIAGNOSTICS,
     ENTITY_GROUP_TWO_WAY_AUDIO,
+    ENTITY_GROUP_VIDEO_ENCODING,
     EVENTS,
     EVENT_IO,
     PROFILE_ADVANCED,
@@ -47,6 +48,7 @@ ENTITY_GROUP_LABELS: dict[str, str] = {
     ENTITY_GROUP_AUDIO_ALARM: "Audio alarm settings (tone, volume)",
     ENTITY_GROUP_TWO_WAY_AUDIO: "Two-way audio / speaker",
     ENTITY_GROUP_ALARM_IO: "Alarm input / output",
+    ENTITY_GROUP_VIDEO_ENCODING: "Video encoding (beta)",
 }
 
 # Ordered list for stable UI.
@@ -109,6 +111,7 @@ EXTRA_ENTITY_GROUP_LABELS: dict[str, str] = {
     ENTITY_GROUP_AUDIO_ALARM: "Audio alarm (tone, volume, test button)",
     ENTITY_GROUP_TWO_WAY_AUDIO: "Two-way audio & speaker controls",
     ENTITY_GROUP_ALARM_IO: "Alarm input / output",
+    ENTITY_GROUP_VIDEO_ENCODING: "Video encoding (beta): picture quality, max / average bitrate",
 }
 
 _DETECTION_EVENT_FEATURES: dict[str, tuple[str, str | None]] = {
@@ -262,6 +265,15 @@ ENTITY_ITEM_REGISTRY: dict[str, tuple[EntityItemSpec, ...]] = {
         EntityItemSpec("alarm_input_switch", "Alarm input switch", "alarm_input"),
         EntityItemSpec("alarm_output_switch", "Alarm output switch", "alarm_output"),
     ),
+    ENTITY_GROUP_VIDEO_ENCODING: (
+        EntityItemSpec("video_quality", "Picture quality (VBR only)", "video_encoding"),
+        EntityItemSpec("video_max_bitrate", "Max bitrate", "video_encoding"),
+        EntityItemSpec(
+            "video_average_bitrate",
+            "Average bitrate (H.265+ / H.264+ only)",
+            "video_encoding",
+        ),
+    ),
 }
 
 # Minimum feature keys that must pass detect_features for a group to appear in the picker.
@@ -308,6 +320,7 @@ _GROUP_FEATURE_KEYS: dict[str, tuple[str, ...]] = {
         if spec.feature_key
     ),
     ENTITY_GROUP_ALARM_IO: ("alarm_input", "alarm_output"),
+    ENTITY_GROUP_VIDEO_ENCODING: ("video_encoding",),
 }
 
 

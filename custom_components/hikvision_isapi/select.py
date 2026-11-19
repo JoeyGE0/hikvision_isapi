@@ -3,6 +3,7 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 
@@ -20,6 +21,8 @@ from .device_helpers import (
     patch_coordinator_section,
 )
 from .api import HikvisionISAPI
+from .video_encoding import QUALITY_VALUES, quality_label
+from .video_encoding_entities import VideoEncodingEntityMixin, video_encoding_targets
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +56,10 @@ async def async_setup_entry(
         entities.append(HikvisionAudioTypeSelect(coordinator, api, entry, host, device_name))
     if entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "audio_alarm_sound") and detected_features.get("audio_alarm_sound", False):
         entities.append(HikvisionWarningSoundSelect(coordinator, api, entry, host, device_name))
+    for stream_id in video_encoding_targets(hass, entry, "video_quality"):
+        entities.append(
+            HikvisionVideoQualitySelect(coordinator, api, entry, host, device_name, stream_id)
+        )
 
     async_add_entities(entities)
 
@@ -637,3 +644,48 @@ class HikvisionWarningSoundSelect(SelectEntity):
             self.coordinator.async_add_listener(self._on_coordinator_update)
         )
 
+
+
+class HikvisionVideoQualitySelect(VideoEncodingEntityMixin, SelectEntity):
+    """Picture quality (fixedQuality) for one stream. Beta.
+
+    Only used by the camera in VBR mode, so it is unavailable in CBR.
+    """
+
+    _attr_icon = "mdi:high-definition-box"
+
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str, stream_id: int):
+        self._init_video_encoding(
+            coordinator, api, entry, host, device_name, stream_id,
+            "video_quality", "Picture Quality",
+        )
+
+    @property
+    def options(self) -> list[str]:
+        values = self.caps.get("quality_options") or []
+        # Highest first, like the camera web UI.
+        return [quality_label(v) for v in sorted(values, reverse=True)]
+
+    @property
+    def available(self) -> bool:
+        if not self.coordinator.last_update_success:
+            return False
+        stream = self.stream_data
+        return stream.get("control_type") == "VBR" and stream.get("quality") is not None
+
+    @property
+    def current_option(self) -> str | None:
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        label = quality_label(self.stream_data.get("quality"))
+        return label if label in self.options else None
+
+    async def async_select_option(self, option: str) -> None:
+        value = QUALITY_VALUES.get(option)
+        if value is None and option.isdigit():
+            value = int(option)
+        if value is None:
+            raise HomeAssistantError(f"Unknown picture quality: {option}")
+        self._optimistic_value = option
+        self.async_write_ha_state()
+        await self._async_write(quality=value)

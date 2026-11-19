@@ -128,6 +128,14 @@ Multiple camera stream support with separate entities for each stream type:
 
 All streams support RTSP streaming and snapshots. Only streams available on your camera will be created.
 
+### Video Encoding (beta)
+Advanced setup → **Video encoding (beta)**. Per stream (main stream on by default, sub-stream entities disabled by default):
+- **Picture Quality** select (Highest / Higher / Medium / Low / Lower / Lowest). Only works in VBR, so it shows unavailable in CBR.
+- **Max Bitrate** number (kbps). Writes the VBR upper cap in VBR, or the constant bitrate in CBR.
+- **Average Bitrate** number (kbps). Only available with H.265+ / H.264+ on. Must be at or below Max Bitrate; lowering Max Bitrate below it pulls it down too.
+
+Every change is read back from the camera and raises an error if the camera didn't apply it (some firmwares answer OK but keep the old value). Allowed values come from the stream's capabilities. Changing these restarts the stream encoder briefly. Example use: drop quality/max bitrate at night so sensor noise isn't encoded as detail, raise it again in the morning.
+
 ### Detection Controls
 
 | Control                       | Description                              |

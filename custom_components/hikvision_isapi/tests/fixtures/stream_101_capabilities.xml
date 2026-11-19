@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<StreamingChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id opt="1,2">101</id>
+<channelName min="0" max="32">Camera 01</channelName>
+<enabled opt="true">true</enabled>
+<Transport>
+<maxPacketSize opt="1000">1000</maxPacketSize>
+<ControlProtocolList>
+<ControlProtocol>
+<streamingTransport opt="RTSP,HTTP">RTSP</streamingTransport>
+</ControlProtocol>
+</ControlProtocolList>
+<Unicast>
+<enabled opt="true">true</enabled>
+<rtpTransportType opt="RTP/TCP">RTP/TCP</rtpTransportType>
+</Unicast>
+<Security>
+<enabled opt="true">true</enabled>
+<certificateType opt="digest,digest/basic">digest/baisc</certificateType>
+<SecurityAlgorithm>
+<algorithmType opt="MD5,SHA256,MD5/SHA256"/>
+</SecurityAlgorithm>
+</Security>
+</Transport>
+<Video>
+<enabled opt="true">true</enabled>
+<videoInputChannelID opt="1">1</videoInputChannelID>
+<videoCodecType opt="H.264,H.265">H.265</videoCodecType>
+<videoScanType opt="progressive">progressive</videoScanType>
+<videoResolutionWidth opt="1280,1920,2688,3200,3840">3840</videoResolutionWidth>
+<videoResolutionHeight opt="720,1080,1520,1800,2160">2160</videoResolutionHeight>
+<videoQualityControlType opt="CBR,VBR">VBR</videoQualityControlType>
+<constantBitRate min="32" max="16384">16384</constantBitRate>
+<fixedQuality opt="1,20,40,60,80,100">80</fixedQuality>
+<vbrUpperCap min="32" max="16384">16384</vbrUpperCap>
+<vbrLowerCap>32</vbrLowerCap>
+<maxFrameRate opt="1250,1200,1000,800,600,400,200,100,50,25,12,6">1200</maxFrameRate>
+<keyFrameInterval min="83" max="33333">1000</keyFrameInterval>
+<snapShotImageType opt="JPEG">JPEG</snapShotImageType>
+<H264Profile opt="Baseline,Main,High">Main</H264Profile>
+<GovLength min="1" max="400">12</GovLength>
+<SVC>
+<enabled opt="ture,false">false</enabled>
+<SVCMode opt="manual,auto">manual</SVCMode>
+<SVCType opt="twoSingal,fourSingal,fourDouble">fourSingal</SVCType>
+</SVC>
+<smoothing min="1" max="100">20</smoothing>
+<H265Profile opt="Main">Main</H265Profile>
+</Video>
+<Audio>
+<enabled opt="true,false">true</enabled>
+<audioInputChannelID>1</audioInputChannelID>
+<audioCompressionType opt="G.722.1,G.711ulaw,G.711alaw,MP2L2,G.726,AAC,PCM">AAC</audioCompressionType>
+</Audio>
+<isSpportDynamicCapWithCondition>false</isSpportDynamicCapWithCondition>
+<isSupportSmartCodeWithoutReStart>true</isSupportSmartCodeWithoutReStart>
+<isSupportRefreshFrame>false</isSupportRefreshFrame>
+<isSupportRTCPCfg>true</isSupportRTCPCfg>
+</StreamingChannel>

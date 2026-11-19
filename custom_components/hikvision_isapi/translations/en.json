@@ -83,6 +83,11 @@
             "name": "Alarm input / output",
             "description": "Alarm input sensor and output relay",
             "data": { "items": "Entities" }
+          },
+          "video_encoding": {
+            "name": "Video encoding (beta)",
+            "description": "Picture quality, max bitrate and H.265+ average bitrate per stream. Changing these restarts the stream briefly.",
+            "data": { "items": "Entities" }
           }
         }
       },

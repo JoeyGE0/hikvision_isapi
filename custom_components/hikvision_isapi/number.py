@@ -1,6 +1,7 @@
 """Number platform for Hikvision ISAPI."""
 import logging
-from homeassistant.components.number import NumberEntity
+from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
+from homeassistant.const import UnitOfDataRate
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -31,6 +32,7 @@ from .device_helpers import (
 )
 from .api import HikvisionISAPI
 from .coordinator import HikvisionDataUpdateCoordinator
+from .video_encoding_entities import VideoEncodingEntityMixin, video_encoding_targets
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,6 +89,14 @@ async def async_setup_entry(
         entities.append(HikvisionAlarmTimesNumber(coordinator, api, entry, host, device_name))
     if entity_enabled(entry, ENTITY_GROUP_AUDIO_ALARM, "loudspeaker_volume") and detected_features.get("loudspeaker_volume", False):
         entities.append(HikvisionLoudspeakerVolumeNumber(coordinator, api, entry, host, device_name))
+    for stream_id in video_encoding_targets(hass, entry, "video_max_bitrate"):
+        entities.append(
+            HikvisionMaxBitrateNumber(coordinator, api, entry, host, device_name, stream_id)
+        )
+    for stream_id in video_encoding_targets(hass, entry, "video_average_bitrate"):
+        entities.append(
+            HikvisionAverageBitrateNumber(coordinator, api, entry, host, device_name, stream_id)
+        )
 
     async_add_entities(entities)
 
@@ -1382,3 +1392,91 @@ class HikvisionLoudspeakerVolumeNumber(NumberEntity):
             self.coordinator.async_add_listener(self.async_write_ha_state)
         )
 
+
+
+class _BitrateNumberBase(VideoEncodingEntityMixin, NumberEntity):
+    """Bitrate (kbps) number for one stream. Beta."""
+
+    _attr_device_class = NumberDeviceClass.DATA_RATE
+    _attr_native_unit_of_measurement = UnitOfDataRate.KILOBITS_PER_SECOND
+    _attr_mode = NumberMode.BOX
+    _attr_native_step = 1
+
+    @property
+    def native_min_value(self) -> float:
+        return float(self.caps.get("bitrate_min", 32))
+
+    @property
+    def native_max_value(self) -> float:
+        return float(self.caps.get("bitrate_max", 16384))
+
+
+class HikvisionMaxBitrateNumber(_BitrateNumberBase):
+    """Max bitrate: vbrUpperCap in VBR, constantBitRate in CBR."""
+
+    _attr_icon = "mdi:speedometer"
+
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str, stream_id: int):
+        self._init_video_encoding(
+            coordinator, api, entry, host, device_name, stream_id,
+            "video_max_bitrate", "Max Bitrate",
+        )
+
+    @property
+    def available(self) -> bool:
+        return (
+            self.coordinator.last_update_success
+            and self.stream_data.get("max_bitrate") is not None
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        value = self.stream_data.get("max_bitrate")
+        return float(value) if value is not None else None
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._optimistic_value = float(int(value))
+        self.async_write_ha_state()
+        await self._async_write(max_bitrate=int(value))
+
+
+class HikvisionAverageBitrateNumber(_BitrateNumberBase):
+    """Average bitrate (vbrAverageCap); only exists with H.265+/H.264+ on."""
+
+    _attr_icon = "mdi:speedometer-medium"
+
+    def __init__(self, coordinator, api, entry: ConfigEntry, host: str, device_name: str, stream_id: int):
+        self._init_video_encoding(
+            coordinator, api, entry, host, device_name, stream_id,
+            "video_average_bitrate", "Average Bitrate",
+        )
+
+    @property
+    def available(self) -> bool:
+        stream = self.stream_data
+        return (
+            self.coordinator.last_update_success
+            and bool(stream.get("smart_codec"))
+            and stream.get("vbr_average_cap") is not None
+        )
+
+    @property
+    def native_max_value(self) -> float:
+        # Must stay <= max bitrate (camera silently ignores higher values).
+        current_max = self.stream_data.get("max_bitrate")
+        cap = float(self.caps.get("bitrate_max", 16384))
+        return float(min(cap, current_max)) if current_max else cap
+
+    @property
+    def native_value(self) -> float | None:
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        value = self.stream_data.get("vbr_average_cap")
+        return float(value) if value is not None else None
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._optimistic_value = float(int(value))
+        self.async_write_ha_state()
+        await self._async_write(average_bitrate=int(value))

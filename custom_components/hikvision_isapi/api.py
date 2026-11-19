@@ -35,6 +35,13 @@ from .audio_playback import (
     pull_adts_frames,
 )
 
+from .video_encoding import (
+    build_video_encoding_put,
+    mismatched_fields,
+    parse_video_encoding,
+    parse_video_encoding_caps,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
@@ -484,6 +491,8 @@ class HikvisionISAPI:
         self.device_info = {}
         self.capabilities = {}
         self.cameras = []  # List of discovered cameras/channels
+        self.video_encoding_stream_ids: list[int] = []  # streams with encoder settings (beta)
+        self.video_encoding_caps: dict[int, dict] = {}
         self.isapi_boot_unstable = False  # True after transient 5xx/timeout during discovery
 
     def _get(self, endpoint: str) -> ET.Element:
@@ -3045,6 +3054,147 @@ class HikvisionISAPI:
                     len(streams), channel_id, [s["type"] for s in streams] if streams else "none")
         return streams
 
+    # ------------------------------------------------------------------
+    # Video encoding (beta): picture quality / max + average bitrate
+    # ------------------------------------------------------------------
+
+    def _request_text(self, method: str, endpoint: str, data: str | None = None) -> str:
+        """GET/PUT a full-URL ISAPI endpoint and return the raw body text."""
+        url = f"http://{self.host}{endpoint}"
+        kwargs: dict = {"auth": self._auth, "verify": self.verify_ssl, "timeout": 10}
+        if data is not None:
+            kwargs["data"] = data.encode("utf-8")
+            kwargs["headers"] = {"Content-Type": "application/xml"}
+        response = requests.request(method, url, **kwargs)
+        if response.status_code >= 400 and response.status_code not in (401,):
+            error_msg = _extract_error_message(response)
+            if error_msg:
+                raise requests.exceptions.HTTPError(
+                    f"{response.status_code} {method} {endpoint}: {error_msg}",
+                    response=response,
+                )
+        _check_isapi_http_response(response, endpoint, method)
+        return response.text
+
+    def get_video_encoding_streams(self) -> list[int]:
+        """Stream ids (101, 102, ...) of this channel that expose encoder settings."""
+        streams: list[int] = []
+        try:
+            root = self._get("/ISAPI/Streaming/channels")
+            for chan in root.iter():
+                if self._xml_local_name(chan.tag) != "StreamingChannel":
+                    continue
+                id_elem = self._find_child_by_local_name(chan, "id")
+                if id_elem is None or not (id_elem.text or "").strip().isdigit():
+                    continue
+                stream_id = int(id_elem.text.strip())
+                if stream_id // 100 != self.channel:
+                    continue
+                video = self._find_child_by_local_name(chan, "Video")
+                if video is None:
+                    continue
+                if self._find_child_by_local_name(video, "videoQualityControlType") is None:
+                    continue
+                streams.append(stream_id)
+        except AuthenticationError:
+            raise
+        except Exception as err:
+            _LOGGER.debug("Video encoding stream list failed on %s: %s", self.host, err)
+        if not streams:
+            # Some firmwares don't list channels; fall back to probing main stream.
+            try:
+                main_id = self.channel * 100 + 1
+                if parse_video_encoding(
+                    self._request_text("GET", f"/ISAPI/Streaming/channels/{main_id}")
+                ).get("control_type"):
+                    streams.append(main_id)
+            except AuthenticationError:
+                raise
+            except Exception as err:
+                _LOGGER.debug("Video encoding probe failed on %s: %s", self.host, err)
+        return sorted(streams)
+
+    def get_video_encoding_caps(self, stream_id: int) -> dict:
+        """Allowed picture quality values and bitrate range for one stream."""
+        cache = getattr(self, "video_encoding_caps", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self.video_encoding_caps = cache
+        if stream_id in cache:
+            return cache[stream_id]
+        try:
+            caps = parse_video_encoding_caps(
+                self._request_text(
+                    "GET", f"/ISAPI/Streaming/channels/{stream_id}/capabilities"
+                )
+            )
+        except AuthenticationError:
+            raise
+        except Exception as err:
+            _LOGGER.debug("Video encoding caps failed for %s/%s: %s", self.host, stream_id, err)
+            caps = parse_video_encoding_caps("")
+        cache[stream_id] = caps
+        return caps
+
+    def get_video_encoding_caps_cached(self, stream_id: int) -> dict:
+        """Caps from the detect-time cache (no I/O; safe in the event loop)."""
+        cache = getattr(self, "video_encoding_caps", None) or {}
+        return cache.get(stream_id) or parse_video_encoding_caps("")
+
+    def get_video_encoding(self, stream_id: int) -> dict:
+        """Current encoder settings for one stream ({} on error)."""
+        try:
+            return parse_video_encoding(
+                self._request_text("GET", f"/ISAPI/Streaming/channels/{stream_id}")
+            )
+        except AuthenticationError:
+            raise
+        except Exception as err:
+            if isinstance(err, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _LOGGER.debug("Video encoding read failed for %s/%s: %s", self.host, stream_id, err)
+            else:
+                _LOGGER.warning("Video encoding read failed for %s/%s: %s", self.host, stream_id, err)
+            return {}
+
+    def get_all_video_encoding(self) -> dict[int, dict]:
+        """Encoder settings for every stream found by detect_features."""
+        streams = getattr(self, "video_encoding_stream_ids", None) or []
+        return {stream_id: self.get_video_encoding(stream_id) for stream_id in streams}
+
+    def set_video_encoding(
+        self,
+        stream_id: int,
+        *,
+        quality: int | None = None,
+        max_bitrate: int | None = None,
+        average_bitrate: int | None = None,
+    ) -> dict:
+        """Change picture quality and/or bitrate; returns the settings read back.
+
+        Raises ValueError for bad values and RuntimeError when the camera answers
+        OK but did not apply the change (it does that for some combinations).
+        """
+        endpoint = f"/ISAPI/Streaming/channels/{stream_id}"
+        caps = self.get_video_encoding_caps(stream_id)
+        current_xml = self._request_text("GET", endpoint)
+        new_xml, expected = build_video_encoding_put(
+            current_xml,
+            quality=quality,
+            max_bitrate=max_bitrate,
+            average_bitrate=average_bitrate,
+            caps=caps,
+        )
+        if not expected:
+            return parse_video_encoding(current_xml)
+        self._request_text("PUT", endpoint, new_xml)
+        after = parse_video_encoding(self._request_text("GET", endpoint))
+        wrong = mismatched_fields(expected, after)
+        if wrong:
+            details = ", ".join(f"{k}: wanted {w}, camera has {a}" for k, (w, a) in wrong.items())
+            raise RuntimeError(f"Camera did not apply the change ({details})")
+        _LOGGER.info("Video encoding %s/%s set: %s", self.host, stream_id, expected)
+        return after
+
     def get_rtsp_port(self) -> int:
         """Get RTSP port from device."""
         # Use forced port if configured
@@ -5425,6 +5575,14 @@ class HikvisionISAPI:
                 features["audio_alarm_sound"] = True
                 features["test_audio_alarm"] = True
             
+            # Video encoding (beta) - picture quality / bitrate per stream
+            video_streams = self.get_video_encoding_streams()
+            self.video_encoding_stream_ids = video_streams
+            for stream_id in video_streams:
+                self.get_video_encoding_caps(stream_id)
+            if video_streams:
+                features["video_encoding"] = True
+
             # Button entities (always available)
             features["restart"] = True
             

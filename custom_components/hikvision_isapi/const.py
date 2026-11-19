@@ -54,6 +54,7 @@ ENTITY_GROUP_IMAGE_ADJUSTMENT: Final = "image_adjustment"
 ENTITY_GROUP_AUDIO_ALARM: Final = "audio_alarm"
 ENTITY_GROUP_TWO_WAY_AUDIO: Final = "two_way_audio"
 ENTITY_GROUP_ALARM_IO: Final = "alarm_io"
+ENTITY_GROUP_VIDEO_ENCODING: Final = "video_encoding"
 
 DEFAULT_UPDATE_INTERVAL = 30
 SIREN_RETRIGGER_INTERVAL_SECONDS: Final = 0.5

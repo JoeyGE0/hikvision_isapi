@@ -569,7 +569,7 @@ class TestEntityCustomizeCoverage:
             "loudspeaker_volume", "media_player", "microphone_volume",
             "noise_reduce", "brightness", "contrast", "saturation", "sharpness",
             "motion_sensitivity", "motion_start_trigger_time", "motion_end_trigger_time",
-            "restart", "alarm_input", "alarm_output",
+            "restart", "alarm_input", "alarm_output", "video_encoding",
         )}
         events = frozenset({
             "motiondetection", "tamperdetection", "videoloss", "fielddetection", "linedetection",

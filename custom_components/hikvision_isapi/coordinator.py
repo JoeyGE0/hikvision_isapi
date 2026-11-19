@@ -18,10 +18,15 @@ from .const import (
     CONF_ENTITY_ITEMS,
     CONF_ENTITY_KNOWN_SUPPORTED,
     DOMAIN,
+    ENTITY_GROUP_VIDEO_ENCODING,
     FEATURE_CAPABILITY_FIRST_SCAN,
     FEATURE_CAPABILITY_RESCAN_INTERVAL,
 )
-from .entity_profiles import merge_entry_entity_preferences, is_legacy_full_install
+from .entity_profiles import (
+    entity_group_enabled,
+    is_legacy_full_install,
+    merge_entry_entity_preferences,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -378,6 +383,13 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
         alarm_server = await self.hass.async_add_executor_job(
             self.api.get_alarm_server
         )
+        video_encoding = {}
+        if detected_features.get("video_encoding", False) and entity_group_enabled(
+            self.entry, ENTITY_GROUP_VIDEO_ENCODING
+        ):
+            video_encoding = await self.hass.async_add_executor_job(
+                self.api.get_all_video_encoding
+            )
 
         data = {
             "ircut": ircut_data,
@@ -402,6 +414,7 @@ class HikvisionDataUpdateCoordinator(DataUpdateCoordinator):
             "streaming_status": streaming_status,
             "alarm_input": alarm_input,
             "alarm_server": alarm_server,
+            "video_encoding": video_encoding,
         }
 
         # Store alarm output status using unique_id as key only when the model has outputs.
