@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 from dataclasses import dataclass, field
 import logging
 import os
@@ -37,8 +38,57 @@ from .audio_playback import (
 
 _LOGGER = logging.getLogger(__name__)
 
-XML_NS = "{http://www.hikvision.com/ver20/XMLSchema}"
-ISAPI_XML_NS_ALT = "{http://www.isapi.org/ver20/XMLSchema}"
+# ISAPI XML namespace handling
+# ---------------------------
+# Hikvision firmware and OEM/white-label rebrands (ANNKE, HiLook, ...) return
+# structurally identical XML under different namespace URIs, e.g.
+#   http://www.hikvision.com/ver20/XMLSchema
+#   http://www.std-cgi.com/ver20/XMLSchema   (ANNKE I91EV, HiLook)
+#   http://www.isapi.org/ver20/XMLSchema
+#   urn:psialliance-org
+# We therefore
+#   * READ by local tag name only: XML_NS is the ElementTree wildcard "{*}", so
+#     every f".//{XML_NS}tag" lookup matches any namespace (or none), and
+#   * WRITE back with whatever namespace the camera itself used: documents we
+#     fetched are re-serialized with their own namespace (_serialize_xml), new
+#     elements inherit it from their parent (_sub_element), and PUT bodies that
+#     are built from scratch use the namespace learned from the camera's most
+#     recent GET response (HikvisionISAPI.xml_ns_uri).
+DEFAULT_XML_NS_URI = "http://www.hikvision.com/ver20/XMLSchema"
+XML_NS = "{*}"  # lookups only - never use as a tag name for new elements
+ISAPI_XML_NS_ALT = "{http://www.isapi.org/ver20/XMLSchema}"  # kept for imports
+
+
+def _xml_ns_uri_of(elem: ET.Element) -> str | None:
+    """Return the namespace URI of an element's tag, or None."""
+    tag = elem.tag
+    if isinstance(tag, str) and tag.startswith("{") and "}" in tag:
+        return tag[1 : tag.index("}")]
+    return None
+
+
+def _sub_element(parent: ET.Element, name: str) -> ET.Element:
+    """Create a child element in the same namespace as its parent."""
+    ns_uri = _xml_ns_uri_of(parent)
+    return ET.SubElement(parent, f"{{{ns_uri}}}{name}" if ns_uri else name)
+
+
+def _serialize_xml(root: ET.Element) -> str:
+    """Serialize a document for PUT using the namespace it was received in.
+
+    Avoids ET.register_namespace (process-global, racy with several cameras
+    using different namespaces): the namespace is stripped from the tags of a
+    copy and written as a plain default xmlns attribute on the root instead.
+    """
+    clone = copy.deepcopy(root)
+    ns_uri = _xml_ns_uri_of(clone)
+    if ns_uri:
+        for elem in clone.iter():
+            tag = elem.tag
+            if isinstance(tag, str) and tag.startswith("{" + ns_uri + "}"):
+                elem.tag = tag[len(ns_uri) + 2 :]
+        clone.set("xmlns", ns_uri)
+    return ET.tostring(clone, encoding="unicode", xml_declaration=True)
 
 # G.711 telephony audio: 8 kHz mono, 64 kbps → 8000 bytes/s
 G711_CHUNK_SIZE = 128  # 16 ms per chunk at 8 kHz (common ISAPI packet size)
@@ -485,6 +535,18 @@ class HikvisionISAPI:
         self.capabilities = {}
         self.cameras = []  # List of discovered cameras/channels
         self.isapi_boot_unstable = False  # True after transient 5xx/timeout during discovery
+        # Namespace the camera uses in its XML; learned from GET responses and
+        # used for PUT bodies built from scratch (see XML namespace notes above).
+        self.xml_ns_uri = DEFAULT_XML_NS_URI
+
+    def _parse_xml(self, text: str, *, learn: bool = True) -> ET.Element:
+        """Parse an ISAPI XML response, optionally learning the camera's namespace."""
+        root = ET.fromstring(text)
+        if learn:
+            ns_uri = _xml_ns_uri_of(root)
+            if ns_uri:
+                self.xml_ns_uri = ns_uri
+        return root
 
     def _get(self, endpoint: str) -> ET.Element:
         """Make a GET request to ISAPI endpoint."""
@@ -503,7 +565,7 @@ class HikvisionISAPI:
                 timeout=5
             )
             _check_isapi_http_response(response, endpoint, "GET")
-            return ET.fromstring(response.text)
+            return self._parse_xml(response.text)
         except requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 401:
                 raise AuthenticationError(f"Authentication failed: {e}") from e
@@ -569,7 +631,7 @@ class HikvisionISAPI:
                 timeout=5
             )
             _check_isapi_http_response(response, endpoint, "PUT")
-            return ET.fromstring(response.text)
+            return self._parse_xml(response.text, learn=False)
         except requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 401:
                 raise AuthenticationError(f"Authentication failed: {e}") from e
@@ -633,12 +695,12 @@ class HikvisionISAPI:
             return {}
 
     @staticmethod
-    def _supplement_light_xml(inner: str) -> str:
+    def _supplement_light_xml(inner: str, xmlns: str = DEFAULT_XML_NS_URI) -> str:
         """Build a minimal SupplementLight PUT body (avoids GET-modify-PUT side effects)."""
         return (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<SupplementLight version="2.0" '
-            'xmlns="http://www.hikvision.com/ver20/XMLSchema">'
+            f'xmlns="{xmlns}">'
             f"{inner}"
             "</SupplementLight>"
         )
@@ -646,7 +708,7 @@ class HikvisionISAPI:
     def _put_supplement_light(self, inner: str) -> bool:
         """PUT a minimal SupplementLight document. Returns False on soft failure."""
         try:
-            self._put("/supplementLight", self._supplement_light_xml(inner))
+            self._put("/supplementLight", self._supplement_light_xml(inner, self.xml_ns_uri))
             return True
         except AuthenticationError:
             raise
@@ -980,7 +1042,7 @@ class HikvisionISAPI:
         """Minimal /color PUT for a single field (no sibling image settings)."""
         xml_data = (
             '<?xml version="1.0" encoding="UTF-8"?>'
-            '<Color version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">'
+            f'<Color version="2.0" xmlns="{self.xml_ns_uri}">'
             f"<{tag}>{value}</{tag}>"
             "</Color>"
         )
@@ -1015,7 +1077,7 @@ class HikvisionISAPI:
             xml_data = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
                 '<ImageChannel version="2.0" '
-                'xmlns="http://www.hikvision.com/ver20/XMLSchema">'
+                f'xmlns="{self.xml_ns_uri}">'
                 "<Sharpness>"
                 f"<SharpnessLevel>{sharpness}</SharpnessLevel>"
                 "</Sharpness>"
@@ -1054,7 +1116,7 @@ class HikvisionISAPI:
                     f"Authentication failed for {self.host} ({response.status_code})"
                 )
             response.raise_for_status()
-            xml = ET.fromstring(response.text)
+            xml = self._parse_xml(response.text)
 
             device_info = {}
             device_info["deviceName"] = xml.find(f".//{XML_NS}deviceName")
@@ -1755,7 +1817,7 @@ class HikvisionISAPI:
             # Preserve current noise reduction state instead of defaulting to true
             noise_reduce = "true" if current.get("noisereduce", True) else "false"
             
-            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="{self.xml_ns_uri}">
 <id>1</id>
 <enabled>{enabled}</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
@@ -1802,7 +1864,7 @@ class HikvisionISAPI:
             # Preserve current noise reduction state instead of defaulting to true
             noise_reduce = "true" if current.get("noisereduce", True) else "false"
             
-            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="{self.xml_ns_uri}">
 <id>1</id>
 <enabled>{enabled}</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
@@ -1849,7 +1911,7 @@ class HikvisionISAPI:
             compression = current.get("audioCompressionType", "G.711ulaw")
             noise_reduce = "true" if enabled else "false"
             
-            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="{self.xml_ns_uri}">
 <id>1</id>
 <enabled>{audio_enabled}</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
@@ -1894,7 +1956,7 @@ class HikvisionISAPI:
             noise_reduce = (
                 "true" if audio_data.get("noisereduce", True) else "false"
             )
-            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+            xml_data = f"""<TwoWayAudioChannel version="2.0" xmlns="{self.xml_ns_uri}">
 <id>1</id>
 <enabled>true</enabled>
 <audioCompressionType>{compression}</audioCompressionType>
@@ -2721,7 +2783,7 @@ class HikvisionISAPI:
             elif response.status_code == 403:
                 raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
-            xml = ET.fromstring(response.text)
+            xml = self._parse_xml(response.text)
             
             result = {}
             enabled = xml.find(f".//{XML_NS}enabled")
@@ -2864,7 +2926,7 @@ class HikvisionISAPI:
             elif response.status_code == 403:
                 raise AuthenticationError(f"Access forbidden - user '{self.username}' may not have required permissions (403)")
             response.raise_for_status()
-            xml = ET.fromstring(response.text)
+            xml = self._parse_xml(response.text)
             
             result = {}
             enabled = xml.find(f".//{XML_NS}enabled")
@@ -3219,7 +3281,7 @@ class HikvisionISAPI:
                 xml_data = (
                     '<?xml version="1.0" encoding="UTF-8"?>'
                     f'<{root_tag} version="2.0" '
-                    'xmlns="http://www.hikvision.com/ver20/XMLSchema">'
+                    f'xmlns="{self.xml_ns_uri}">'
                     f"<enabled>{enabled_str}</enabled>"
                     f"</{root_tag}>"
                 )
@@ -3451,9 +3513,7 @@ class HikvisionISAPI:
     @classmethod
     def _serialize_xml_root(cls, root: ET.Element) -> str:
         """Serialize XML for PUT, preserving the element namespace."""
-        ns_uri = cls._xml_namespace_uri(root) or "http://www.hikvision.com/ver20/XMLSchema"
-        ET.register_namespace("", ns_uri)
-        return ET.tostring(root, encoding="unicode", xml_declaration=True)
+        return _serialize_xml(root)
 
     def _io_input_port_element(self, xml: ET.Element, port_id: int) -> ET.Element | None:
         """Locate IOInputPort in a GET /ISAPI/System/IO/inputs response."""
@@ -3650,7 +3710,7 @@ class HikvisionISAPI:
             response.raise_for_status()
             
             _LOGGER.debug("Received alarm server XML: %s", response.text)
-            xml_root = ET.fromstring(response.text)
+            xml_root = self._parse_xml(response.text)
             host = self._get_event_notification_host(xml_root)
             
             if host is None:
@@ -3700,14 +3760,14 @@ class HikvisionISAPI:
             if old_url is not None:
                 old_url.text = path
             else:
-                url_elem = ET.SubElement(host, f"{XML_NS}url")
+                url_elem = _sub_element(host, "url")
                 url_elem.text = path
             
             # Update protocol
             if old_protocol is not None:
                 old_protocol.text = address.scheme.upper()
             else:
-                protocol_elem = ET.SubElement(host, f"{XML_NS}protocolType")
+                protocol_elem = _sub_element(host, "protocolType")
                 protocol_elem.text = address.scheme.upper()
             
             # Set parameter format
@@ -3715,7 +3775,7 @@ class HikvisionISAPI:
             if param_format is not None:
                 param_format.text = "XML"
             else:
-                param_format_elem = ET.SubElement(host, f"{XML_NS}parameterFormatType")
+                param_format_elem = _sub_element(host, "parameterFormatType")
                 param_format_elem.text = "XML"
             
             # Set address type and value
@@ -3725,14 +3785,14 @@ class HikvisionISAPI:
                 if addressing_type is not None:
                     addressing_type.text = "ipaddress"
                 else:
-                    addressing_type_elem = ET.SubElement(host, f"{XML_NS}addressingFormatType")
+                    addressing_type_elem = _sub_element(host, "addressingFormatType")
                     addressing_type_elem.text = "ipaddress"
                 
                 ip_elem = host.find(f"{XML_NS}ipAddress")
                 if ip_elem is not None:
                     ip_elem.text = address.hostname
                 else:
-                    ip_elem = ET.SubElement(host, f"{XML_NS}ipAddress")
+                    ip_elem = _sub_element(host, "ipAddress")
                     ip_elem.text = address.hostname
                 
                 # Remove hostname if exists
@@ -3744,14 +3804,14 @@ class HikvisionISAPI:
                 if addressing_type is not None:
                     addressing_type.text = "hostname"
                 else:
-                    addressing_type_elem = ET.SubElement(host, f"{XML_NS}addressingFormatType")
+                    addressing_type_elem = _sub_element(host, "addressingFormatType")
                     addressing_type_elem.text = "hostname"
                 
                 hostname_elem = host.find(f"{XML_NS}hostName")
                 if hostname_elem is not None:
                     hostname_elem.text = address.hostname
                 else:
-                    hostname_elem = ET.SubElement(host, f"{XML_NS}hostName")
+                    hostname_elem = _sub_element(host, "hostName")
                     hostname_elem.text = address.hostname
                 
                 # Remove IP if exists
@@ -3763,7 +3823,7 @@ class HikvisionISAPI:
             if old_port is not None:
                 old_port.text = str(port)
             else:
-                port_elem = ET.SubElement(host, f"{XML_NS}portNo")
+                port_elem = _sub_element(host, "portNo")
                 port_elem.text = str(port)
             
             # Set authentication method
@@ -3771,13 +3831,11 @@ class HikvisionISAPI:
             if auth_method is not None:
                 auth_method.text = "none"
             else:
-                auth_elem = ET.SubElement(host, f"{XML_NS}httpAuthenticationMethod")
+                auth_elem = _sub_element(host, "httpAuthenticationMethod")
                 auth_elem.text = "none"
             
-            # Send updated XML - preserve XML declaration and namespace
-            # Register namespace to avoid ns0 prefixes
-            ET.register_namespace('', 'http://www.hikvision.com/ver20/XMLSchema')
-            xml_str = ET.tostring(xml_root, encoding='unicode', xml_declaration=True)
+            # Send updated XML back in the namespace the camera used
+            xml_str = _serialize_xml(xml_root)
             _LOGGER.debug("Sending alarm server XML: %s", xml_str)
             response = requests.put(
                 url,
@@ -3815,7 +3873,7 @@ class HikvisionISAPI:
             )
             response.raise_for_status()
             
-            xml_root = ET.fromstring(response.text)
+            xml_root = self._parse_xml(response.text)
             host = self._get_event_notification_host(xml_root)
             
             if host is None:
@@ -4071,7 +4129,7 @@ class HikvisionISAPI:
         """Add Surveillance Center (HTTP) notification if missing. Returns True if XML changed."""
         notification_list = event_trigger.find(f".//{XML_NS}EventTriggerNotificationList")
         if notification_list is None:
-            notification_list = ET.SubElement(event_trigger, f"{XML_NS}EventTriggerNotificationList")
+            notification_list = _sub_element(event_trigger, "EventTriggerNotificationList")
 
         methods: list[str] = []
         max_id = 0
@@ -4086,12 +4144,12 @@ class HikvisionISAPI:
         if "center" in methods:
             return False
 
-        new_notif = ET.SubElement(notification_list, f"{XML_NS}EventTriggerNotification")
-        id_elem = ET.SubElement(new_notif, f"{XML_NS}id")
+        new_notif = _sub_element(notification_list, "EventTriggerNotification")
+        id_elem = _sub_element(new_notif, "id")
         id_elem.text = str(max_id + 1)
-        method_elem = ET.SubElement(new_notif, f"{XML_NS}notificationMethod")
+        method_elem = _sub_element(new_notif, "notificationMethod")
         method_elem.text = "center"
-        recur_elem = ET.SubElement(new_notif, f"{XML_NS}notificationRecurrence")
+        recur_elem = _sub_element(new_notif, "notificationRecurrence")
         recur_elem.text = "beginning"
         return True
 
@@ -4184,8 +4242,7 @@ class HikvisionISAPI:
                         break
 
                     try:
-                        ET.register_namespace("", "http://www.hikvision.com/ver20/XMLSchema")
-                        payload = ET.tostring(xml, encoding="unicode", xml_declaration=True)
+                        payload = _serialize_xml(xml)
                         self._put(path, payload)
                         _LOGGER.info(
                             "Enabled Surveillance Center notification for %s on %s (%s)",
